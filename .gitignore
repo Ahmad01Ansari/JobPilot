@@ -11,6 +11,7 @@ old
 secrets.py
 config/secrets.py
 config/personals.py
+config/profile.json
 .venv
 apikeys.py
 sys.sh

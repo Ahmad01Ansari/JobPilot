@@ -34,6 +34,7 @@ from modules.open_chrome import *
 from modules.helpers import *
 from modules.clickers_and_finders import *
 from modules.validator import validate_config
+from modules.qna_engine import QnAEngine
 
 if use_AI:
     from modules.ai.openaiConnections import ai_create_openai_client, ai_extract_skills, ai_answer_question, ai_close_openai_client
@@ -84,6 +85,7 @@ notice_period_weeks = str(notice_period//7)
 notice_period = str(notice_period)
 
 aiClient = None
+qna_engine = QnAEngine(ai_client=None)
 about_company_for_ai = None # TODO extract about company for AI
 
 #>
@@ -415,6 +417,10 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
 
 # Function to answer common questions for Easy Apply
 def answer_common_questions(label: str, answer: str) -> str:
+    if 'qna_engine' in globals():
+        for k, v in qna_engine.custom_qa.items():
+            if k.lower() in label:
+                return str(v)
     if 'sponsorship' in label or 'visa' in label: answer = require_visa
     return answer
 
@@ -497,8 +503,18 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                 answer = option
                                 foundOption = True
                                 break
+                    if not foundOption and 'qna_engine' in globals():
+                        _, ai_matched = qna_engine.answer_select_or_radio(label_org, optionsText, work_location)
+                        if ai_matched:
+                            try:
+                                select.select_by_visible_text(ai_matched)
+                                answer = ai_matched
+                                foundOption = True
+                                print_lg(f'QnAEngine/AI selected "{ai_matched}" for "{label_org}"')
+                            except Exception:
+                                pass
                     if not foundOption:
-                        #TODO: Use AI to answer the question need to be implemented logic to extract the options for the question
+                        # Fallback: random selection
                         print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
                         select.select_by_index(randint(1, len(select.options)-1))
                         answer = select.first_selected_option.text
@@ -534,6 +550,14 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'disability' in label or 'handicapped' in label: 
                     answer = disability_status
                 else: answer = answer_common_questions(label,answer)
+
+                # Check QnAEngine if answer is still default 'Yes' to check for custom Q&A matches
+                if 'qna_engine' in globals() and answer == 'Yes':
+                    clean_opts = [lbl.split('"<')[0].strip('"') for lbl in options_labels]
+                    q_target, _ = qna_engine.answer_select_or_radio(label_org, clean_opts, work_location)
+                    if q_target:
+                        answer = q_target
+
                 foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False)
                 if foundOption: 
                     actions.move_to_element(foundOption).click().perform()
@@ -549,14 +573,16 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                 answer = f'Decline ({option_label})' if len(possible_answer_phrases) > 1 else option_label
                                 break
                         if foundOption: break
-                    # if answer == 'Decline':
-                    #     answer = options_labels[0]
-                    #     for phrase in ["Prefer not", "not want", "not wish"]:
-                    #         foundOption = try_xp(radio, f".//label[normalize-space()='{phrase}']", False)
-                    #         if foundOption:
-                    #             answer = f'Decline ({phrase})'
-                    #             ele = foundOption
-                    #             break
+                    if not foundOption and 'qna_engine' in globals():
+                        clean_opts = [lbl.split('"<')[0].strip('"') for lbl in options_labels]
+                        _, ai_choice = qna_engine.answer_select_or_radio(label_org, clean_opts, work_location)
+                        if ai_choice:
+                            for i, c_opt in enumerate(clean_opts):
+                                if c_opt.lower() == ai_choice.lower():
+                                    ele = options[i]
+                                    foundOption = ele
+                                    answer = options_labels[i]
+                                    break
                     actions.move_to_element(ele).click().perform()
                     if not foundOption: randomly_answered_questions.add((f'{label_org} ]',"radio"))
             else: answer = prev_answer
@@ -620,6 +646,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
                 elif 'country' in label: answer = country
                 else: answer = answer_common_questions(label,answer)
+                if answer == "" and 'qna_engine' in globals():
+                    qna_ans = qna_engine.answer_text_question(label_org, job_description=job_description, work_location=work_location)
+                    if qna_ans:
+                        answer = qna_ans
                 if answer == "":
                     if use_AI and aiClient:
                         try:
@@ -664,6 +694,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             if not prev_answer or overwrite_previous_answers:
                 if 'summary' in label: answer = linkedin_summary
                 elif 'cover' in label: answer = cover_letter
+                if answer == "" and 'qna_engine' in globals():
+                    qna_ans = qna_engine.answer_text_question(label_org, job_description=job_description, work_location=work_location)
+                    if qna_ans:
+                        answer = qna_ans
                 if answer == "":
                     if use_AI and aiClient:
                         try:
@@ -1195,6 +1229,8 @@ def main() -> None:
                 aiClient = deepseek_create_client()
             elif ai_provider == "gemini":
                 aiClient = gemini_create_client()
+            if 'qna_engine' in globals() and aiClient:
+                qna_engine.set_ai_client(aiClient)
 
             try:
                 about_company_for_ai = " ".join([word for word in (first_name+" "+last_name).split() if len(word) > 3])

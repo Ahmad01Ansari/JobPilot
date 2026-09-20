@@ -1,0 +1,99 @@
+{
+  "personal": {
+    "first_name": "First",
+    "middle_name": "",
+    "last_name": "Last",
+    "email": "user@example.com",
+    "phone_number": "+1234567890",
+    "current_city": "City",
+    "street": "Street Address",
+    "state": "State",
+    "zipcode": "12345",
+    "country": "Country",
+    "ethnicity": "Decline",
+    "gender": "Decline",
+    "disability_status": "No",
+    "veteran_status": "No"
+  },
+  "professional": {
+    "title": "Software Engineer",
+    "current_employer": "Company",
+    "years_of_experience": 2,
+    "current_ctc": 500000,
+    "desired_salary": 1000000,
+    "notice_period_days": 30,
+    "linkedin_url": "https://www.linkedin.com/in/username/",
+    "portfolio_url": "https://github.com/username",
+    "confidence_level": "9",
+    "headline": "Software Engineer | Python | Automation",
+    "summary": "Experienced software developer...",
+    "cover_letter": "Dear Hiring Manager, ..."
+  },
+  "resumes": {
+    "default": "PersonalData/resume.pdf",
+    "roles": {
+      "developer": "PersonalData/resume.pdf"
+    }
+  },
+  "qna": {
+    "standard_answers": {
+      "require_visa": "No",
+      "us_citizenship": "Other",
+      "security_clearance": false,
+      "did_masters": false,
+      "comfortable_with_remote": "Yes",
+      "valid_driving_license": "Yes",
+      "background_check_consent": "Yes"
+    },
+    "custom_qa": {
+      "python": "2",
+      "notice period": "30 days"
+    },
+    "ai_context": "Candidate background summary for LLM answering..."
+  },
+  "platforms": {
+    "linkedin": {
+      "search_terms": [
+        "Software Engineer"
+      ],
+      "search_location": "City, Country",
+      "easy_apply_only": true,
+      "date_posted": "Past week",
+      "switch_number": 30,
+      "current_experience": 2,
+      "pause_before_submit": true,
+      "pause_at_failed_question": true,
+      "pause_after_filters": true,
+      "stealth_mode": true,
+      "safe_mode": true,
+      "run_in_background": false,
+      "keep_screen_awake": true,
+      "click_gap": 1,
+      "bad_words": []
+    },
+    "indeed": {
+      "search_terms": [
+        "Software Engineer"
+      ],
+      "search_location": "City, Country",
+      "job_type": "fulltime",
+      "easy_apply_only": true
+    },
+    "naukri": {
+      "search_terms": [
+        "Software Engineer"
+      ],
+      "search_location": "City, Country",
+      "experience_years": 2
+    }
+  },
+  "ai": {
+    "enabled": true,
+    "provider": "openai",
+    "api_url": "http://localhost:11434/v1/",
+    "api_key": "ollama",
+    "model": "llama3.1:8b",
+    "spec": "openai-like",
+    "stream": false
+  }
+}
