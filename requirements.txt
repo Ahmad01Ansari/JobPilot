@@ -1,0 +1,12 @@
+# Apply & Pray - Python 3.11 recommended dependencies
+selenium==4.26.1
+undetected-chromedriver==3.5.5
+PyAutoGUI==0.9.54
+setuptools>=75.0.0
+wheel>=0.44.0
+flask==3.0.3
+flask-cors==5.0.0
+openai>=1.54.0
+google-generativeai>=0.8.3
+python-docx>=1.1.2
+fpdf>=1.7.2
