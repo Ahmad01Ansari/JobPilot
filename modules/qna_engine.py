@@ -55,9 +55,17 @@ class QnAEngine:
                 return str(self.standard_answers.get("preferred_location", "India (Open to Remote / Hybrid / Relocation)"))
 
         # Tier 1: Custom Q&A Bank
-        for key, val in self.custom_qa.items():
+        is_descriptive = any(w in lbl for w in ["describe", "explain", "tell me", "detail", "overview", "elaborate", "how have you", "how did you", "what is your experience", "walk me through"])
+        
+        # Check longer and more specific keys first
+        sorted_qa = sorted(self.custom_qa.items(), key=lambda item: len(item[0]), reverse=True)
+        for key, val in sorted_qa:
             if key.lower() in lbl:
-                return str(val)
+                val_str = str(val).strip()
+                # If question is asking to describe or explain, skip pure numeric or boolean answers
+                if is_descriptive and (val_str.isdigit() or val_str.lower() in ["yes", "no"]):
+                    continue
+                return val_str
 
         # Tier 2: Standard Rule Matches
         # Experience
