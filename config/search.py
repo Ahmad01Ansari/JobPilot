@@ -84,7 +84,7 @@ about_company_bad_words = _plat.get("about_company_bad_words", ["Crossover"])   
 about_company_good_words = []      # (dynamic multiple search) or leave empty as []. Ex: ["Robert Half", "Dice"]
 
 # Avoid applying to these companies if they have these bad words in their 'Job Description' section...  (In development)
-bad_words = _plat.get("bad_words", ["US Citizen","USA Citizen","No C2C", "No Corp2Corp", ".NET", "Embedded Programming", "PHP", "Ruby", "CNC"])                     # (dynamic multiple search) or leave empty as []. Case Insensitive. Ex: ["word_1", "phrase 1", "word word", "polygraph", "US Citizenship", "Security Clearance"]
+bad_words = _plat.get("bad_words", ["US Citizen","USA Citizen","No C2C", "No Corp2Corp", "Embedded Programming", "PHP", "Ruby", "CNC"])                     # (dynamic multiple search) or leave empty as []. Case Insensitive. Ex: ["word_1", "phrase 1", "word word", "polygraph", "US Citizenship", "Security Clearance"]
 
 # Do you have an active Security Clearance? (True for Yes and False for No)
 security_clearance = False         # True or False, Note: True or False are case-sensitive
@@ -93,7 +93,7 @@ security_clearance = False         # True or False, Note: True or False are case
 did_masters = False                 # True or False, Note: True or False are case-sensitive
 
 # Avoid applying to jobs if their required experience is above your current_experience. (Set value as -1 if you want to apply to all ignoring their required experience...)
-current_experience = _plat.get("current_experience", 2)             # Integers > -2 (Ex: -1, 0, 1, 2, 3, 4...)
+current_experience = _plat.get("current_experience", 5)             # Integers > -2 (Ex: -1, 0, 1, 2, 3, 4...)
 ##
 
 

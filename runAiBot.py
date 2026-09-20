@@ -344,12 +344,22 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
 
 # Function to extract years of experience required from About Job
 def extract_years_of_experience(text: str) -> int:
-    # Extract all patterns like '10+ years', '5 years', '3-5 years', etc.
-    matches = re.findall(re_experience, text)
-    if len(matches) == 0: 
-        print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
-        return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    # 1. Match range patterns like '1-5 years', '1–5 Years', '3 to 5 years'
+    # The baseline minimum required experience is the lower bound of the range
+    range_pattern = re.compile(r'(\d+)\s*(?:[-–—/]|to)\s*(\d+)\s*\+?\s*year[s]?', re.IGNORECASE)
+    range_matches = range_pattern.findall(text)
+    range_mins = [int(m[0]) for m in range_matches if int(m[0]) <= 15]
+
+    # 2. Match single patterns like '5+ years', '3 years'
+    single_pattern = re.compile(r'(\d+)\s*\+?\s*year[s]?', re.IGNORECASE)
+    single_matches = single_pattern.findall(text)
+    single_vals = [int(m) for m in single_matches if int(m) <= 15]
+
+    if range_mins:
+        return min(range_mins)
+    if single_vals:
+        return min(single_vals)
+    return 0
 
 
 
