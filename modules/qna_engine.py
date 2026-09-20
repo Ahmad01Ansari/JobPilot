@@ -38,6 +38,22 @@ class QnAEngine:
         """Resolves text or textarea input questions."""
         lbl = question_label.lower().strip()
 
+        # Priority: Specific CTC unit conversions (lakhs / months)
+        if any(w in lbl for w in ["ctc", "salary", "pay", "compensation"]):
+            if "lakh" in lbl:
+                salary_val = self.current_ctc if any(w in lbl for w in ["current", "present"]) else self.desired_salary
+                return f"{round(salary_val / 100000, 2):.2f}"
+            if "month" in lbl:
+                salary_val = self.current_ctc if any(w in lbl for w in ["current", "present"]) else self.desired_salary
+                return str(round(salary_val / 12))
+
+        # Location preference keywords
+        if "location" in lbl and any(w in lbl for w in ["prefer", "desir", "choice", "target", "work"]):
+            if any(w in lbl for w in ["current", "live"]):
+                pass # let it be handled by current location rule below
+            else:
+                return str(self.standard_answers.get("preferred_location", "India (Open to Remote / Hybrid / Relocation)"))
+
         # Tier 1: Custom Q&A Bank
         for key, val in self.custom_qa.items():
             if key.lower() in lbl:
@@ -116,6 +132,14 @@ class QnAEngine:
         if any(w in lbl for w in ["hear", "come across", "referral source"]):
             return "LinkedIn"
 
+        # Location & Work Mode Preferences
+        if any(w in lbl for w in ["preferred location", "desired location", "location preference"]):
+            return str(self.standard_answers.get("preferred_location", "India (Open to Remote / Hybrid / Relocation)"))
+        if any(w in lbl for w in ["willing to relocate", "open to relocate", "relocate"]):
+            return "Yes"
+        if any(w in lbl for w in ["remote", "work from home", "wfh", "hybrid"]):
+            return "Yes"
+
         # Tier 3: AI Fallback
         if self.ai_client and self.ai_cfg.get("enabled", False):
             ai_ans = self._query_ai(question_label, job_description=job_description)
@@ -160,9 +184,13 @@ class QnAEngine:
             elif "proficiency" in lbl or "english" in lbl:
                 target = "Professional"
             elif any(w in lbl for w in ["relocate", "relocation"]):
+                target = self.standard_answers.get("open_to_relocation", "Yes")
+            elif any(w in lbl for w in ["remote", "wfh", "work from home"]):
                 target = self.standard_answers.get("comfortable_with_remote", "Yes")
-            elif any(w in lbl for w in ["hybrid", "onsite", "commute", "travel"]):
+            elif any(w in lbl for w in ["hybrid", "onsite", "on-site", "commute", "travel"]):
                 target = "Yes"
+            elif any(w in lbl for w in ["preferred location", "desired location"]):
+                target = self.standard_answers.get("preferred_location", "India")
             elif any(w in lbl for w in ["country", "state", "city"]):
                 if "country" in lbl: target = self.personal.get("country", "India")
                 elif "state" in lbl: target = self.personal.get("state", "Delhi")
