@@ -1,0 +1,150 @@
+{
+  "portal_metadata": {
+    "name": "Standard Single Page Job Application",
+    "endpoint": "/standard-job",
+    "submit_endpoint": "/standard-job/submit",
+    "confirmation_endpoint": "/thank-you",
+    "total_fields": 12,
+    "required_fields_count": 8
+  },
+  "fields": [
+    {
+      "id": "first_name",
+      "name": "first_name",
+      "selector": "#first_name",
+      "type": "text",
+      "label": "First Name",
+      "required": true,
+      "source_domain": "profile",
+      "source_key": "user.first_name",
+      "expected_test_value": "Jane"
+    },
+    {
+      "id": "last_name",
+      "name": "last_name",
+      "selector": "#last_name",
+      "type": "text",
+      "label": "Last Name",
+      "required": true,
+      "source_domain": "profile",
+      "source_key": "user.last_name",
+      "expected_test_value": "Doe"
+    },
+    {
+      "id": "email",
+      "name": "email",
+      "selector": "#email",
+      "type": "email",
+      "label": "Email Address",
+      "required": true,
+      "source_domain": "profile",
+      "source_key": "user.email",
+      "expected_test_value": "jane.doe@example.com"
+    },
+    {
+      "id": "phone",
+      "name": "phone",
+      "selector": "#phone",
+      "type": "tel",
+      "label": "Phone Number",
+      "required": true,
+      "source_domain": "profile",
+      "source_key": "profile.phone_number",
+      "expected_test_value": "+1 (555) 000-0000"
+    },
+    {
+      "id": "linkedin_url",
+      "name": "linkedin_url",
+      "selector": "#linkedin_url",
+      "type": "text",
+      "label": "LinkedIn Profile URL",
+      "required": false,
+      "source_domain": "profile",
+      "source_key": "profile.linkedin_url",
+      "expected_test_value": "https://linkedin.com/in/janedoe"
+    },
+    {
+      "id": "portfolio_url",
+      "name": "portfolio_url",
+      "selector": "#portfolio_url",
+      "type": "text",
+      "label": "Portfolio / GitHub Website",
+      "required": false,
+      "source_domain": "profile",
+      "source_key": "profile.portfolio_url",
+      "expected_test_value": "https://github.com/janedoe"
+    },
+    {
+      "id": "resume_upload",
+      "name": "resume",
+      "selector": "#resume_upload",
+      "type": "file",
+      "label": "Resume / CV (PDF or DOCX)",
+      "required": true,
+      "source_domain": "resume",
+      "source_key": "resume.file_path",
+      "expected_test_value": "sample_resume.pdf"
+    },
+    {
+      "id": "work_auth",
+      "name": "work_auth",
+      "selector": "input[name='work_auth']",
+      "type": "radio",
+      "label": "Are you legally authorized to work in this country?",
+      "required": true,
+      "source_domain": "qna",
+      "source_key": "legally_authorized_to_work",
+      "expected_test_value": "yes"
+    },
+    {
+      "id": "visa_sponsorship",
+      "name": "visa_sponsorship",
+      "selector": "input[name='visa_sponsorship']",
+      "type": "radio",
+      "label": "Will you now or in the future require visa sponsorship?",
+      "required": true,
+      "source_domain": "qna",
+      "source_key": "require_visa_sponsorship",
+      "expected_test_value": "no"
+    },
+    {
+      "id": "years_experience",
+      "name": "years_experience",
+      "selector": "#years_experience",
+      "type": "select",
+      "label": "Total Years of Relevant Experience",
+      "required": true,
+      "source_domain": "profile",
+      "source_key": "professional_profile.total_experience_years",
+      "expected_test_value": "5-8"
+    },
+    {
+      "id": "notice_period",
+      "name": "notice_period",
+      "selector": "#notice_period",
+      "type": "text",
+      "label": "Notice Period (in days)",
+      "required": false,
+      "source_domain": "profile",
+      "source_key": "professional_profile.notice_period_days",
+      "expected_test_value": "30"
+    },
+    {
+      "id": "expected_salary",
+      "name": "expected_salary",
+      "selector": "#expected_salary",
+      "type": "text",
+      "label": "Desired Annual Salary / CTC",
+      "required": false,
+      "source_domain": "profile",
+      "source_key": "professional_profile.expected_ctc",
+      "expected_test_value": "$140,000"
+    }
+  ],
+  "verification_signals": {
+    "success_header": "Thank you for your application!",
+    "success_selector": "#confirmation-header",
+    "reference_selector": "#app-reference",
+    "error_selector": "#form-errors"
+  }
+}

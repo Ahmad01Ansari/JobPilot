@@ -5,6 +5,7 @@ DOM Clickers and Finders
 
 from config.settings import click_gap, smooth_scroll
 from modules.helpers import buffer, print_lg, sleep
+from modules.human_behavior import human_delay, human_type, human_click
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -28,8 +29,11 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
             button = WebDriverWait(driver,time).until(EC.presence_of_element_located((By.XPATH, './/span[normalize-space(.)="'+text+'"]')))
             if scroll:  scroll_to_view(driver, button, scrollTop)
             if click:
-                button.click()
-                buffer(click_gap)
+                try:
+                    button.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", button)
+                human_delay(0.4, 0.9, action="click")
             return button
         except Exception as e:
             print_lg("Click Failed! Didn't find '"+text+"'")
@@ -46,7 +50,10 @@ def multi_sel(driver: WebDriver, texts: list, time: float=5.0) -> None:
         try:
             button = WebDriverWait(driver,time).until(EC.presence_of_element_located((By.XPATH, './/span[normalize-space(.)="'+text+'"]')))
             scroll_to_view(driver, button)
-            button.click()
+            try:
+                button.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", button)
             buffer(click_gap)
         except Exception as e:
             print_lg("Click Failed! Didn't find '"+text+"'")
@@ -62,7 +69,10 @@ def multi_sel_noWait(driver: WebDriver, texts: list, actions: ActionChains = Non
         try:
             button = driver.find_element(By.XPATH, './/span[normalize-space(.)="'+text+'"]')
             scroll_to_view(driver, button)
-            button.click()
+            try:
+                button.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", button)
             buffer(click_gap)
         except Exception as e:
             if actions: company_search_click(driver,actions,text)
@@ -77,7 +87,10 @@ def boolean_button_click(driver: WebDriver, actions: ActionChains, text: str) ->
         list_container = driver.find_element(By.XPATH, './/h3[normalize-space()="'+text+'"]/ancestor::fieldset')
         button = list_container.find_element(By.XPATH, './/input[@role="switch"]')
         scroll_to_view(driver, button)
-        actions.move_to_element(button).click().perform()
+        try:
+            actions.move_to_element(button).click().perform()
+        except Exception:
+            driver.execute_script("arguments[0].click();", button)
         buffer(click_gap)
     except Exception as e:
         print_lg("Click Failed! Didn't find '"+text+"'")
@@ -109,8 +122,7 @@ def text_input_by_ID(driver: WebDriver, id: str, value: str, time: float=5.0) ->
     - `time` is the max time to wait for the element to be found.
     '''
     username_field = WebDriverWait(driver, time).until(EC.presence_of_element_located((By.ID, id)))
-    username_field.send_keys(Keys.CONTROL + "a")
-    username_field.send_keys(value)
+    human_type(username_field, value, clear_first=True, driver=driver)
 
 def try_xp(driver: WebDriver, xpath: str, click: bool=True) -> WebElement | bool:
     try:
@@ -137,20 +149,17 @@ def company_search_click(driver: WebDriver, actions: ActionChains, companyName: 
     '''
     wait_span_click(driver,"Add a company",1)
     search = driver.find_element(By.XPATH,"(.//input[@placeholder='Add a company'])[1]")
-    search.send_keys(Keys.CONTROL + "a")
-    search.send_keys(companyName)
-    buffer(3)
+    human_type(search, companyName, clear_first=True)
+    buffer(2)
     actions.send_keys(Keys.DOWN).perform()
     actions.send_keys(Keys.ENTER).perform()
     print_lg(f'Tried searching and adding "{companyName}"')
 
 def text_input(actions: ActionChains, textInputEle: WebElement | bool, value: str, textFieldName: str = "Text") -> None | Exception:
     if textInputEle:
-        sleep(1)
-        # actions.key_down(Keys.CONTROL).send_keys("a").key_up(Keys.CONTROL).perform()
-        textInputEle.clear()
-        textInputEle.send_keys(value.strip())
-        sleep(2)
+        human_delay(0.4, 0.8, action="click")
+        human_type(textInputEle, value.strip(), clear_first=True)
+        human_delay(0.5, 1.0, action="click")
         actions.send_keys(Keys.ENTER).perform()
     else:
         print_lg(f'{textFieldName} input was not given!')

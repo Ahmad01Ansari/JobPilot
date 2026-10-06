@@ -1,14 +1,79 @@
 
 
 
+
 ###################################################### LINKEDIN SEARCH PREFERENCES ######################################################
 
-# Load from centralized profile.json if available
+
+def _read_platform_from_db(platform_name="linkedin"):
+    """Read platform config directly from SQLite DB (lightweight, no SQLAlchemy).
+
+    This makes the DB the single source of truth for search terms and filters,
+    keeping the bot subprocess aligned with the desktop app UI.
+    """
+    import json
+    import os
+    import sqlite3
+    from pathlib import Path
+
+    db_path = os.environ.get("JOBPILOT_DB_PATH")
+    if db_path:
+        db_path = Path(db_path)
+    else:
+        db_path = Path.home() / ".jobpilot" / "jobpilot.db"
+
+    if not db_path.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=5)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT pa.extra_settings, pa.default_location, pa.experience_years,
+                   pa.max_applications, pa.apply_mode, pa.pause_before_submit,
+                   pa.stealth_mode, pa.safe_mode, pa.daily_application_goal
+            FROM platform_accounts pa
+            JOIN platforms p ON pa.platform_id = p.id
+            WHERE p.name = ?
+            LIMIT 1
+        """, (platform_name,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        extra = json.loads(row[0]) if row[0] else {}
+        result = dict(extra)
+        result["search_location"] = row[1]
+        result["current_experience"] = row[2]
+        result["switch_number"] = row[3]
+        result["easy_apply_only"] = row[4] == "EASY_APPLY_ONLY"
+        result["apply_mode"] = row[4] or "EASY_APPLY_ONLY"
+        result["pause_before_submit"] = bool(row[5])
+        result["stealth_mode"] = bool(row[6])
+        result["safe_mode"] = bool(row[7])
+        result["daily_application_goal"] = row[8] if len(row) > 8 and row[8] is not None else 50
+        return result
+    except Exception:
+        return None
+
+
+# Primary source: SQLite DB (shared with desktop UI)
+_plat_db = _read_platform_from_db("linkedin")
+
+# Fallback source: profile.json (used when DB doesn't exist yet)
 try:
-    from modules.config_loader import get_platform
-    _plat = get_platform("linkedin")
+    from modules.config_loader import get_platform, load_profile
+    load_profile(force_reload=True)
+    _plat_file = get_platform("linkedin")
 except Exception:
-    _plat = {}
+    _plat_file = {}
+
+# Merge: DB values override profile.json values
+_plat = {**_plat_file}
+if _plat_db:
+    _plat.update(_plat_db)
 
 # These Sentences are Searched in LinkedIn
 # Enter your search terms inside '[ ]' with quotes ' "searching title" ' for each search followed by comma ', ' Eg: ["Software Engineer", "Software Developer", "Selenium Developer"]
@@ -17,8 +82,15 @@ search_terms = _plat.get("search_terms", ["RPA Developer", "Automation Anywhere 
 # Search location, this will be filled in "City, state, or zip code" search box. If left empty as "", tool will not fill it.
 search_location = _plat.get("search_location", "Delhi, India")              
 
+# Search distance radius (e.g. 0 for exact city, 10 for ~16km, 25 for ~40km, 50 for ~80km, 100 for ~160km).
+# None means LinkedIn default (which is 25 miles / 40 km for metropolitan cities).
+distance = _plat.get("distance", None)
+
 # After how many number of applications in current search should the bot switch to next search? 
-switch_number = _plat.get("switch_number", 30)                 # Only numbers greater than 0... Don't put in quotes
+switch_number = _plat.get("switch_number", 75)                 # Only numbers greater than 0... Don't put in quotes
+
+# Daily application goal (maximum applications today before pausing with a safety dialog to prevent account restrictions)
+daily_application_goal = _plat.get("daily_application_goal", 50)
 
 # Do you want to randomize the search order for search_terms?
 randomize_search_order = _plat.get("randomize_search_order", False)     # True of False, Note: True or False are case-sensitive
@@ -68,7 +140,7 @@ fair_chance_employer = False       # True or False, Note: True or False are case
 ## >>>>>>>>>>> RELATED SETTING <<<<<<<<<<<
 
 # Pause after applying filters to let you modify the search results and filters?
-pause_after_filters = _plat.get("pause_after_filters", True)         # True or False, Note: True or False are case-sensitive
+pause_after_filters = _plat.get("pause_after_filters", False)         # True or False, Note: True or False are case-sensitive
 
 ##
 
@@ -94,6 +166,18 @@ did_masters = False                 # True or False, Note: True or False are cas
 
 # Avoid applying to jobs if their required experience is above your current_experience. (Set value as -1 if you want to apply to all ignoring their required experience...)
 current_experience = _plat.get("current_experience", 5)             # Integers > -2 (Ex: -1, 0, 1, 2, 3, 4...)
+
+# Maximum pages to scrape per search keyword before automatically switching to the next keyword
+max_pages_per_search = _plat.get("max_pages_per_search", 5)
+
+# Switch to next search keyword early if this many consecutive jobs are skipped for irrelevance
+consecutive_skips_limit = _plat.get("consecutive_skips_limit", 20)
+
+# Negative keywords in Job Title to skip immediately in 0.01s without clicking or calling AI
+negative_title_words = _plat.get("negative_title_words", [
+    "electrical", "mechanical", "civil", "hardware", "chemical", "structural",
+    "technician", "machinist", "maintenance", "site engineer", "eplan", "plc programmer"
+])
 ##
 
 

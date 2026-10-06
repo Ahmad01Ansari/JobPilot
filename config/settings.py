@@ -5,10 +5,18 @@ Bot Settings & Execution Preferences
 
 ###################################################### CONFIGURE YOUR BOT HERE ######################################################
 
+# Load from centralized profile.json if available
+try:
+    from modules.config_loader import get_platform, load_profile
+    load_profile(force_reload=True)
+    _plat = get_platform("linkedin")
+except Exception:
+    _plat = {}
+
 # >>>>>>>>>>> LinkedIn Settings <<<<<<<<<<<
 
 # Keep the External Application tabs open?
-close_tabs = False                  # True or False, Note: True or False are case-sensitive
+close_tabs = True                   # True or False, Note: True or False are case-sensitive
 '''
 Note: RECOMMENDED TO LEAVE IT AS `True`, if you set it `False`, be sure to CLOSE ALL TABS BEFORE CLOSING THE BROWSER!!!
 '''
@@ -24,13 +32,15 @@ follow_companies = False            # True or False, Note: True or False are cas
 # connect_request_message = ""       # Leave Empty to send connection request without personalized invitation (recommended to leave it empty, since you only get 10 per month without LinkedIn Premium*)
 
 # Do you want the program to run continuously until you stop it? (Beta)
-run_non_stop = False                # True or False, Note: True or False are case-sensitive
+run_non_stop = bool(_plat.get("run_non_stop", False))                # True or False, Note: True or False are case-sensitive
 '''
 Note: Will be treated as False if `run_in_background = True`
 '''
-alternate_sortby = True             # True or False, Note: True or False are case-sensitive
-cycle_date_posted = True            # True or False, Note: True or False are case-sensitive
-stop_date_cycle_at_24hr = True      # True or False, Note: True or False are case-sensitive
+alternate_sortby = bool(_plat.get("alternate_sortby", True))             # True or False, Note: True or False are case-sensitive
+cycle_date_posted = bool(_plat.get("cycle_date_posted", True))            # True or False, Note: True or False are case-sensitive
+stop_date_cycle_at_24hr = bool(_plat.get("stop_date_cycle_at_24hr", True))      # True or False, Note: True or False are case-sensitive
+sleep_duration_minutes = int(_plat.get("sleep_duration_minutes", 10))     # Duration in minutes the bot sleeps between cycles (0 = disabled)
+sleep_mode_enabled = bool(_plat.get("sleep_mode_enabled", True)) and sleep_duration_minutes > 0
 
 
 

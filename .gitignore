@@ -1,17 +1,74 @@
-__pycache__
-.vscode
-.idea
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
 
-all excels
-all resumes
-logs
+# Application Logs & Diagnostics
+logs/
+*.log
 
-old
-
+# Sensitive Credentials & Keys
 secrets.py
 config/secrets.py
 config/personals.py
 config/profile.json
-.venv
 apikeys.py
 sys.sh
+.env
+.env.*
+*.key
+*.pem
+.key
+
+# SQLite Databases & WAL files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Candidate Resumes & Documents
+PersonalData/
+all resumes/
+managed_resumes/
+resumes/
+data/resumes/
+all excels/
+
+# CSV Application & Job History Exports
+*.csv
+
+# User Setup State & Local Snapshots
+config/setup.json
+config/setup*.json
+setup.json
+app/snapshots/
+snapshots/
+
+# Build & Distribution Artifacts
+build/
+dist/
+*.egg-info/
+*.spec.bak
+
+# Backup Archives & Staging
+backups/
+*.bak
+*.backup
+*.pre_restore.bak
+verify_tmp/
+restore_tmp/
+
+# Scratch & Debug Artifacts
+scratch/
+debug/
+testing/
+*.png
+*.html
+graphify-out/
+
+# Virtual Environments
+.venv
+.venv/
+env/
+venv/

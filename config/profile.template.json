@@ -69,6 +69,8 @@
       "run_in_background": false,
       "keep_screen_awake": true,
       "click_gap": 1,
+      "sleep_duration_minutes": 10,
+      "sleep_mode_enabled": true,
       "bad_words": []
     },
     "indeed": {
@@ -77,14 +79,58 @@
       ],
       "search_location": "City, Country",
       "job_type": "fulltime",
-      "easy_apply_only": true
+      "easy_apply_only": true,
+      "sleep_duration_minutes": 10,
+      "sleep_mode_enabled": true,
+      "negative_title_words": []
     },
     "naukri": {
+      "enabled": true,
       "search_terms": [
         "Software Engineer"
       ],
       "search_location": "City, Country",
-      "experience_years": 2
+      "experience_years": 2,
+      "max_pages_per_search": 3,
+      "max_jobs_evaluated_per_search": 50,
+      "consecutive_skips_limit": 10,
+      "freshness_days": 7,
+      "apply_mode": "direct_only",
+      "pause_before_submit": true,
+      "sleep_duration_minutes": 10,
+      "sleep_mode_enabled": true,
+      "page_load_delay": 3.0,
+      "flow_detection_timeout": 8.0,
+      "core_skills": [
+        "software engineer",
+        "developer",
+        "python"
+      ],
+      "negative_title_words": [
+        "mechanical",
+        "electrical",
+        "civil",
+        "hardware",
+        "technician"
+      ],
+      "irrelevant_tech_words": []
+    },
+    "foundit": {
+      "enabled": true,
+      "search_terms": [
+        "Software Engineer"
+      ],
+      "search_location": "City, Country",
+      "experience_years": 2,
+      "max_pages_per_search": 3,
+      "max_jobs_evaluated_per_search": 50,
+      "consecutive_skips_limit": 15,
+      "freshness_days": 7,
+      "apply_mode": "direct_only",
+      "pause_before_submit": false,
+      "sleep_duration_minutes": 10,
+      "sleep_mode_enabled": true,
+      "negative_title_words": []
     }
   },
   "ai": {

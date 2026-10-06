@@ -38,7 +38,7 @@ class BasePlatformApplier(ABC):
         pass
 
 
-SUPPORTED_PLATFORMS = ["linkedin", "indeed", "naukri"]
+SUPPORTED_PLATFORMS = ["linkedin", "indeed", "naukri", "foundit", "universal"]
 
 def list_supported_platforms():
     """Returns a list of all supported platform identifiers."""

@@ -1,199 +1,1691 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Applied Jobs</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JobPilot Automation Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { 
-            border-collapse: collapse; 
-            width: 100%;
-            margin-top: 20px;
+        :root {
+            --primary: #FF5F15;
+            --primary-hover: #e55513;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --info: #0284c7;
+            --muted: #64748b;
+            --bg-light: #f8fafc;
+            --surface: #ffffff;
+            --surface-hover: #f1f5f9;
+            --border-color: #e2e8f0;
+            --text: #0f172a;
+            --text-secondary: #475569;
+            --bubble-outbound-bg: #eff6ff;
+            --bubble-outbound-border: #bfdbfe;
+            --bubble-inbound-bg: #f0fdf4;
+            --bubble-inbound-border: #bbf7d0;
+            --bubble-text: #1e293b;
         }
-        th, td { 
-            border: 1px solid #ddd; 
-            padding: 12px; 
-            text-align: left; 
+
+        @media (prefers-color-scheme: dark), body.dark-theme {
+            :root {
+                --primary: #FF5F15;
+                --primary-hover: #ff7839;
+                --bg-light: #0f1117;
+                --surface: #1a1d24;
+                --surface-hover: #262a33;
+                --border-color: #2e3440;
+                --text: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --muted: #94a3b8;
+                --bubble-outbound-bg: rgba(59, 130, 246, 0.15);
+                --bubble-outbound-border: rgba(59, 130, 246, 0.35);
+                --bubble-inbound-bg: rgba(34, 197, 94, 0.15);
+                --bubble-inbound-border: rgba(34, 197, 94, 0.35);
+                --bubble-text: #f8fafc;
+            }
         }
-        th { 
-            background-color: #f4f4f4; 
-            font-weight: bold;
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            background-color: var(--bg-light);
+            color: var(--text);
+            transition: background 0.2s, color 0.2s;
         }
-        tr:nth-child(even) { background-color: #f8f8f8; }
-        a { 
-            color: #0066cc;
-            text-decoration: none;
-        }
-        a:hover { text-decoration: underline; }
+
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
-        .sl-column {
-            width: 50px;
-            text-align: center;
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid var(--border-color);
         }
-        .sort-button {
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text);
+        }
+
+
+        /* Nav Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-btn {
             background: none;
             border: none;
+            border-bottom: 3px solid transparent;
+            padding: 12px 20px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--muted);
             cursor: pointer;
-            padding: 0 5px;
-            font-size: 12px;
+            transition: all 0.2s;
         }
-        .sort-button:hover {
-            color: #0066cc;
+
+        .tab-btn:hover {
+            color: var(--primary);
         }
-        .applied-column {
-            width: 70px;
+
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Metric Cards Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            color: var(--text);
+            padding: 18px 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border-left: 5px solid var(--primary);
+        }
+
+        .metric-card.success { border-left-color: var(--success); }
+        .metric-card.warning { border-left-color: var(--warning); }
+        .metric-card.danger { border-left-color: var(--danger); }
+        .metric-card.info { border-left-color: var(--info); }
+        .metric-card.muted { border-left-color: var(--muted); }
+
+        .metric-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        /* Filter Controls */
+        .controls-bar {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            background: var(--surface);
+            padding: 14px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            margin-bottom: 18px;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filter-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        select, input[type="text"], input[type="email"], input[type="url"], input[type="datetime-local"], textarea {
+            padding: 8px 12px;
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        select:focus, input:focus, textarea:focus {
+            border-color: var(--primary);
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        th {
+            background-color: var(--surface-hover);
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        tr:hover td {
+            background-color: var(--surface-hover);
+        }
+
+        .sl-column {
+            width: 40px;
             text-align: center;
+            color: var(--muted);
         }
-        .tick {
-            color: #4CAF50;
-            font-weight: bold;
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-submitted { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+        .badge-skipped { background: var(--surface-hover); color: var(--muted); }
+        .badge-manual { background: rgba(217, 119, 6, 0.15); color: #d97706; }
+        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
+        .badge-external { background: rgba(2, 132, 199, 0.15); color: #0284c7; }
+        .badge-platform { background: rgba(147, 51, 234, 0.15); color: #9333ea; }
+
+        /* Outreach Badges */
+        .badge-waiting { background: rgba(217, 119, 6, 0.15); color: #d97706; }
+        .badge-replied { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+        .badge-action { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
+        .badge-completed { background: var(--surface-hover); color: var(--muted); }
+        .badge-paused { background: var(--surface-hover); color: var(--muted); }
+
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal-card {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 90%;
+            max-width: 820px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            padding: 24px;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .form-group.full-width {
+            grid-column: span 2;
+        }
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        /* Split-View Workspace Layout */
+        .outreach-workspace {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 18px;
+            min-height: 640px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 900px) {
+            .outreach-workspace {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .outreach-list-pane {
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            max-height: 720px;
+        }
+
+        .outreach-cards-container {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .outreach-card {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .outreach-card:hover {
+            background: var(--surface-hover);
+        }
+
+        .outreach-card.active {
+            background: var(--surface-hover);
+            border-left: 4px solid var(--primary);
+        }
+
+        .outreach-detail-pane {
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 600px;
+            max-height: 720px;
+            overflow-y: auto;
+        }
+
+        .empty-state-card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .btn-theme {
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-weight: 600;
+            transition: all 0.15s;
+        }
+        .btn-theme:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        /* Timeline Styles */
+        .timeline-container {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding: 10px 0;
+            overflow-y: auto;
+        }
+        .timeline-bubble {
+            padding: 14px 18px;
+            border-radius: 10px;
+            max-width: 85%;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            color: var(--bubble-text);
+        }
+        .timeline-bubble.outbound {
+            align-self: flex-end;
+            background: var(--bubble-outbound-bg);
+            border: 1px solid var(--bubble-outbound-border);
+        }
+        .timeline-bubble.inbound {
+            align-self: flex-start;
+            background: var(--bubble-inbound-bg);
+            border: 1px solid var(--bubble-inbound-border);
+        }
+        .fu-card {
+            background: var(--surface-hover);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--primary);
+            border-radius: 6px;
+            padding: 10px 14px;
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text);
         }
     </style>
+
 </head>
 <body>
     <div class="container">
-        <h1>Applied Jobs History</h1>
-        <table id="jobsTable">
-            <thead>
-                <tr>
-                    <th class="sl-column">Sl No</th>
-                    <th>Job Title</th>
-                    <th>Company</th>  
-                    <th>HR Contact</th>
-                    <th>
-                        External Link
-                        <button class="sort-button" onclick="sortByExternalLink()">↕️</button>
-                    </th> 
-                    <th class="applied-column">Applied</th>
-                </tr>
-            </thead>
-            <tbody id="jobsBody"></tbody>
-        </table>
+        <header>
+            <div>
+                <h1>JobPilot Automation Dashboard</h1>
+                <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application Tracker & Analytics</p>
+            </div>
+            <div>
+                <button onclick="refreshData()" style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer; font-weight: 600;">🔄 Refresh Data</button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" id="btn-unified-tab" onclick="switchTab('unified-tab')">📊 Unified & Naukri Overview</button>
+            <button class="tab-btn" id="btn-linkedin-legacy-tab" onclick="switchTab('linkedin-legacy-tab')">💼 LinkedIn Applied History (Legacy)</button>
+            <button class="tab-btn" id="btn-outreach-tab" onclick="switchTab('outreach-tab')">✉️ Outreach Center</button>
+        </div>
+
+        <!-- TAB 1: Unified & Naukri Dashboard -->
+        <div id="unified-tab" class="tab-content active">
+            <!-- Metric Cards -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-title">Naukri Evaluated</div>
+                    <div class="metric-value" id="stat-naukri-eval">0</div>
+                </div>
+                <div class="metric-card success">
+                    <div class="metric-title">Naukri Success</div>
+                    <div class="metric-value" id="stat-naukri-success">0</div>
+                </div>
+                <div class="metric-card muted">
+                    <div class="metric-title">Naukri Skipped</div>
+                    <div class="metric-value" id="stat-naukri-skipped">0</div>
+                </div>
+                <div class="metric-card warning">
+                    <div class="metric-title">Manual Required</div>
+                    <div class="metric-value" id="stat-naukri-manual">0</div>
+                </div>
+                <div class="metric-card danger">
+                    <div class="metric-title">Naukri Failed</div>
+                    <div class="metric-value" id="stat-naukri-failed">0</div>
+                </div>
+                <div class="metric-card info">
+                    <div class="metric-title">External Jobs</div>
+                    <div class="metric-value" id="stat-naukri-external">0</div>
+                </div>
+            </div>
+
+            <!-- Controls & Filters -->
+            <div class="controls-bar">
+                <div class="filter-group">
+                    <span class="filter-label">Platform:</span>
+                    <select id="platformFilter" onchange="filterUnifiedJobs()">
+                        <option value="">All Platforms</option>
+                        <option value="naukri" selected>Naukri.com</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="email">Email Outreach</option>
+                        <option value="indeed">Indeed</option>
+                    </select>
+
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Status:</span>
+                    <select id="statusFilter" onchange="filterUnifiedJobs()">
+                        <option value="">All Statuses</option>
+                        <option value="SUBMITTED">Submitted / Success</option>
+                        <option value="SKIPPED">Skipped</option>
+                        <option value="MANUAL_REQUIRED">Manual Required</option>
+                        <option value="FAILED">Failed</option>
+                        <option value="EXTERNAL">External</option>
+                        <option value="QUALIFIED">Qualified</option>
+                        <option value="JUNK">Junk / Irrelevant</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <input type="text" id="searchInput" placeholder="Search by title or company..." oninput="filterUnifiedJobs()" style="width: 240px;">
+                </div>
+                <div class="filter-group">
+                    <button id="btnToggleJunk" onclick="toggleJunkMode()" style="padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text);">🗑 Junk (<span id="junkBadgeCount">0</span>)</button>
+                </div>
+            </div>
+
+            <!-- Unified Table -->
+            <table>
+                <thead>
+                    <tr>
+                        <th class="sl-column">#</th>
+                        <th>Platform</th>
+                        <th>Job Title</th>
+                        <th>Company</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>Applied At</th>
+                        <th>Reason / Notes</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="unifiedTableBody">
+                    <tr><td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">Loading applications...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- TAB 2: LinkedIn Legacy Dashboard -->
+        <div id="linkedin-legacy-tab" class="tab-content">
+            <table id="jobsTable">
+                <thead>
+                    <tr>
+                        <th class="sl-column">Sl No</th>
+                        <th>Job Title</th>
+                        <th>Company</th>  
+                        <th>HR Contact</th>
+                        <th>External Link</th> 
+                        <th class="applied-column">Applied</th>
+                    </tr>
+                </thead>
+                <tbody id="jobsBody"></tbody>
+            </table>
+        </div>
+
+        <!-- TAB 3: Outreach Center -->
+        <div id="outreach-tab" class="tab-content">
+            <!-- Metric Cards -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-title">Total Outreached</div>
+                    <div class="metric-value" id="stat-outreach-total">0</div>
+                </div>
+                <div class="metric-card success">
+                    <div class="metric-title">Recruiter Replied</div>
+                    <div class="metric-value" id="stat-outreach-replied">0</div>
+                </div>
+                <div class="metric-card warning">
+                    <div class="metric-title">Awaiting Reply</div>
+                    <div class="metric-value" id="stat-outreach-awaiting">0</div>
+                </div>
+                <div class="metric-card danger">
+                    <div class="metric-title">Follow-ups Due</div>
+                    <div class="metric-value" id="stat-outreach-due">0</div>
+                </div>
+                <div class="metric-card info">
+                    <div class="metric-title">Delivery Rate</div>
+                    <div class="metric-value" id="stat-outreach-rate">100%</div>
+                </div>
+            </div>
+
+            <!-- Controls Bar -->
+            <div class="controls-bar">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button onclick="openOutreachComposer()" style="background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                        <span>✉️</span> + Compose Outreach
+                    </button>
+                    <button onclick="syncOutreachMailbox()" id="btnSyncMailbox" class="btn-theme" style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
+                        📥 Sync Inbound Replies
+                    </button>
+                    <button onclick="refreshDueFollowups()" class="btn-theme" style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
+                        ⚡ Refresh Cadences
+                    </button>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <div class="filter-group">
+                        <span class="filter-label">State:</span>
+                        <select id="outreachStateFilter" onchange="filterOutreachConversations()">
+                            <option value="">All States</option>
+                            <option value="WAITING">Awaiting Recruiter Reply</option>
+                            <option value="REPLIED">Recruiter Replied</option>
+                            <option value="NEEDS_ACTION">Action Required</option>
+                            <option value="COMPLETED">Completed</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <input type="text" id="outreachSearchInput" placeholder="Search company or recruiter..." oninput="onOutreachSearchInput(this.value)" style="width: 240px;">
+                    </div>
+                    <button onclick="testOutreachConnection()" title="Test Email Provider Connection" class="btn-theme" style="padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;">
+                        🔌 Test Connection
+                    </button>
+                </div>
+            </div>
+
+            <!-- Due Follow-ups Alert Banner -->
+            <div id="dueFollowupsBanner" style="display: none; background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.3); border-left: 5px solid var(--warning); padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong style="color: var(--text);">⚠️ You have <span id="dueFollowupCount">0</span> follow-up(s) due!</strong>
+                        <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Review and dispatch due follow-up messages to maintain recruiter engagement.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Split-View Workspace (§6 Specification) -->
+            <div class="outreach-workspace">
+                <!-- Left Pane: Conversations List (35%) -->
+                <div class="outreach-list-pane">
+                    <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--surface-hover);">
+                        <span style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);">
+                            Conversations (<span id="outreachConversationsCount">0</span>)
+                        </span>
+                    </div>
+                    <div id="outreachCardsList" class="outreach-cards-container">
+                        <div style="text-align: center; color: var(--muted); padding: 32px 16px;">Loading conversations...</div>
+                    </div>
+                </div>
+
+                <!-- Right Pane: Active Conversation Workspace (65%) -->
+                <div class="outreach-detail-pane" id="outreachDetailWorkspace">
+                    <!-- Default Empty State -->
+                    <div id="outreachEmptyState" class="empty-state-card">
+                        <div style="font-size: 48px; margin-bottom: 12px;">✉️</div>
+                        <h3 style="margin: 0 0 6px 0; color: var(--text);">Select an Outreach Conversation</h3>
+                        <p style="margin: 0 0 20px 0; color: var(--muted); font-size: 14px; max-width: 400px;">Choose a recruiter conversation from the list to view the full message stream, AI response analysis, and automated follow-up cadences.</p>
+                        <button onclick="openOutreachComposer()" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                            + Compose New Outreach
+                        </button>
+                    </div>
+
+                    <!-- Active Conversation Thread & Actions -->
+                    <div id="outreachActiveThread" style="display: none; height: 100%; flex-direction: column;">
+                        <!-- Thread Header -->
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h2 id="wsCompanyTitle" style="margin: 0; font-size: 18px; color: var(--text);">Company Name</h2>
+                                <p id="wsRecruiterSubtitle" style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Recruiter Contact</p>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <div id="wsStateBadge"></div>
+                                <button id="wsBtnToggleCadence" class="btn-theme" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">
+                                    Pause Follow-ups
+                                </button>
+                                <button onclick="openReplyComposer()" style="background: var(--primary); color: white; border: none; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                    ↩ Reply
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- AI Suggestion & Human Confirmation Banner -->
+                        <div id="wsAiRecommendationBanner" style="display: none; background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.25); border-left: 4px solid var(--info); padding: 12px 16px; border-radius: 6px; margin-bottom: 14px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div>
+                                    <strong style="color: var(--text); font-size: 13px;" id="wsAiCategoryTitle">✨ AI Analysis: Recruiter Response</strong>
+                                    <div id="wsAiRationale" style="font-size: 12px; color: var(--muted); margin-top: 2px;">Rationale snippet...</div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="wsBtnApplyStatus" onclick="applySuggestedStatus()" style="background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                                        ✓ Apply Status Change
+                                    </button>
+                                    <button onclick="dismissAiRecommendation()" class="btn-theme" style="padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                        Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Messages Stream -->
+                        <div class="timeline-container" id="wsTimelineMessages" style="flex: 1; max-height: 400px;">
+                            <div style="text-align: center; color: var(--muted); padding: 20px;">Loading timeline...</div>
+                        </div>
+
+                        <!-- Follow-up Cadence Schedule -->
+                        <div style="margin-top: 14px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                            <div style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">
+                                Automated Follow-up Cadence
+                            </div>
+                            <div id="wsFollowupsList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
+    <!-- MODAL 1: Outreach Composer Modal -->
+    <div id="outreachComposerModal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div>
+                    <h2 id="composerModalTitle" style="margin: 0; font-size: 20px; color: var(--text);">Direct Recruiter Outreach</h2>
+                    <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Craft a targeted application email with automated follow-up cadences.</p>
+                </div>
+                <button onclick="closeOutreachComposer()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted);">&times;</button>
+            </div>
+
+            <!-- Duplicate Warning Notice -->
+            <div id="duplicateWarningBox" style="display: none; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.3); border-left: 4px solid var(--danger); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;">
+                <strong style="color: var(--danger);">⚠️ Duplicate Application Detected</strong>
+                <p id="duplicateWarningText" style="margin: 4px 0 10px 0; color: var(--text); font-size: 13px;"></p>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button type="button" onclick="submitOutreachComposer(true)" style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                        Send Anyway
+                    </button>
+                    <button type="button" onclick="closeOutreachComposer()" class="btn-theme" style="padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Form -->
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Target Company *</label>
+                    <input type="text" id="outreachCompany" placeholder="e.g. Acme Technologies" required>
+                </div>
+                <div class="form-group">
+                    <label>Position Title *</label>
+                    <input type="text" id="outreachJobTitle" placeholder="e.g. Senior RPA Developer" required>
+                </div>
+                <div class="form-group">
+                    <label>Recruiter / Hiring Contact Name</label>
+                    <input type="text" id="outreachRecruiterName" placeholder="e.g. Sarah Jenkins">
+                </div>
+                <div class="form-group">
+                    <label>Recruiter Email *</label>
+                    <input type="email" id="outreachRecruiterEmail" placeholder="e.g. sjenkins@acme.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Target Job URL (Optional)</label>
+                    <input type="url" id="outreachJobUrl" placeholder="https://careers.acme.com/jobs/123">
+                </div>
+                <div class="form-group">
+                    <label>Attached Resume</label>
+                    <select id="outreachResumeSelect">
+                        <option value="">No Resume Attached</option>
+                    </select>
+                </div>
+                <div class="form-group full-width">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <label>Email Template</label>
+                        <button type="button" onclick="generateAIPitch()" class="btn-theme" style="color: var(--primary); padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;">
+                            ✨ Generate Tailored Pitch (AI)
+                        </button>
+                    </div>
+                    <select id="outreachTemplateSelect" onchange="onTemplateSelectChange()">
+                        <option value="">Custom Outreach (No Template)</option>
+                    </select>
+                </div>
+
+                <!-- Missing variables banner -->
+                <div id="missingVarsBanner" class="form-group full-width" style="display: none; background: rgba(217, 119, 6, 0.1); border: 1px solid rgba(217, 119, 6, 0.3); padding: 10px 14px; border-radius: 6px;">
+                    <span style="font-size: 13px; color: var(--warning); font-weight: 600;">⚠️ Unresolved Placeholders: </span>
+                    <span id="missingVarsList" style="font-size: 13px; color: var(--text);"></span>
+                </div>
+
+                <div class="form-group full-width">
+                    <label>Subject Line *</label>
+                    <input type="text" id="outreachSubject" placeholder="e.g. Application: Senior RPA Developer - Candidate" required>
+                </div>
+                <div class="form-group full-width">
+                    <label>Email Body *</label>
+                    <textarea id="outreachBody" placeholder="Compose your personalized direct message to the recruiter..."></textarea>
+                </div>
+
+                <!-- Follow-up Cadence Selector -->
+                <div class="form-group full-width" style="background: var(--surface-hover); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px;">
+                    <label style="margin-bottom: 6px; display: block; color: var(--text-secondary);">Automated Follow-up Cadence:</label>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                            <input type="checkbox" id="cadenceStep1" checked value="4">
+                            Step 1: Polite Check-in (+4 days)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                            <input type="checkbox" id="cadenceStep2" checked value="10">
+                            Step 2: Value-Add (+10 days)
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                            <input type="checkbox" id="cadenceStep3" checked value="17">
+                            Step 3: Closeout (+17 days)
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Actions with Schedule Option -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 16px; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label style="font-size: 13px; color: var(--muted); margin: 0;">Schedule (Optional):</label>
+                    <input type="datetime-local" id="outreachScheduleTime" style="padding: 6px 10px; font-size: 13px;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="closeOutreachComposer()" class="btn-theme" style="padding: 10px 18px; border-radius: 6px; cursor: pointer;">Cancel</button>
+                    <button onclick="submitOutreachComposer(false, true)" id="btnScheduleOutreach" class="btn-theme" style="color: var(--primary); padding: 10px 18px; border-radius: 6px; cursor: pointer;">⏰ Schedule</button>
+                    <button onclick="submitOutreachComposer(false, false)" id="btnSubmitOutreach" style="background: var(--primary); border: none; color: white; padding: 10px 22px; border-radius: 6px; font-weight: 600; cursor: pointer;">🚀 Send Now</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
     <script>
-        let sortOrder = 'asc';
-        let jobsData = [];
-        let appliedJobs = new Set();
+        let unifiedApplications = [];
+        let legacyLinkedInJobs = [];
 
-        // Replace the createTableRow function with this updated version
-        function createTableRow(job, index) {
-            const row = document.createElement('tr');
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             
-            // Serial Number
-            const slCell = document.createElement('td');
-            slCell.textContent = index + 1;
-            slCell.className = 'sl-column';
-            row.appendChild(slCell);
-            
-            // Job Title with link
-            const titleCell = document.createElement('td');
-            const titleLink = document.createElement('a');
-            titleLink.href = job.Job_Link;
-            titleLink.textContent = job.Title;
-            titleLink.target = '_blank';
-            titleCell.appendChild(titleLink);
-            row.appendChild(titleCell);
-            
-            // Company
-            const companyCell = document.createElement('td');
-            companyCell.textContent = job.Company;
-            row.appendChild(companyCell);
-            
-            // HR Name with link
-            const hrCell = document.createElement('td');
-            if (job.HR_Name && job.HR_Name !== 'Unknown') {
-                const hrLink = document.createElement('a');
-                hrLink.href = job.HR_Link;
-                hrLink.textContent = job.HR_Name;
-                hrLink.target = '_blank';
-                hrCell.appendChild(hrLink);
-            } else {
-                hrCell.textContent = 'N/A';
+            const btn = document.getElementById('btn-' + tabId);
+            if (btn) {
+                btn.classList.add('active');
             }
-            row.appendChild(hrCell);
-            
-            // External Job Link
-            const extCell = document.createElement('td');
-            const appliedCell = document.createElement('td');
-            appliedCell.className = 'applied-column';
+            const content = document.getElementById(tabId);
+            if (content) {
+                content.classList.add('active');
+            }
 
-            if (job.External_Job_link === 'Easy Applied') {
-                extCell.textContent = 'Easy Applied';
-                appliedCell.innerHTML = '<span class="tick">✓</span>';
-            } else if (job.External_Job_link) {
-                const extLink = document.createElement('a');
-                extLink.href = job.External_Job_link;
-                extLink.textContent = 'External Link';
-                extLink.target = '_blank';
-                
-                // Add click handler for external link
-                extLink.addEventListener('click', async () => {
-                    try {
-                        const response = await fetch(`/applied-jobs/${job.Job_ID}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        
-                        if (response.ok) {
-                            appliedCell.innerHTML = '<span class="tick">✓</span>';
-                            job.Date_Applied = new Date().toISOString();
-                        }
-                    } catch (error) {
-                        console.error('Error updating applied date:', error);
-                    }
-                });
-                
-                extCell.appendChild(extLink);
-                // Show tick if already applied
-                if (job.Date_Applied !== 'Pending') {
-                    appliedCell.innerHTML = '<span class="tick">✓</span>';
-                }
-            } else {
-                extCell.textContent = 'N/A';
+            if (tabId === 'outreach-tab') {
+                loadOutreachData();
             }
-            row.appendChild(extCell);
-            row.appendChild(appliedCell);
-            
-            return row;
         }
 
-        function sortByExternalLink() {
-            sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
-            
-            jobsData.sort((a, b) => {
-                const valueA = a.External_Job_link || '';
-                const valueB = b.External_Job_link || '';
-                
-                if (sortOrder === 'asc') {
-                    return valueA.localeCompare(valueB);
-                } else {
-                    return valueB.localeCompare(valueA);
+        async function loadNaukriStats() {
+            try {
+                const res = await fetch('/api/naukri/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('stat-naukri-eval').textContent = data.applications || 0;
+                    document.getElementById('stat-naukri-success').textContent = data.success || 0;
+                    document.getElementById('stat-naukri-skipped').textContent = data.skipped || 0;
+                    document.getElementById('stat-naukri-manual').textContent = data.manual_required || 0;
+                    document.getElementById('stat-naukri-failed').textContent = data.failed || 0;
+                    document.getElementById('stat-naukri-external').textContent = data.external || 0;
                 }
+            } catch (err) {
+                console.error("Error loading Naukri stats:", err);
+            }
+        }
+
+        let isJunkMode = false;
+        async function loadUnifiedApplications() {
+            try {
+                const url = isJunkMode ? '/api/applications?status=JUNK' : '/api/applications';
+                const res = await fetch(url);
+                if (res.ok) {
+                    unifiedApplications = await res.json();
+                    filterUnifiedJobs();
+                }
+                // Fetch junk count to update badge
+                const junkRes = await fetch('/api/applications?status=JUNK');
+                if (junkRes.ok) {
+                    const junkData = await junkRes.json();
+                    const badge = document.getElementById('junkBadgeCount');
+                    if (badge) badge.innerText = junkData.length;
+                }
+            } catch (err) {
+                console.error("Error loading unified applications:", err);
+            }
+        }
+
+        function toggleJunkMode() {
+            isJunkMode = !isJunkMode;
+            const btn = document.getElementById('btnToggleJunk');
+            if (btn) {
+                const count = document.getElementById('junkBadgeCount')?.innerText || '0';
+                if (isJunkMode) {
+                    btn.style.background = 'rgba(239, 68, 68, 0.15)';
+                    btn.style.borderColor = '#ef4444';
+                    btn.style.color = '#ef4444';
+                    btn.innerHTML = `↩ Active Jobs (<span id="junkBadgeCount">${count}</span>)`;
+                } else {
+                    btn.style.background = 'var(--surface)';
+                    btn.style.borderColor = 'var(--border)';
+                    btn.style.color = 'var(--text)';
+                    btn.innerHTML = `🗑 Junk (<span id="junkBadgeCount">${count}</span>)`;
+                }
+            }
+            loadUnifiedApplications();
+        }
+
+        async function junkJob(jobId, platform) {
+            try {
+                const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/junk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ platform: platform, reason: 'Marked as junk from web dashboard' })
+                });
+                if (res.ok) {
+                    loadUnifiedApplications();
+                }
+            } catch(e) {
+                console.error('Error marking job as junk:', e);
+            }
+        }
+
+        async function restoreJob(jobId, platform) {
+            try {
+                const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ platform: platform, new_status: 'DISCOVERED' })
+                });
+                if (res.ok) {
+                    loadUnifiedApplications();
+                }
+            } catch(e) {
+                console.error('Error restoring job from junk:', e);
+            }
+        }
+
+        function getStatusBadge(status) {
+            const st = (status || '').toUpperCase();
+            if (st === 'SUBMITTED') return `<span class="badge badge-submitted">SUBMITTED</span>`;
+            if (st === 'SKIPPED') return `<span class="badge badge-skipped">SKIPPED</span>`;
+            if (st === 'MANUAL_REQUIRED') return `<span class="badge badge-manual">MANUAL REQUIRED</span>`;
+            if (st === 'FAILED') return `<span class="badge badge-failed">FAILED</span>`;
+            if (st === 'EXTERNAL') return `<span class="badge badge-external">EXTERNAL</span>`;
+            if (st === 'JUNK') return `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">JUNK</span>`;
+            return `<span class="badge">${st}</span>`;
+        }
+
+        function filterUnifiedJobs() {
+            const plat = document.getElementById('platformFilter').value.toLowerCase();
+            const status = document.getElementById('statusFilter').value.toUpperCase();
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+            const filtered = unifiedApplications.filter(job => {
+                const matchPlat = !plat || (job.platform && job.platform.toLowerCase() === plat);
+                const matchStatus = !status || (job.status && job.status.toUpperCase() === status);
+                const matchQuery = !query || 
+                    (job.title && job.title.toLowerCase().includes(query)) ||
+                    (job.company && job.company.toLowerCase().includes(query));
+                return matchPlat && matchStatus && matchQuery;
             });
-            
+
+            renderUnifiedTable(filtered);
+        }
+
+        function renderUnifiedTable(jobs) {
+            const tbody = document.getElementById('unifiedTableBody');
+            tbody.innerHTML = '';
+
+            if (jobs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">No matching applications found.</td></tr>`;
+                return;
+            }
+
+            jobs.forEach((job, idx) => {
+                const tr = document.createElement('tr');
+                const reasonText = job.skip_reason || job.failure_reason || '-';
+                const linkHtml = job.source_url ? `<a href="${job.source_url}" target="_blank">View Job ↗</a>` : 'N/A';
+                const actionBtn = (job.status || '').toUpperCase() === 'JUNK'
+                    ? `<button onclick="restoreJob('${job.job_id}', '${job.platform}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #10b981; background: rgba(16,185,129,0.1); color: #10b981;" title="Restore to active repository">↩ Restore</button>`
+                    : `<button onclick="junkJob('${job.job_id}', '${job.platform}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #ef4444; background: rgba(239,68,68,0.1); color: #ef4444;" title="Mark as Junk">🗑 Junk</button>`;
+
+                tr.innerHTML = `
+                    <td class="sl-column">${idx + 1}</td>
+                    <td><span class="badge badge-platform">${(job.platform || 'N/A').toUpperCase()}</span></td>
+                    <td><strong>${job.title || 'Untitled'}</strong></td>
+                    <td>${job.company || 'Unknown'}</td>
+                    <td>${job.location || 'India'}</td>
+                    <td>${getStatusBadge(job.status)}</td>
+                    <td>${job.applied_at || job.discovered_at || '-'}</td>
+                    <td style="color: var(--muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${reasonText}">${reasonText}</td>
+                    <td>${linkHtml} ${actionBtn}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Legacy LinkedIn Loader
+        async function loadLegacyLinkedInJobs() {
+            try {
+                const res = await fetch('/applied-jobs');
+                if (res.ok) {
+                    legacyLinkedInJobs = await res.json();
+                    renderLegacyLinkedInTable(legacyLinkedInJobs);
+                }
+            } catch (err) {
+                console.error("Error loading legacy LinkedIn jobs:", err);
+            }
+        }
+
+        function renderLegacyLinkedInTable(jobs) {
             const tbody = document.getElementById('jobsBody');
             tbody.innerHTML = '';
-            jobsData.forEach((job, index) => {
-                tbody.appendChild(createTableRow(job, index));
+            jobs.forEach((job, index) => {
+                const row = document.createElement('tr');
+                
+                const slCell = document.createElement('td');
+                slCell.textContent = index + 1;
+                slCell.className = 'sl-column';
+                row.appendChild(slCell);
+                
+                const titleCell = document.createElement('td');
+                const titleLink = document.createElement('a');
+                titleLink.href = job.Job_Link;
+                titleLink.textContent = job.Title;
+                titleLink.target = '_blank';
+                titleCell.appendChild(titleLink);
+                row.appendChild(titleCell);
+                
+                const companyCell = document.createElement('td');
+                companyCell.textContent = job.Company;
+                row.appendChild(companyCell);
+                
+                const hrCell = document.createElement('td');
+                if (job.HR_Name && job.HR_Name !== 'Unknown') {
+                    const hrLink = document.createElement('a');
+                    hrLink.href = job.HR_Link;
+                    hrLink.textContent = job.HR_Name;
+                    hrLink.target = '_blank';
+                    hrCell.appendChild(hrLink);
+                } else {
+                    hrCell.textContent = 'N/A';
+                }
+                row.appendChild(hrCell);
+                
+                const extCell = document.createElement('td');
+                const appliedCell = document.createElement('td');
+                appliedCell.className = 'applied-column';
+
+                if (job.External_Job_link === 'Easy Applied') {
+                    extCell.textContent = 'Easy Applied';
+                    appliedCell.innerHTML = '<span class="tick">✓</span>';
+                } else if (job.External_Job_link) {
+                    const extLink = document.createElement('a');
+                    extLink.href = job.External_Job_link;
+                    extLink.textContent = 'External Link';
+                    extLink.target = '_blank';
+                    extCell.appendChild(extLink);
+                    if (job.Date_Applied !== 'Pending') {
+                        appliedCell.innerHTML = '<span class="tick">✓</span>';
+                    }
+                } else {
+                    extCell.textContent = 'N/A';
+                }
+                row.appendChild(extCell);
+                row.appendChild(appliedCell);
+                
+                tbody.appendChild(row);
             });
         }
 
-        fetch('http://localhost:5000/applied-jobs')
-            .then(response => response.json())
-            .then(jobs => {
-                jobsData = jobs;
-                const tbody = document.getElementById('jobsBody');
-                jobs.forEach((job, index) => {
-                    tbody.appendChild(createTableRow(job, index));
+        // =========================================================================
+        // Outreach Center Dashboard Client Logic
+        // =========================================================================
+        let outreachConversations = [];
+        let outreachTemplates = [];
+        let outreachResumes = [];
+        let currentTimelineAppId = null;
+
+        async function loadOutreachData() {
+            try {
+                // 1. Stats
+                const statsRes = await fetch('/api/outreach/stats');
+                if (statsRes.ok) {
+                    const stats = await statsRes.json();
+                    document.getElementById('stat-outreach-total').textContent = stats.total_outreached || 0;
+                    document.getElementById('stat-outreach-replied').textContent = stats.recruiter_replied || 0;
+                    document.getElementById('stat-outreach-awaiting').textContent = stats.awaiting_reply || 0;
+                    document.getElementById('stat-outreach-due').textContent = stats.followups_due || 0;
+                    document.getElementById('stat-outreach-rate').textContent = (stats.delivery_success_rate || 100) + '%';
+                }
+
+                // 2. Due Followups Banner
+                const dueRes = await fetch('/api/outreach/followups/due');
+                if (dueRes.ok) {
+                    const dueList = await dueRes.json();
+                    const banner = document.getElementById('dueFollowupsBanner');
+                    if (dueList.length > 0) {
+                        banner.style.display = 'block';
+                        document.getElementById('dueFollowupCount').textContent = dueList.length;
+                    } else {
+                        banner.style.display = 'none';
+                    }
+                }
+
+                // 3. Templates (for composer)
+                const tmplRes = await fetch('/api/outreach/templates');
+                if (tmplRes.ok) {
+                    outreachTemplates = await tmplRes.json();
+                    const tmplSelect = document.getElementById('outreachTemplateSelect');
+                    tmplSelect.innerHTML = '<option value="">Custom Outreach (No Template)</option>';
+                    outreachTemplates.forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.id;
+                        opt.textContent = `${t.name} (${t.category})`;
+                        tmplSelect.appendChild(opt);
+                    });
+                }
+
+                // 4. Resumes (for composer)
+                const resumeRes = await fetch('/api/outreach/resumes');
+                if (resumeRes.ok) {
+                    outreachResumes = await resumeRes.json();
+                    const resSelect = document.getElementById('outreachResumeSelect');
+                    resSelect.innerHTML = '<option value="">No Resume Attached</option>';
+                    outreachResumes.forEach(r => {
+                        const opt = document.createElement('option');
+                        opt.value = r.id;
+                        opt.textContent = `${r.name} (v${r.version})${r.is_default ? ' [Default]' : ''}`;
+                        if (r.is_default) opt.selected = true;
+                        resSelect.appendChild(opt);
+                    });
+                }
+
+                // 5. Conversations
+                const convRes = await fetch('/api/outreach/conversations');
+                if (convRes.ok) {
+                    outreachConversations = await convRes.json();
+                    filterOutreachConversations();
+                }
+            } catch (err) {
+                console.error("Error loading Outreach data:", err);
+            }
+        }
+
+        function getOutreachStateBadge(state) {
+            const st = (state || 'WAITING').toUpperCase();
+            if (st === 'REPLIED') return `<span class="badge badge-replied">Recruiter Replied</span>`;
+            if (st === 'NEEDS_ACTION') return `<span class="badge badge-action">Action Required</span>`;
+            if (st === 'COMPLETED') return `<span class="badge badge-completed">Completed</span>`;
+            if (st === 'PAUSED') return `<span class="badge badge-paused">Paused</span>`;
+            return `<span class="badge badge-waiting">Awaiting Reply</span>`;
+        let outreachSearchTimer = null;
+        let currentSuggestedAction = null;
+
+        function onOutreachSearchInput(val) {
+            if (outreachSearchTimer) clearTimeout(outreachSearchTimer);
+            outreachSearchTimer = setTimeout(() => {
+                filterOutreachConversations();
+            }, 300);
+        }
+
+        function filterOutreachConversations() {
+            const stateFilter = document.getElementById('outreachStateFilter').value;
+            const query = (document.getElementById('outreachSearchInput').value || '').toLowerCase().trim();
+
+            const filtered = outreachConversations.filter(c => {
+                const matchState = !stateFilter || (c.conversation_state === stateFilter);
+                const matchQuery = !query ||
+                    (c.company_name && c.company_name.toLowerCase().includes(query)) ||
+                    (c.job_title && c.job_title.toLowerCase().includes(query)) ||
+                    (c.contact_name && c.contact_name.toLowerCase().includes(query)) ||
+                    (c.contact_email && c.contact_email.toLowerCase().includes(query));
+                return matchState && matchQuery;
+            });
+
+            renderOutreachCards(filtered);
+        }
+
+        function renderOutreachCards(conversations) {
+            const container = document.getElementById('outreachCardsList');
+            const countElem = document.getElementById('outreachConversationsCount');
+            if (countElem) countElem.textContent = conversations.length;
+            container.innerHTML = '';
+
+            if (conversations.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 32px 16px; font-size: 13px;">No outreach conversations match your filter.</div>`;
+                return;
+            }
+
+            conversations.forEach(conv => {
+                const card = document.createElement('div');
+                card.className = `outreach-card ${currentTimelineAppId === conv.application_id ? 'active' : ''}`;
+                card.id = `outreach-card-${conv.application_id}`;
+                
+                const lastActivity = conv.last_activity_at ? new Date(conv.last_activity_at).toLocaleDateString() : '-';
+                const nextFollowup = conv.next_followup_due ? `Next due: ${new Date(conv.next_followup_due).toLocaleDateString()}` : 'No follow-up pending';
+
+                card.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                        <strong style="color: var(--text); font-size: 14px;">${conv.company_name || 'Direct Outreach'}</strong>
+                        ${getOutreachStateBadge(conv.conversation_state)}
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">${conv.job_title || 'Position'}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted);">
+                        <span>${conv.contact_name || conv.contact_email || 'Recruiter'}</span>
+                        <span>${lastActivity}</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">${nextFollowup}</div>
+                `;
+
+                card.onclick = () => selectOutreachConversation(conv.application_id);
+                container.appendChild(card);
+            });
+        }
+
+        async function selectOutreachConversation(appId) {
+            currentTimelineAppId = appId;
+
+            // Highlight active card
+            document.querySelectorAll('.outreach-card').forEach(c => c.classList.remove('active'));
+            const activeCard = document.getElementById(`outreach-card-${appId}`);
+            if (activeCard) activeCard.classList.add('active');
+
+            // Switch workspace view
+            document.getElementById('outreachEmptyState').style.display = 'none';
+            const threadPane = document.getElementById('outreachActiveThread');
+            threadPane.style.display = 'flex';
+
+            const container = document.getElementById('wsTimelineMessages');
+            container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 24px;">Loading recruiter thread...</div>`;
+
+            try {
+                const res = await fetch(`/api/outreach/conversations/${appId}/timeline`);
+                if (!res.ok) {
+                    container.innerHTML = `<div style="text-align: center; color: var(--danger); padding: 24px;">Failed to load conversation timeline.</div>`;
+                    return;
+                }
+                const data = await res.json();
+                document.getElementById('wsCompanyTitle').textContent = `${data.company_name} — ${data.job_title}`;
+                const contactStr = data.contact ? `${data.contact.name || 'Recruiter'} (${data.contact.email})` : 'Recruiter Contact';
+                document.getElementById('wsRecruiterSubtitle').textContent = contactStr;
+                document.getElementById('wsStateBadge').innerHTML = getOutreachStateBadge(data.conversation_state);
+
+                // Cadence status toggle
+                const isPaused = data.follow_ups.some(f => f.status === 'PAUSED');
+                const btnToggle = document.getElementById('wsBtnToggleCadence');
+                if (isPaused) {
+                    btnToggle.textContent = '▶️ Resume Follow-ups';
+                    btnToggle.onclick = () => toggleCadence(appId, false);
+                } else {
+                    btnToggle.textContent = '⏸️ Pause Follow-ups';
+                    btnToggle.onclick = () => toggleCadence(appId, true);
+                }
+
+                // Render Messages
+                container.innerHTML = '';
+                let latestInbound = null;
+                if (!data.communications || data.communications.length === 0) {
+                    container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 20px;">No messages recorded in this conversation yet.</div>`;
+                } else {
+                    data.communications.forEach(comm => {
+                        const bubble = document.createElement('div');
+                        const isOutbound = comm.direction === 'OUTBOUND';
+                        bubble.className = `timeline-bubble ${isOutbound ? 'outbound' : 'inbound'}`;
+
+                        if (!isOutbound) latestInbound = comm;
+
+                        const dateStr = comm.occurred_at ? new Date(comm.occurred_at).toLocaleString() : '';
+                        const badgeHtml = isOutbound
+                            ? `<span style="font-size: 11px; background: rgba(59, 130, 246, 0.2); color: #2563eb; padding: 2px 6px; border-radius: 4px; font-weight: 600;">OUTBOUND</span>`
+                            : `<span style="font-size: 11px; background: rgba(34, 197, 94, 0.2); color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: 600;">RECRUITER REPLY</span>`;
+
+                        bubble.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <div>
+                                    ${badgeHtml}
+                                    <strong style="color: var(--text); font-size: 13px; margin-left: 6px;">${comm.subject || 'No Subject'}</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 11px; color: var(--muted);">${dateStr}</span>
+                                    ${!isOutbound ? `
+                                        <button onclick="openReplyComposer('${escape(comm.subject || '')}', '${escape(comm.snippet || '')}', '${escape(data.contact ? data.contact.email : '')}', '${escape(data.contact ? data.contact.name : '')}')" class="btn-theme" style="padding: 2px 8px; font-size: 11px; border-radius: 4px; cursor: pointer;">
+                                            ↩ Reply
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            <div style="font-size: 13px; line-height: 1.5; white-space: pre-wrap;">${comm.snippet || '(Empty Body)'}</div>
+                            ${comm.error_message ? `<div style="margin-top: 6px; font-size: 12px; color: var(--danger);">Error: ${comm.error_message}</div>` : ''}
+                        `;
+                        container.appendChild(bubble);
+                    });
+                }
+
+                // AI Response Classification & Human Confirmation Banner
+                const aiBanner = document.getElementById('wsAiRecommendationBanner');
+                if (latestInbound && (data.conversation_state === 'REPLIED' || data.conversation_state === 'NEEDS_ACTION')) {
+                    checkAndClassifyInbound(latestInbound.snippet || '', latestInbound.subject || '');
+                } else {
+                    aiBanner.style.display = 'none';
+                }
+
+                // Render Followups
+                const fuList = document.getElementById('wsFollowupsList');
+                fuList.innerHTML = '';
+                if (!data.follow_ups || data.follow_ups.length === 0) {
+                    fuList.innerHTML = `<div style="font-size: 12px; color: var(--muted);">No scheduled follow-up steps.</div>`;
+                } else {
+                    data.follow_ups.forEach(fu => {
+                        const card = document.createElement('div');
+                        card.className = 'fu-card';
+                        const dueDate = fu.due_at ? new Date(fu.due_at).toLocaleDateString() : '-';
+                        const statusBadge = fu.status === 'COMPLETED'
+                            ? `<span style="color: var(--success); font-weight: 600;">✓ Sent</span>`
+                            : (fu.status === 'PAUSED' ? `<span style="color: var(--muted);">Paused</span>` : `<span style="color: var(--warning); font-weight: 600;">Scheduled</span>`);
+
+                        card.innerHTML = `
+                            <div>
+                                <strong style="font-size: 13px;">Step ${fu.step_number}: Follow-up</strong>
+                                <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">Due: ${dueDate} (${statusBadge}) ${fu.paused_reason ? `— <em>${fu.paused_reason}</em>` : ''}</div>
+                            </div>
+                            <div>
+                                ${fu.status === 'PENDING' || fu.status === 'DUE' ? `
+                                    <button onclick="executeFollowupNow(${fu.id})" class="btn-theme" style="color: var(--primary); padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                        ⚡ Send Now
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `;
+                        fuList.appendChild(card);
+                    });
+                }
+            } catch (err) {
+                console.error("Error loading timeline:", err);
+            }
+        }
+
+        async function checkAndClassifyInbound(bodyText, subject) {
+            try {
+                const res = await fetch('/api/outreach/ai/classify-response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ body_text: bodyText, subject: subject })
                 });
-            })
-            .catch(error => console.error('Error:', error));
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.category && data.category !== 'UNKNOWN' && data.category !== 'ACKNOWLEDGEMENT') {
+                        currentSuggestedAction = data.suggested_action;
+                        const banner = document.getElementById('wsAiRecommendationBanner');
+                        const catTitle = data.category.replace(/_/g, ' ');
+                        document.getElementById('wsAiCategoryTitle').textContent = `✨ AI Suggestion: ${catTitle} (Confidence: ${data.confidence})`;
+                        document.getElementById('wsAiRationale').textContent = data.rationale_snippet;
+                        
+                        const applyBtn = document.getElementById('wsBtnApplyStatus');
+                        if (data.suggested_action && data.suggested_action !== 'NONE') {
+                            applyBtn.style.display = 'inline-block';
+                            applyBtn.textContent = `✓ Apply Status: ${data.suggested_action}`;
+                        } else {
+                            applyBtn.style.display = 'none';
+                        }
+                        banner.style.display = 'block';
+                    }
+                }
+            } catch (err) {
+                console.warn("AI classification check skipped:", err);
+            }
+        }
+
+        async function applySuggestedStatus() {
+            if (!currentTimelineAppId || !currentSuggestedAction) return;
+            try {
+                const res = await fetch(`/api/outreach/conversations/${currentTimelineAppId}/apply-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: currentSuggestedAction, notes: 'Applied via AI Classification recommendation' })
+                });
+                if (res.ok) {
+                    alert(`Application updated to ${currentSuggestedAction}!`);
+                    dismissAiRecommendation();
+                    selectOutreachConversation(currentTimelineAppId);
+                    loadOutreachData();
+                }
+            } catch (err) {
+                alert(`Error applying status: ${err.message}`);
+            }
+        }
+
+        function dismissAiRecommendation() {
+            document.getElementById('wsAiRecommendationBanner').style.display = 'none';
+        }
+
+        function openReplyComposer(rawSubject, rawSnippet, recEmail, recName) {
+            const subject = unescape(rawSubject || '');
+            const snippet = unescape(rawSnippet || '');
+            const email = unescape(recEmail || '');
+            const name = unescape(recName || '');
+
+            openOutreachComposer();
+            document.getElementById('composerModalTitle').textContent = `Reply to ${name || email || 'Recruiter'}`;
+
+            if (email) document.getElementById('outreachRecruiterEmail').value = email;
+            if (name) document.getElementById('outreachRecruiterName').value = name;
+            
+            const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+            document.getElementById('outreachSubject').value = replySubject;
+
+            if (snippet) {
+                document.getElementById('outreachBody').value = `\n\n--- On ${new Date().toLocaleDateString()}, ${name || 'Recruiter'} wrote: ---\n> ${snippet}`;
+            }
+        }
+
+        // --- Composer Logic ---
+        function openOutreachComposer() {
+            document.getElementById('composerModalTitle').textContent = "Direct Recruiter Outreach";
+            document.getElementById('duplicateWarningBox').style.display = 'none';
+            document.getElementById('missingVarsBanner').style.display = 'none';
+            document.getElementById('outreachScheduleTime').value = '';
+            document.getElementById('outreachComposerModal').classList.add('active');
+        }
+
+        function closeOutreachComposer() {
+            document.getElementById('outreachComposerModal').classList.remove('active');
+        }
+
+        async function onTemplateSelectChange() {
+            const tmplId = document.getElementById('outreachTemplateSelect').value;
+            if (!tmplId) return;
+
+            const compName = document.getElementById('outreachCompany').value || '[Company]';
+            const jobTitle = document.getElementById('outreachJobTitle').value || '[Position]';
+            const recName = document.getElementById('outreachRecruiterName').value || '[Hiring Manager]';
+
+            try {
+                const res = await fetch('/api/outreach/templates/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        template_id: parseInt(tmplId),
+                        context: {
+                            company_name: compName,
+                            job_title: jobTitle,
+                            recruiter_name: recName,
+                            platform: 'Direct Email',
+                        }
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('outreachSubject').value = data.subject_preview || '';
+                    document.getElementById('outreachBody').value = data.body_preview || '';
+
+                    const missingBanner = document.getElementById('missingVarsBanner');
+                    if (data.missing_variables && data.missing_variables.length > 0) {
+                        missingBanner.style.display = 'block';
+                        document.getElementById('missingVarsList').textContent = data.missing_variables.join(', ');
+                    } else {
+                        missingBanner.style.display = 'none';
+                    }
+                }
+            } catch (err) {
+                console.error("Error previewing template:", err);
+            }
+        }
+
+        async function generateAIPitch() {
+            const compName = document.getElementById('outreachCompany').value;
+            const jobTitle = document.getElementById('outreachJobTitle').value;
+            const recName = document.getElementById('outreachRecruiterName').value;
+            const resumeId = document.getElementById('outreachResumeSelect').value;
+
+            if (!compName || !jobTitle) {
+                alert("Please fill in Target Company and Position Title before generating AI pitch.");
+                return;
+            }
+
+            const btn = event.target;
+            const origText = btn.textContent;
+            btn.textContent = "⏳ Generating pitch...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/outreach/ai/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        company_name: compName,
+                        job_title: jobTitle,
+                        recruiter_name: recName,
+                        resume_id: resumeId ? parseInt(resumeId) : null,
+                        tone: 'direct'
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.subject) document.getElementById('outreachSubject').value = data.subject;
+                    if (data.body_text) document.getElementById('outreachBody').value = data.body_text;
+                    document.getElementById('missingVarsBanner').style.display = 'none';
+                } else {
+                    alert("AI generation failed. You can use standard email templates instead.");
+                }
+            } catch (err) {
+                console.error("AI pitch error:", err);
+            } finally {
+                btn.textContent = origText;
+                btn.disabled = false;
+            }
+        }
+
+        async function submitOutreachComposer(overrideDuplicate = false, isScheduled = false) {
+            const comp = document.getElementById('outreachCompany').value.trim();
+            const title = document.getElementById('outreachJobTitle').value.trim();
+            const recEmail = document.getElementById('outreachRecruiterEmail').value.trim();
+            const recName = document.getElementById('outreachRecruiterName').value.trim();
+            const jobUrl = document.getElementById('outreachJobUrl').value.trim();
+            const resumeId = document.getElementById('outreachResumeSelect').value;
+            const templateId = document.getElementById('outreachTemplateSelect').value;
+            const subject = document.getElementById('outreachSubject').value.trim();
+            const body = document.getElementById('outreachBody').value.trim();
+            const scheduleTime = document.getElementById('outreachScheduleTime').value;
+
+            if (!comp || !title || !recEmail || !subject || !body) {
+                alert("Please complete all required fields: Company, Position, Recruiter Email, Subject, and Body.");
+                return;
+            }
+
+            if (isScheduled && !scheduleTime) {
+                alert("Please pick a future date and time in the Schedule field before clicking Schedule.");
+                return;
+            }
+
+            const cadences = [];
+            if (document.getElementById('cadenceStep1').checked) cadences.push(4);
+            if (document.getElementById('cadenceStep2').checked) cadences.push(10);
+            if (document.getElementById('cadenceStep3').checked) cadences.push(17);
+
+            const activeBtn = isScheduled ? document.getElementById('btnScheduleOutreach') : document.getElementById('btnSubmitOutreach');
+            const origLabel = activeBtn.textContent;
+            activeBtn.disabled = true;
+            activeBtn.textContent = isScheduled ? "⏳ Scheduling..." : "⏳ Sending...";
+
+            try {
+                const res = await fetch('/api/outreach/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        manual_company_name: comp,
+                        manual_job_title: title,
+                        manual_job_url: jobUrl || null,
+                        contact_name: recName || null,
+                        contact_email: recEmail,
+                        resume_id: resumeId ? parseInt(resumeId) : null,
+                        template_id: templateId ? parseInt(templateId) : null,
+                        subject: subject,
+                        body_text: body,
+                        schedule_time: isScheduled && scheduleTime ? new Date(scheduleTime).toISOString() : null,
+                        followup_cadence_days: cadences,
+                        override_duplicate: overrideDuplicate,
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(isScheduled ? `⏰ Outreach email successfully scheduled!` : `🚀 Outreach application successfully sent!`);
+                    closeOutreachComposer();
+                    await loadOutreachData();
+                    if (data.application_id) {
+                        selectOutreachConversation(data.application_id);
+                    }
+                } else if (data.is_duplicate) {
+                    const warnBox = document.getElementById('duplicateWarningBox');
+                    warnBox.style.display = 'block';
+                    document.getElementById('duplicateWarningText').textContent =
+                        `An active application for "${data.duplicate_info.job_title}" at "${data.duplicate_info.company_name}" already exists (Status: ${data.duplicate_info.existing_status}). Click 'Send Anyway' to override.`;
+                } else {
+                    alert(`Failed to send outreach: ${data.error || 'Unknown error'}`);
+                }
+            } catch (err) {
+                alert(`Network error: ${err.message}`);
+            } finally {
+                activeBtn.disabled = false;
+                activeBtn.textContent = origLabel;
+            }
+        }
+
+        async function toggleCadence(appId, shouldPause) {
+            const endpoint = shouldPause ? `/api/outreach/conversations/${appId}/pause` : `/api/outreach/conversations/${appId}/resume`;
+            try {
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: 'Manual toggle from dashboard' })
+                });
+                if (res.ok) {
+                    selectOutreachConversation(appId);
+                    loadOutreachData();
+                }
+            } catch (err) {
+                alert(`Failed to update cadence: ${err.message}`);
+            }
+        }
+
+        async function executeFollowupNow(fuId) {
+            if (!confirm("Dispatch this scheduled follow-up email to the recruiter now?")) return;
+            try {
+                const res = await fetch(`/api/outreach/followups/${fuId}/execute`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert("Follow-up successfully sent!");
+                    if (currentTimelineAppId) selectOutreachConversation(currentTimelineAppId);
+                    loadOutreachData();
+                } else {
+                    alert(`Failed to send follow-up: ${data.error || 'Unknown error'}`);
+                }
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            }
+        }
+
+        async function syncOutreachMailbox() {
+
+            const btn = document.getElementById('btnSyncMailbox');
+            const orig = btn.textContent;
+            btn.textContent = "⏳ Syncing...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/outreach/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_id: 'default' })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`Mailbox sync complete! Fetched: ${data.total_fetched}, Matched recruiter replies: ${data.matched_count}`);
+                    loadOutreachData();
+                } else {
+                    alert(`Mailbox sync failed: ${data.error || 'Provider communication error'}`);
+                }
+            } catch (err) {
+                alert(`Sync error: ${err.message}`);
+            } finally {
+                btn.textContent = orig;
+                btn.disabled = false;
+            }
+        }
+
+        async function refreshDueFollowups() {
+            try {
+                const res = await fetch('/api/outreach/followups/refresh', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    loadOutreachData();
+                    alert(`Cadences refreshed! ${data.message || ''}`);
+                }
+            } catch (err) {
+                console.error("Error refreshing follow-ups:", err);
+            }
+        }
+
+        async function testOutreachConnection() {
+            try {
+                const res = await fetch('/api/outreach/provider/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_id: 'default' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Email Provider Connected!\n\nProvider: ${data.provider_name}\nStatus: ${data.message}\nAccount: ${data.account_email || 'Active'}`);
+                } else {
+                    alert(`❌ Provider Connection Error:\n\n${data.message}`);
+                }
+            } catch (err) {
+                alert(`Connection check failed: ${err.message}`);
+            }
+        }
+
+        function refreshData() {
+            loadNaukriStats();
+            loadUnifiedApplications();
+            loadLegacyLinkedInJobs();
+            loadOutreachData();
+        }
+
+        // Initialize dashboard
+        refreshData();
     </script>
 </body>
 </html>
-

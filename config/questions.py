@@ -21,7 +21,12 @@ except Exception:
 default_resume_path = get_resume() if "get_resume" in locals() else "PersonalData/Mohd_Ahmad_Raza_Ansari_Resume_11_09_2026.pdf"
 
 # What do you want to answer for questions that ask about years of experience you have, this is different from current_experience? 
-years_of_experience = str(_prof.get("years_of_experience", "2"))
+_exp_raw = _prof.get("years_of_experience", 2)
+try:
+    _exp_float = float(_exp_raw)
+    years_of_experience = str(int(_exp_float)) if _exp_float.is_integer() else str(int(round(_exp_float)))
+except Exception:
+    years_of_experience = str(_exp_raw).split(".")[0] if "." in str(_exp_raw) else str(_exp_raw)
 
 # Do you need visa sponsorship now or in future?
 require_visa = _std.get("require_visa", "No")
@@ -117,7 +122,7 @@ confidence_level = str(_prof.get("confidence_level", "9"))
 
 ## Allow Manual Inputs
 # Should the tool pause before every submit application during easy apply to let you check the information?
-pause_before_submit = _plat.get("pause_before_submit", True)         # True or False, Note: True or False are case-sensitive
+pause_before_submit = _plat.get("pause_before_submit", False)         # True or False, Note: True or False are case-sensitive
 '''
 Note: Will be treated as False if `run_in_background = True`
 '''

@@ -1,137 +1,176 @@
-# 🙏 Apply & Pray
+# 🚀 JobPilot
 
-> **The AI-powered LinkedIn job application bot for people who are tired of clicking "Easy Apply" like it is a part-time job.**
+> **The unified, autonomous job application cockpit (LinkedIn, Naukri, Indeed, Glassdoor, Foundit, and Universal ATS portals) featuring an intelligent PySide6 desktop suite, multi-tier Q&A reasoning, and automated cross-platform distribution.**
 
-Applying to jobs is a full-time job. This bot works overtime.
-
----
-
-## 💀 Why This Exists
-
-At some point, humanity collectively agreed that job seekers should upload a resume, manually retype it, answer the same questions, write cover letters, and repeat until motivation reaches critically low battery mode.
-
-Welcome to **Apply & Pray**.
-
-> Apply. Pray. Repeat. Preferably with fewer clicks.
+[![Release](https://img.shields.io/badge/Release-v0.1.0--beta.1-orange.svg)](https://github.com/Ahmad01Ansari/JobPilot/releases)
+[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Ubuntu%20Linux-lightgrey.svg)](#downloads--installation)
 
 ---
 
-## 🚀 What This Bot Does
+## 📥 Downloads & Installation
 
-The bot can search LinkedIn jobs, read job descriptions, fill application forms, answer repetitive screening questions, upload resumes, generate AI-assisted content when configured, and track application history through a local dashboard.
+Pre-built binaries for **Windows 10/11** and **Ubuntu/Linux** are published with every release under [GitHub Releases](../../releases).
+
+### 🐧 Ubuntu / Debian Linux
+
+#### Option A: Debian Package (`.deb`) — *Recommended*
+Installs system-wide with desktop application launcher and brand icons:
+```bash
+# Install via apt (handles dependencies automatically)
+sudo apt install ./jobpilot_0.1.0-beta.1_amd64.deb
+
+# Or install via dpkg
+sudo dpkg -i jobpilot_0.1.0-beta.1_amd64.deb
+sudo apt-get install -f
+```
+Launch directly from your application menu or via terminal:
+```bash
+jobpilot
+```
+
+#### Option B: Standalone AppImage
+Runs on any modern 64-bit Linux distribution with zero system installation:
+```bash
+chmod +x JobPilot-0.1.0-beta.1-x86_64.AppImage
+./JobPilot-0.1.0-beta.1-x86_64.AppImage
+```
 
 ---
 
-## 📦 Requirements
+### 🪟 Windows 10 / 11
 
+1. Download **`JobPilot-v0.1.0-beta.1-windows-x64.zip`** from [Releases](../../releases).
+2. Extract the ZIP archive to a folder (e.g., `C:\Program Files\JobPilot` or your Documents).
+3. Double-click **`JobPilot.exe`** to launch the Desktop application.
+
+---
+
+## ⚡ What JobPilot Does
+
+- **Comprehensive Desktop Cockpit:** 13-view native PySide6 desktop suite featuring dark/light adaptive tokens, real-time observability timeline, and system tray integration.
+- **Multi-Platform Automation:** Native automation engines for **LinkedIn Easy Apply**, **Naukri.com**, **Indeed**, **Glassdoor**, **Foundit**, and external ATS portals (**Greenhouse**, **Lever**, **Workday**, **Ashby**).
+- **Multi-Tier Q&A Knowledge Base:** 300+ canonical screening questions with verified candidate facts (`PROFILE_FACT`, `RESUME_FACT`, `QNA_RULE`) ensuring zero hallucination.
+- **Cross-Platform Deduplication:** Conservative deduplication preserving raw portal listings while tracking logical opportunities across portals to avoid duplicate submissions.
+- **Cooperative Human Checkpoints:** Never attempts automated CAPTCHA bypass or fingerprint spoofing. Pauses safely when OTP, verification challenges, or unknown fields occur so you retain full control.
+- **Sanitized Observability:** Real-time log cockpit and one-click diagnostic reports with automated redaction of API keys, cookies, and tokens via `LogSanitizer`.
+
+---
+
+## 🛠️ Running from Source (Development)
+
+### Requirements
 - **Python 3.11.x**
-- **Google Chrome** latest stable version
-- **Windows 10/11** recommended
-- Internet connection
-- LinkedIn account
-- Resume PDF
+- **Google Chrome** (latest stable release)
+- **Linux** (Ubuntu 22.04/24.04 LTS) or **Windows 10/11**
 
-> Python 3.11 is recommended because Selenium and `undetected-chromedriver` are more stable there than on newer bleeding-edge Python versions.
+### 1. Clone & Set Up Virtual Environment
 
----
+```bash
+# Linux
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 
-## ⚙️ Installation
-
-### 1. Install Python 3.11
-
-Install Python 3.11 and enable **Add Python to PATH**.
-
-Verify:
-
-```powershell
-py -3.11 --version
-```
-
-### 2. Create a Virtual Environment
-
-```powershell
-cd C:\Users\Test\Documents\Apply-and-Pray
-py -3.11 -m venv venv
-venv\Scripts\activate
-python -m pip install --upgrade pip setuptools wheel
-```
-
-### 3. Install Dependencies
-
-```powershell
+# Windows (Command Prompt / PowerShell)
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure Your Details
+### 2. Launch the Desktop Application
 
-Edit these files:
+```bash
+# Linux
+.venv/bin/python run_desktop.py
 
-| File | Purpose |
-|---|---|
-| `config/personals.py` | Personal details used in applications |
-| `config/questions.py` | Common screening answers and resume path |
-| `config/search.py` | Job filters and preferences |
-| `config/secrets.py` | LinkedIn login and optional AI API key |
-| `config/settings.py` | Bot behavior, stealth mode, delays, paths |
-
-### 5. Add Your Resume
-
-Place your resume where `default_resume_path` points in `config/questions.py`.
-
-Default example:
-
-```python
-default_resume_path = "all resumes/default/resume.pdf"
+# Windows
+python run_desktop.py
 ```
+*If running for the first time, the Onboarding Wizard will guide you through AI connection, resume import, profile review, and platform setup.*
 
----
+### 3. Alternative Interfaces
 
-## ▶️ Run the Bot
-
-```powershell
-python runAiBot.py
-```
-
-Before running, close all Chrome windows, keep fewer than 10 tabs open, and make sure Chrome is updated.
-
----
-
-## 📊 Run the Dashboard
-
-```powershell
+```bash
+# Flask Web Management Dashboard (http://localhost:5000)
 python app.py
-```
 
-Open:
+# Standalone First-Run Setup Wizard
+python run_wizard.py
 
-```text
-http://localhost:5000
+# Headless GUI Self-Test (Verification)
+python run_desktop.py --offscreen --test-run
+
+# Run Platform Automation directly via CLI
+python runAiBot.py --platform linkedin
+python runAiBot.py --platform naukri
+python runAiBot.py --platform indeed
+python runAiBot.py --platform glassdoor
+python runAiBot.py --platform foundit
 ```
 
 ---
 
-## 🧯 Troubleshooting
+## 🏗️ Building Distribution Packages Locally
 
-### ChromeDriver Version Error
+### On Linux (AppImage, `.deb`, and `.tar.gz`)
+Run the automated packaging script:
+```bash
+chmod +x scripts/build_linux.sh
+./scripts/build_linux.sh
+```
+Outputs are generated in `dist/`:
+- `dist/JobPilot-0.1.0-beta.1-x86_64.AppImage`
+- `dist/jobpilot_0.1.0-beta.1_amd64.deb`
+- `dist/jobpilot-v0.1.0-beta.1-linux-x86_64.tar.gz`
 
-If you see `This version of ChromeDriver only supports Chrome version X`, update Chrome from `chrome://settings/help`, close Chrome, and run again.
+### On Windows (`.zip`)
+Run the Windows batch build script:
+```cmd
+scripts\build_windows.bat
+```
+Output is generated in `dist\JobPilot-v0.1.0-beta.1-windows-x64.zip`.
 
-This build also detects your installed Chrome version and asks `undetected-chromedriver` for a matching driver.
+---
 
-### Chrome Profile Permission Error
+## 🚀 Automated GitHub Releases CI/CD
 
-This build uses a safer Windows profile path:
+JobPilot includes a complete GitHub Actions release pipeline (`.github/workflows/release.yml`).
 
-```text
-%LOCALAPPDATA%\ApplyAndPrayChromeProfile
+### How to Cut a Release
+Pushing a git version tag triggers parallel Windows and Ubuntu runners to compile and publish a GitHub Release with all binary assets attached:
+
+```bash
+# Tag a release commit
+git tag -a v0.1.0-beta.1 -m "Release v0.1.0-beta.1"
+
+# Push the tag to GitHub
+git push origin v0.1.0-beta.1
 ```
 
-No more fighting `C:\temp` like it owes you money.
+The GitHub Actions workflow will automatically:
+1. Build Windows executable and compress it to `JobPilot-v0.1.0-beta.1-windows-x64.zip`.
+2. Build Linux binaries and produce `JobPilot-0.1.0-beta.1-x86_64.AppImage`, `jobpilot_0.1.0-beta.1_amd64.deb`, and `tar.gz`.
+3. Create a GitHub Release under `v0.1.0-beta.1` and upload all artifacts.
+
+---
+
+## 🧪 Testing & Verification
+
+Run the comprehensive unit test suite:
+```bash
+# Automated discovery
+.venv/bin/python -m unittest discover -s tests
+
+# Pre-flight diagnostic & security test
+.venv/bin/python -m unittest tests/test_beta_readiness_diagnostics.py tests/test_security_hardening.py
+```
 
 ---
 
 ## ⚠️ Disclaimer
 
-This project is for educational and research purposes only. You are responsible for how you use it and for complying with LinkedIn's Terms of Service and applicable laws.
-
-Use at your own risk.
+JobPilot is intended for personal job search automation and workflow acceleration. You are responsible for complying with the Terms of Service of each respective platform and for reviewing all submitted application details.

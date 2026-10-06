@@ -1,0 +1,55 @@
+[
+  {
+    "index": 1,
+    "title": "Jr. RPA Developer",
+    "company": "RPASoft",
+    "location": "Bengaluru, Karnataka",
+    "has_easy_apply_badge": false,
+    "apply_mode": "EXTERNAL",
+    "steps_completed": [],
+    "questions_encountered": []
+  },
+  {
+    "index": 2,
+    "title": "Power Apps Developer",
+    "company": "ITRadiant Solutions Pvt Ltd",
+    "location": "Hyderabad, Telangana",
+    "has_easy_apply_badge": true,
+    "apply_mode": "EXTERNAL",
+    "steps_completed": [],
+    "questions_encountered": []
+  },
+  {
+    "index": 3,
+    "title": "RPA -UIpath",
+    "company": "Saaki Argus & Averil Consulting",
+    "location": "Chennai, Tamil Nadu",
+    "has_easy_apply_badge": true,
+    "apply_mode": "SMART_APPLY",
+    "steps_completed": [
+      "Step 1: RPA -UIpath",
+      "Step 2: RPA -UIpath",
+      "Step 3: RPA -UIpath",
+      "Step 4: RPA -UIpath",
+      "Step 5: RPA -UIpath"
+    ],
+    "questions_encountered": [
+      "Phone number Select country India +91",
+      "Use your Indeed Resume Created more than a week ago Recommended Mohd_Ahmad_Raza_",
+      "Use your Indeed Resume Created more than a week ago Recommended Mohd_Ahmad_Raza_",
+      "Use your Indeed Resume Created more than a week ago Recommended Mohd_Ahmad_Raza_"
+    ]
+  },
+  {
+    "index": 4,
+    "title": "Lead/Sr. Robotic Process Automation/Python Developer",
+    "company": "Bikham Information Technology",
+    "location": "Unknown, Punjab",
+    "has_easy_apply_badge": true,
+    "apply_mode": "SMART_APPLY",
+    "steps_completed": [
+      "Step 1: Lead/Sr. Robotic Process Automation/Python Developer"
+    ],
+    "questions_encountered": []
+  }
+]

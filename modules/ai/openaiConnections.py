@@ -13,7 +13,7 @@ from config.search import security_clearance, did_masters
 from modules.helpers import print_lg, critical_error_log, convert_to_json
 from modules.ai.prompts import *
 
-from pyautogui import confirm
+from modules.helpers import show_modern_confirm as confirm
 from openai import OpenAI
 from openai.types.model import Model
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -70,13 +70,18 @@ def ai_create_openai_client() -> OpenAI:
         
         client = OpenAI(base_url=llm_api_url, api_key=llm_api_key)
 
+        # Safe model validation: discover if available, but permit manual models without crashing
         models = ai_get_models_list(client)
-        if "error" in models:
-            raise ValueError(models[1])
-        if len(models) == 0:
-            raise ValueError("No models are available!")
-        if llm_model not in [model.id for model in models]:
-            raise ValueError(f"Model `{llm_model}` is not found!")
+        if models and not isinstance(models, list):
+            models = []
+        if isinstance(models, list) and models and not isinstance(models[0], str):
+            model_ids = [getattr(m, "id", str(m)) for m in models]
+            if llm_model in model_ids:
+                print_lg(f"Model `{llm_model}` verified in provider model list.")
+            else:
+                print_lg(f"Notice: Model `{llm_model}` not listed by discovery endpoint, but proceeding with configured model ID.")
+        else:
+            print_lg(f"Notice: Model discovery unavailable or empty, proceeding with configured model `{llm_model}`.")
         
         print_lg("---- SUCCESSFULLY CREATED OPENAI CLIENT! ----")
         print_lg(f"Using API URL: {llm_api_url}")

@@ -1,0 +1,743 @@
+{
+  "version": "1.0.0",
+  "description": "Universal canonical screening question catalog with dynamic parameter bindings and resolution strategies.",
+  "categories": [
+    "notice_period",
+    "salary",
+    "experience",
+    "location",
+    "relocation",
+    "work_auth",
+    "background",
+    "education",
+    "skills",
+    "behavioral",
+    "general"
+  ],
+  "questions": [
+    {
+      "id": "notice_period_days",
+      "question_text": "What is your official notice period in days?",
+      "normalized_patterns": [
+        "notice period",
+        "official notice period",
+        "notice period in days",
+        "what is your notice period"
+      ],
+      "category": "notice_period",
+      "strategy": "PROFILE_VAR",
+      "template": "{notice_period_days} days",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "notice_period_serving",
+      "question_text": "Are you currently serving notice period?",
+      "normalized_patterns": [
+        "serving notice",
+        "are you serving notice"
+      ],
+      "category": "notice_period",
+      "strategy": "CONSTANT",
+      "template": "No, but can initiate immediately upon offer.",
+      "answer_type": "text"
+    },
+    {
+      "id": "notice_period_buyout",
+      "question_text": "Is early joining or notice period buyout negotiable?",
+      "normalized_patterns": [
+        "early joining",
+        "negotiate notice",
+        "buyout",
+        "notice buyout"
+      ],
+      "category": "notice_period",
+      "strategy": "CONSTANT",
+      "template": "Yes, open to notice period buyout or negotiation.",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "immediate_joiner",
+      "question_text": "Can you join immediately or within short notice?",
+      "normalized_patterns": [
+        "immediate joiner",
+        "can you join immediately"
+      ],
+      "category": "notice_period",
+      "strategy": "PROFILE_VAR",
+      "template": "Can join within {notice_period_days} days.",
+      "answer_type": "text"
+    },
+    {
+      "id": "current_ctc",
+      "question_text": "What is your current CTC / compensation?",
+      "normalized_patterns": [
+        "current ctc",
+        "current salary",
+        "present ctc",
+        "current annual compensation"
+      ],
+      "category": "salary",
+      "strategy": "PROFILE_VAR",
+      "template": "{current_ctc}",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "expected_ctc",
+      "question_text": "What is your expected CTC / desired salary?",
+      "normalized_patterns": [
+        "expected ctc",
+        "desired salary",
+        "salary expectation",
+        "compensation expectation",
+        "expected annual ctc"
+      ],
+      "category": "salary",
+      "strategy": "PROFILE_VAR",
+      "template": "{expected_ctc}",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "salary_negotiable",
+      "question_text": "Is your salary expectation negotiable?",
+      "normalized_patterns": [
+        "salary negotiable",
+        "negotiable",
+        "is expected ctc negotiable"
+      ],
+      "category": "salary",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "willing_to_relocate",
+      "question_text": "Are you willing or open to relocate for this position?",
+      "normalized_patterns": [
+        "relocation",
+        "relocate",
+        "willing to relocate",
+        "open to relocate",
+        "are you open to relocate"
+      ],
+      "category": "relocation",
+      "strategy": "PROFILE_VAR",
+      "template": "{willing_to_relocate}",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "remote_hybrid_onsite",
+      "question_text": "Are you comfortable with remote, hybrid, or onsite work arrangements?",
+      "normalized_patterns": [
+        "remote",
+        "hybrid",
+        "work from home",
+        "onsite",
+        "on-site",
+        "comfortable with remote",
+        "comfortable with hybrid",
+        "comfortable with onsite"
+      ],
+      "category": "location",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "preferred_location",
+      "question_text": "What is your preferred work location?",
+      "normalized_patterns": [
+        "preferred location",
+        "work location",
+        "current location"
+      ],
+      "category": "location",
+      "strategy": "PROFILE_VAR",
+      "template": "{current_city}, {country} (Open to Remote / Hybrid / Relocation)",
+      "answer_type": "text"
+    },
+    {
+      "id": "shift_flexibility",
+      "question_text": "Are you open to rotational shifts, night shifts, US or UK shifts?",
+      "normalized_patterns": [
+        "rotational shift",
+        "night shift",
+        "us shift",
+        "uk shift",
+        "shift flexibility",
+        "comfortable working from 3pm to 12am"
+      ],
+      "category": "general",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "background_verification",
+      "question_text": "Do you consent to standard background verification and reference checks?",
+      "normalized_patterns": [
+        "background verification",
+        "background check",
+        "background check consent"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "criminal_record",
+      "question_text": "Have you ever been convicted of a criminal offense?",
+      "normalized_patterns": [
+        "criminal record",
+        "criminal offense",
+        "convicted of a felony"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "No",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "active_bond",
+      "question_text": "Do you have any active service bond or employment bond with your current employer?",
+      "normalized_patterns": [
+        "active bond",
+        "service bond",
+        "employment bond",
+        "bond"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "No",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "non_compete",
+      "question_text": "Are you bound by any non-compete or restrictive covenant agreement?",
+      "normalized_patterns": [
+        "non-compete",
+        "non compete",
+        "restrictive covenant"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "No",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "driving_license",
+      "question_text": "Do you hold a valid driving license?",
+      "normalized_patterns": [
+        "driving license",
+        "valid driving license",
+        "driver license"
+      ],
+      "category": "general",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "valid_passport",
+      "question_text": "Do you hold a valid passport for business travel?",
+      "normalized_patterns": [
+        "valid passport",
+        "passport",
+        "hold a valid passport"
+      ],
+      "category": "general",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "military_service",
+      "question_text": "Have you ever served in the military or armed forces?",
+      "normalized_patterns": [
+        "have you ever served in the military",
+        "military veteran",
+        "veteran status",
+        "what service are you a part of"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "Never served",
+      "answer_type": "choice"
+    },
+    {
+      "id": "ready_to_learn",
+      "question_text": "Are you ready to learn new technology & deliver training on that?",
+      "normalized_patterns": [
+        "ready to learn new technology",
+        "ready to learn",
+        "deliver training"
+      ],
+      "category": "general",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "ex_infosys",
+      "question_text": "Are you an ex-Infosys employee?",
+      "normalized_patterns": [
+        "are u ex-infosys employee",
+        "are you an ex-infosys employee",
+        "ex-infosys",
+        "infy id"
+      ],
+      "category": "background",
+      "strategy": "CONSTANT",
+      "template": "No",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "require_visa",
+      "question_text": "Will you now or in the future require visa sponsorship?",
+      "normalized_patterns": [
+        "require visa",
+        "visa sponsorship",
+        "require sponsorship",
+        "will you require visa"
+      ],
+      "category": "work_auth",
+      "strategy": "CONSTANT",
+      "template": "No",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "authorized_in_india",
+      "question_text": "Are you legally authorized to work in India?",
+      "normalized_patterns": [
+        "authorized in india",
+        "authorized to work in india",
+        "legally authorized"
+      ],
+      "category": "work_auth",
+      "strategy": "CONSTANT",
+      "template": "Yes",
+      "answer_type": "boolean"
+    },
+    {
+      "id": "dob",
+      "question_text": "What is your Date of Birth?",
+      "normalized_patterns": [
+        "date of birth",
+        "what is your dob",
+        "what is you dob",
+        "birth date",
+        "dob"
+      ],
+      "category": "general",
+      "strategy": "PROFILE_VAR",
+      "template": "{dob}",
+      "answer_type": "text"
+    },
+    {
+      "id": "highest_degree",
+      "question_text": "What is your highest qualification / educational degree?",
+      "normalized_patterns": [
+        "highest qualification",
+        "highest degree",
+        "degree",
+        "education level"
+      ],
+      "category": "education",
+      "strategy": "PROFILE_VAR",
+      "template": "{highest_degree}",
+      "answer_type": "text"
+    },
+    {
+      "id": "field_of_study",
+      "question_text": "What was your major or field of study?",
+      "normalized_patterns": [
+        "major",
+        "field of study",
+        "branch of study"
+      ],
+      "category": "education",
+      "strategy": "PROFILE_VAR",
+      "template": "{field_of_study}",
+      "answer_type": "text"
+    },
+    {
+      "id": "university",
+      "question_text": "What is the name of your college / university?",
+      "normalized_patterns": [
+        "university",
+        "college",
+        "institution name"
+      ],
+      "category": "education",
+      "strategy": "PROFILE_VAR",
+      "template": "{college}",
+      "answer_type": "text"
+    },
+    {
+      "id": "gpa",
+      "question_text": "What was your graduation GPA or CGPA?",
+      "normalized_patterns": [
+        "cgpa",
+        "gpa",
+        "percentage or gpa"
+      ],
+      "category": "education",
+      "strategy": "PROFILE_VAR",
+      "template": "{gpa}",
+      "answer_type": "text"
+    },
+    {
+      "id": "graduation_year",
+      "question_text": "What is your graduation year or year of completion?",
+      "normalized_patterns": [
+        "graduation year",
+        "year of completion",
+        "passing year"
+      ],
+      "category": "education",
+      "strategy": "PROFILE_VAR",
+      "template": "{graduation_year}",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "referral_source",
+      "question_text": "How did you hear about this opportunity?",
+      "normalized_patterns": [
+        "how did you hear",
+        "hear about this",
+        "source of referral",
+        "how did you learn",
+        "learn about this position",
+        "learn about this job",
+        "how did you find out",
+        "where did you hear",
+        "how did you hear about this"
+      ],
+      "category": "general",
+      "strategy": "CONSTANT",
+      "template": "LinkedIn",
+      "answer_type": "choice"
+    },
+    {
+      "id": "behavioral_about_yourself",
+      "question_text": "Tell me about yourself / Please provide a brief professional summary.",
+      "normalized_patterns": [
+        "tell me about yourself",
+        "about yourself",
+        "brief summary",
+        "professional summary"
+      ],
+      "category": "behavioral",
+      "strategy": "BEHAVIORAL_LLM",
+      "llm_prompt": "Write a 3-4 sentence concise professional summary for this candidate highlighting their core experience, technical stack, and impact.",
+      "fallback_template": "I am an experienced {title} with {years_of_experience} years of hands-on expertise building enterprise software and automation solutions. Passionate about delivering reliable engineering results, solving complex workflows, and continuous learning.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_why_hire_you",
+      "question_text": "Why should we hire you for this role?",
+      "normalized_patterns": [
+        "why should we hire you",
+        "why hire you",
+        "what makes you a good fit"
+      ],
+      "category": "behavioral",
+      "strategy": "BEHAVIORAL_LLM",
+      "llm_prompt": "Explain why the candidate is a strong fit for engineering roles, focusing on practical delivery, problem-solving, and adaptability.",
+      "fallback_template": "I bring proven hands-on experience in modern technology workflows, strong problem-solving abilities, and a commitment to high code quality and reliability. I can onboard quickly and make an immediate impact on your engineering initiatives.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_reason_for_change",
+      "question_text": "Why are you looking for a job change?",
+      "normalized_patterns": [
+        "why are you looking for a change",
+        "reason for change",
+        "reason for leaving"
+      ],
+      "category": "behavioral",
+      "strategy": "BEHAVIORAL_LLM",
+      "llm_prompt": "Provide a positive, career-growth-focused reason for seeking a new engineering position.",
+      "fallback_template": "I am seeking new opportunities to take on larger-scale engineering challenges, expand my technical depth, and collaborate with forward-thinking teams on high-impact solutions.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_why_join",
+      "question_text": "Why do you want to join our company?",
+      "normalized_patterns": [
+        "why do you want to join",
+        "why this company"
+      ],
+      "category": "behavioral",
+      "strategy": "BEHAVIORAL_LLM",
+      "llm_prompt": "Express genuine enthusiasm for joining an innovative engineering organization.",
+      "fallback_template": "I am excited by your team's innovative engineering culture and technical vision. My background and skill set align well with your objectives, and I am eager to contribute meaningfully.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_strengths",
+      "question_text": "What are your greatest professional strengths?",
+      "normalized_patterns": [
+        "strengths",
+        "key strengths",
+        "what are your strengths"
+      ],
+      "category": "behavioral",
+      "strategy": "CONSTANT",
+      "template": "Strong analytical problem-solving, rapid adaptability to new technologies, end-to-end technical ownership, and clear communication.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_weakness",
+      "question_text": "What is an area for improvement / weakness?",
+      "normalized_patterns": [
+        "weakness",
+        "areas of improvement",
+        "what is your weakness"
+      ],
+      "category": "behavioral",
+      "strategy": "CONSTANT",
+      "template": "I occasionally spend extra time perfecting edge cases in error handling, but I have learned to balance thoroughness with practical delivery timelines through iterative testing.",
+      "answer_type": "text"
+    },
+    {
+      "id": "behavioral_handle_failure",
+      "question_text": "How do you handle software failures or unexpected errors?",
+      "normalized_patterns": [
+        "handle exceptions",
+        "handle failure",
+        "error handling approach"
+      ],
+      "category": "behavioral",
+      "strategy": "CONSTANT",
+      "template": "I employ defensive design principles: structured try-catch blocks, dynamic waits, automated retry policies for transient faults, comprehensive logging, and alert notifications.",
+      "answer_type": "text"
+    },
+    {
+      "id": "skill_python",
+      "question_text": "How many years of experience do you have in Python?",
+      "normalized_patterns": [
+        "python",
+        "experience with python",
+        "years of python",
+        "python automation"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Python",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_automation_anywhere",
+      "question_text": "How many years of experience do you have in Automation Anywhere / A360?",
+      "normalized_patterns": [
+        "automation anywhere",
+        "a360"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Automation Anywhere",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_sap_automation",
+      "question_text": "How many years of experience do you have in SAP GUI / SAP Automation?",
+      "normalized_patterns": [
+        "sap gui",
+        "sap automation",
+        "experience in sap",
+        "experience with sap"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "SAP",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_idp_ocr",
+      "question_text": "How many years of experience do you have in Intelligent Document Processing (IDP) / OCR?",
+      "normalized_patterns": [
+        "intelligent document processing",
+        "idp",
+        "ocr",
+        "aws textract"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "OCR",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_power_automate",
+      "question_text": "How many years of experience do you have in Power Automate?",
+      "normalized_patterns": [
+        "power automate"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Power Automate",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_sql",
+      "question_text": "How many years of experience do you have in SQL / Databases?",
+      "normalized_patterns": [
+        "sql",
+        "postgresql",
+        "mysql"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "SQL",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_vbscript_vba",
+      "question_text": "How many years of experience do you have in VBScript or Excel VBA?",
+      "normalized_patterns": [
+        "vbscript",
+        "excel vba",
+        "vba"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "VBA",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_generative_ai_llm",
+      "question_text": "How many years of experience do you have in Generative AI / LLMs / Prompt Engineering?",
+      "normalized_patterns": [
+        "generative ai",
+        "large language models",
+        "llm",
+        "prompt engineering",
+        "experience with llm",
+        "experience with generative ai",
+        "llm test automation"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "AI",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_rest_api",
+      "question_text": "How many years of experience do you have in REST APIs?",
+      "normalized_patterns": [
+        "rest api",
+        "api integration"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "REST API",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_git",
+      "question_text": "How many years of experience do you have in Git / GitHub?",
+      "normalized_patterns": [
+        "git",
+        "github"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Git",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_docker",
+      "question_text": "How many years of experience do you have in Docker / Containers?",
+      "normalized_patterns": [
+        "docker"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Docker",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_fastapi_flask",
+      "question_text": "How many years of experience do you have in FastAPI or Flask?",
+      "normalized_patterns": [
+        "fastapi",
+        "flask"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "FastAPI",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_langchain",
+      "question_text": "How many years of experience do you have in LangChain?",
+      "normalized_patterns": [
+        "langchain"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "LangChain",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_selenium",
+      "question_text": "How many years of experience do you have in Selenium?",
+      "normalized_patterns": [
+        "selenium",
+        "java selenium",
+        "selenium java"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Selenium",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_copilot",
+      "question_text": "How many years of experience do you have in GitHub Copilot?",
+      "normalized_patterns": [
+        "copilot",
+        "github copilot"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Copilot",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_solidworks",
+      "question_text": "How many years of experience do you have in Solidworks API / CAD Automation?",
+      "normalized_patterns": [
+        "solidworks api",
+        "cad automation"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Solidworks",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_modbus_scada",
+      "question_text": "How many years of experience do you have in Modbus or Ignition SCADA?",
+      "normalized_patterns": [
+        "modbus",
+        "ignition scada"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "SCADA",
+      "answer_type": "numeric"
+    },
+    {
+      "id": "skill_telecom",
+      "question_text": "How many years of experience do you have in Telecom?",
+      "normalized_patterns": [
+        "telecom"
+      ],
+      "category": "skills",
+      "strategy": "SKILL_MATCH",
+      "target_skill": "Telecom",
+      "answer_type": "numeric"
+    }
+  ]
+}

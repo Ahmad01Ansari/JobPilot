@@ -1,0 +1,134 @@
+name: Build & Release JobPilot
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Executable (.zip)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Build Windows Package
+        shell: cmd
+        run: |
+          scripts\build_windows.bat
+
+      - name: Upload Windows Distribution Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobPilot-Windows-x64
+          path: dist/JobPilot-v0.1.0-beta.1-windows-x64.zip
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux Packages (AppImage & .deb & .tar.gz)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Packaging Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 file dpkg-dev wget curl
+
+      - name: Initialize Virtualenv & Build Linux
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          chmod +x scripts/build_linux.sh
+          ./scripts/build_linux.sh
+
+      - name: Upload Linux AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobPilot-Linux-AppImage
+          path: dist/*x86_64.AppImage
+          retention-days: 7
+
+      - name: Upload Linux Debian (.deb) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobPilot-Linux-Deb
+          path: dist/*.deb
+          retention-days: 7
+
+      - name: Upload Linux Portable Tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobPilot-Linux-Tarball
+          path: dist/*.tar.gz
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create Release Assets Directory
+        run: mkdir -p release_assets
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: JobPilot-Windows-x64
+          path: release_assets/
+
+      - name: Download Linux AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: JobPilot-Linux-AppImage
+          path: release_assets/
+
+      - name: Download Linux Debian Package
+        uses: actions/download-artifact@v4
+        with:
+          name: JobPilot-Linux-Deb
+          path: release_assets/
+
+      - name: Download Linux Tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: JobPilot-Linux-Tarball
+          path: release_assets/
+
+      - name: List Release Assets
+        run: ls -la release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release_assets/*
+          name: JobPilot ${{ github.ref_name }}
+          prerelease: true
+          draft: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

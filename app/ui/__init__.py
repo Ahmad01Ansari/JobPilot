@@ -1,0 +1,1 @@
+"""JobPilot Desktop UI Package."""

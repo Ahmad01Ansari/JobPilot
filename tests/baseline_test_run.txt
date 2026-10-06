@@ -1,0 +1,102 @@
+================================================================================
+JOBPILOT BASELINE TEST DISCOVERY & AUDIT REPORT
+Generated At: 2026-09-28 19:25:06 UTC
+Total Test Files: 75
+Passed Files: 67
+Failed Files: 3
+Timed Out Files: 5
+================================================================================
+Test File                                  | Status   | Time (s) | Summary
+--------------------------------------------------------------------------------
+test_analytics_service.py                  | PASSED   | 1.48     | Ran 10 tests in 0.816s
+test_application_run.py                    | FAILED   | 14.8     | Ran 5 tests in 13.213s
+   [Tail]: ----------------------------------------------------------------------
+Ran 5 tests in 13.213s
+
+FAILED (failures=1)
+test_applications_ui.py                    | PASSED   | 1.46     | Ran 5 tests in 0.657s
+test_automation_integration.py             | FAILED   | 2.83     | Ran 13 tests in 2.000s
+   [Tail]: ----------------------------------------------------------------------
+Ran 13 tests in 2.000s
+
+FAILED (failures=6)
+test_automation_ui_contracts.py            | PASSED   | 1.63     | Ran 11 tests in 0.804s
+test_browser_lock.py                       | PASSED   | 0.11     | Ran 8 tests in 0.002s
+test_cli_router.py                         | PASSED   | 6.1      | Ran 11 tests in 4.531s
+test_daily_application_goal.py             | PASSED   | 1.18     | Ran 10 tests in 0.404s
+test_dashboard.py                          | PASSED   | 0.62     | Ran 6 tests in 0.018s
+test_dashboard_and_analytics.py            | PASSED   | 1.77     | Ran 9 tests in 1.036s
+test_database.py                           | PASSED   | 1.59     | Ran 14 tests in 0.956s
+test_desktop_foundation.py                 | TIMEOUT  | 20.05    | Timeout after 20s (likely interactive or live browser lock)
+   [Tail]: TIMED OUT
+test_email_providers.py                    | PASSED   | 0.61     | Ran 6 tests in 0.001s
+test_foundit_applier_and_rotator.py        | TIMEOUT  | 20.02    | Timeout after 20s (likely interactive or live browser lock)
+   [Tail]: TIMED OUT
+test_foundit_browser_and_auth.py           | PASSED   | 4.26     | Ran 7 tests in 4.016s
+test_foundit_config_and_secrets.py         | PASSED   | 0.61     | Ran 4 tests in 0.004s
+test_foundit_search_and_parser.py          | PASSED   | 4.64     | Ran 14 tests in 4.387s
+test_indeed_applier.py                     | PASSED   | 1.27     | Ran 6 tests in 0.830s
+test_indeed_captcha.py                     | PASSED   | 1.24     | Ran 21 tests in 0.436s
+test_indeed_form.py                        | PASSED   | 1.2      | Ran 2 tests in 0.793s
+test_indeed_rotator.py                     | PASSED   | 7.28     | Ran 5 tests in 6.858s
+test_indeed_safety_gate.py                 | PASSED   | 0.24     | Ran 2 tests in 0.000s
+test_indeed_search.py                      | PASSED   | 0.25     | Ran 15 tests in 0.011s
+test_indeed_selectors.py                   | PASSED   | 0.25     | Ran 10 tests in 0.000s
+test_job_and_app_services.py               | PASSED   | 2.1      | Ran 16 tests in 1.353s
+test_jobs_ui_ats.py                        | PASSED   | 16.78    | Ran 10 tests in 15.831s
+test_linkedin_external_apply.py            | PASSED   | 1.04     | Ran 3 tests in 0.835s
+test_linkedin_form_validation.py           | PASSED   | 1.16     | Ran 7 tests in 0.924s
+test_linkedin_modular.py                   | PASSED   | 6.78     | Ran 4 tests in 6.357s
+test_migration_service.py                  | TIMEOUT  | 20.02    | Timeout after 20s (likely interactive or live browser lock)
+   [Tail]: TIMED OUT
+test_models.py                             | PASSED   | 0.04     | Ran 5 tests in 0.000s
+test_naukri_browser.py                     | PASSED   | 6.83     | Ran 9 tests in 6.579s
+test_naukri_chatbot_and_metrics.py         | TIMEOUT  | 20.03    | Timeout after 20s (likely interactive or live browser lock)
+   [Tail]: TIMED OUT
+test_naukri_flow.py                        | PASSED   | 3.26     | Ran 13 tests in 3.028s
+test_naukri_flow_scenarios.py              | PASSED   | 17.85    | Ran 20 tests in 17.399s
+test_naukri_form.py                        | PASSED   | 4.23     | Ran 13 tests in 3.789s
+test_naukri_pagination.py                  | PASSED   | 0.89     | Ran 12 tests in 0.546s
+test_naukri_parser.py                      | PASSED   | 0.27     | Ran 5 tests in 0.003s
+test_naukri_preflight.py                   | PASSED   | 0.84     | Ran 5 tests in 0.111s
+test_naukri_recovery.py                    | PASSED   | 12.48    | Ran 16 tests in 12.225s
+test_naukri_safety_gate.py                 | PASSED   | 6.78     | Ran 9 tests in 6.420s
+test_naukri_search.py                      | PASSED   | 4.27     | Ran 8 tests in 4.011s
+test_naukri_submitter.py                   | PASSED   | 6.52     | Ran 9 tests in 6.267s
+test_notifications_and_search.py           | PASSED   | 3.38     | Ran 17 tests in 2.401s
+test_onboarding_and_ai.py                  | PASSED   | 3.12     | Ran 27 tests in 2.396s
+test_outreach_ai.py                        | PASSED   | 8.78     | Ran 11 tests in 8.163s
+test_outreach_api.py                       | PASSED   | 0.79     | Ran 5 tests in 0.198s
+test_outreach_composer_ui.py               | FAILED   | 17.49    | 
+   [Tail]: .This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+.QThread: Destroyed while thread '' is still running
+test_outreach_duplicates.py                | PASSED   | 9.6      | Ran 6 tests in 8.992s
+test_outreach_followups.py                 | PASSED   | 1.62     | Ran 7 tests in 1.014s
+test_outreach_idempotent_send.py           | PASSED   | 8.4      | Ran 5 tests in 7.737s
+test_outreach_inbound_sync.py              | PASSED   | 7.17     | Ran 4 tests in 6.546s
+test_outreach_schema_migration.py          | PASSED   | 0.73     | 
+test_outreach_templates_and_service.py     | PASSED   | 8.2      | Ran 5 tests in 7.585s
+test_outreach_viewmodels.py                | TIMEOUT  | 20.02    | Timeout after 20s (likely interactive or live browser lock)
+   [Tail]: TIMED OUT
+test_platform_service.py                   | PASSED   | 2.24     | Ran 15 tests in 1.548s
+test_production_phase2.py                  | PASSED   | 1.24     | Ran 6 tests in 0.630s
+test_profile_service.py                    | PASSED   | 1.77     | Ran 7 tests in 1.021s
+test_qna_canonical_seed.py                 | PASSED   | 0.96     | Ran 6 tests in 0.347s
+test_qna_dropdown_matching.py              | PASSED   | 1.16     | Ran 5 tests in 0.913s
+test_qna_provenance.py                     | PASSED   | 1.13     | Ran 7 tests in 0.918s
+test_qna_service.py                        | PASSED   | 1.94     | Ran 17 tests in 1.223s
+test_qualification.py                      | PASSED   | 0.61     | Ran 12 tests in 0.485s
+test_recruitment_service.py                | PASSED   | 1.86     | Ran 14 tests in 1.126s
+test_regression_e2e.py                     | PASSED   | 1.46     | Ran 25 tests in 0.641s
+test_repositories.py                       | PASSED   | 1.31     | Ran 12 tests in 0.617s
+test_resume_ai_and_profile_sync.py         | PASSED   | 5.1      | Ran 3 tests in 4.427s
+test_resume_service.py                     | PASSED   | 1.71     | Ran 11 tests in 0.970s
+test_resume_service_redesign.py            | PASSED   | 9.43     | Ran 9 tests in 8.768s
+test_search_ui_strategy.py                 | PASSED   | 13.1     | Ran 8 tests in 12.167s
+test_settings_redesign.py                  | PASSED   | 2.5      | Ran 7 tests in 1.681s
+test_settings_security_backup.py           | PASSED   | 2.18     | Ran 16 tests in 1.385s
+test_tracker.py                            | PASSED   | 0.1      | Ran 5 tests in 0.002s
+test_tracker_ssot.py                       | PASSED   | 0.73     | Ran 2 tests in 0.117s
+test_unified_history.py                    | PASSED   | 0.12     | Ran 9 tests in 0.003s

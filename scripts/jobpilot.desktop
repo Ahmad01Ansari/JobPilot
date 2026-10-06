@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=JobPilot
+Comment=Desktop Job Automation & Multi-Platform Application Bot
+Exec=python3 /home/ahmad10raza/Documents/Mastering/Apply-and-Pray/run_desktop.py
+Icon=/home/ahmad10raza/Documents/Mastering/Apply-and-Pray/app/ui/assets/brand/jobpilot_256.png
+Terminal=false
+Categories=Utility;Office;Development;
+StartupWMClass=JobPilot
