@@ -63,9 +63,17 @@ restore_tmp/
 scratch/
 debug/
 testing/
-*.png
-*.html
 graphify-out/
+docs/indeed_research_artifacts/
+foundit_session_check.png
+foundit_session_dom.html
+image/
+
+# Brand and UI Assets
+!app/ui/assets/brand/*.png
+!app/ui/assets/brand/*.ico
+!JobPilot.png
+!WorkingFlow/image.png
 
 # Virtual Environments
 .venv
