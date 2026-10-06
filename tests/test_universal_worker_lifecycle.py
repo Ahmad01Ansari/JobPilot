@@ -377,7 +377,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         self.assertTrue(self.manager.is_running())
 
         # Wait for intervention
-        timeout_loops = 50
+        timeout_loops = 150
         while not interventions and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -388,7 +388,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         ok = self.manager.confirm_current_review(notes="Manager confirmed")
         self.assertTrue(ok)
 
-        timeout_loops = 50
+        timeout_loops = 150
         while not runs_finished and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1

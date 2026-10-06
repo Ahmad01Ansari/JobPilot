@@ -662,7 +662,10 @@ class UniversalApplicationOrchestrator:
                         self.state_machine,
                         reason=InterventionReason.UNKNOWN_REQUIRED_FIELD,
                         message=f"Missing required candidate facts for: {', '.join(missing_labels)}",
-                        details={"unresolved_fields": missing_labels},
+                        details={
+                            "unresolved_fields": missing_labels,
+                            "field_name": missing_labels[0] if missing_labels else "Answer",
+                        },
                     )
                     res = await self.intervention_manager.wait_for_resolution()
                     if res.resolution_action != "RESUME":
@@ -670,6 +673,13 @@ class UniversalApplicationOrchestrator:
 
                     # Update context with user-supplied answers, persist to QnA bank, and re-map
                     if res.resolution_data:
+                        # Normalize single value to missing labels if provided
+                        if "value" in res.resolution_data and missing_labels:
+                            single_val = res.resolution_data["value"]
+                            for ml in missing_labels:
+                                if ml not in res.resolution_data and single_val:
+                                    res.resolution_data[ml] = single_val
+
                         self.field_mapper.candidate_context.update(res.resolution_data)
                         # Persist user-resolved answers into QnA bank so future forms never prompt again
                         for q_key, ans_val in res.resolution_data.items():

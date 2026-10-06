@@ -215,6 +215,39 @@ class TestUniversalInterventionDialog(unittest.TestCase):
         cancelled_cb.assert_called_once()
         self.assertEqual(dialog_cancel.result(), QDialog.Rejected)
 
+    def test_intervention_dialog_multi_unresolved_fields(self):
+        resumed_cb = MagicMock()
+        signal_data = []
+
+        dialog = UniversalInterventionDialog(
+            intervention_type=InterventionType.UNKNOWN_REQUIRED_FIELD,
+            message="Missing required candidate facts for: Full Legal Name, Current CTC",
+            details={
+                "unresolved_fields": ["Full Legal Name", "Current CTC"],
+                "field_name": "Full Legal Name",
+            },
+            on_resumed=resumed_cb,
+        )
+        dialog.resumed.connect(lambda data: signal_data.append(data))
+
+        self.assertEqual(len(dialog.field_inputs), 2)
+        self.assertIn("Full Legal Name", dialog.field_inputs)
+        self.assertIn("Current CTC", dialog.field_inputs)
+
+        dialog.field_inputs["Full Legal Name"].setText("Ahmad Raza")
+        dialog.field_inputs["Current CTC"].setText("12 LPA")
+
+        QTest.mouseClick(dialog.btn_resume, Qt.LeftButton)
+        expected = {
+            "action": "RESUME",
+            "Full Legal Name": "Ahmad Raza",
+            "Current CTC": "12 LPA",
+            "value": "Ahmad Raza",
+        }
+        resumed_cb.assert_called_once_with(expected)
+        self.assertEqual(signal_data, [expected])
+        self.assertEqual(dialog.result(), QDialog.Accepted)
+
 
 class TestUniversalTimelineWidget(unittest.TestCase):
     """Tests for the step-by-step universal agent timeline."""

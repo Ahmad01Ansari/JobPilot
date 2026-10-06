@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -163,30 +164,86 @@ class UniversalInterventionDialog(QDialog):
 
         # Optional Field Input (for UNKNOWN_REQUIRED_FIELD or TWO_FACTOR_AUTH / OTP)
         self.field_input = None
+        self.field_inputs: Dict[str, QLineEdit] = {}
         is_otp = "TWO_FACTOR" in type_str or "OTP" in type_str
         if type_str == "UNKNOWN_REQUIRED_FIELD":
-            input_box = QVBoxLayout()
-            input_box.setSpacing(4)
-            field_name = self.details.get("field_name") or self.details.get("label") or "Answer"
-            lbl_prompt = QLabel(f"Provide answer for: <b>{field_name}</b>")
-            lbl_prompt.setStyleSheet(f"color: {text_color}; font-size: 12px;")
-            input_box.addWidget(lbl_prompt)
+            unresolved = self.details.get("unresolved_fields") or []
+            if not unresolved:
+                single_fn = self.details.get("field_name") or self.details.get("label")
+                if single_fn:
+                    unresolved = [single_fn]
 
-            self.field_input = QLineEdit()
-            self.field_input.setPlaceholderText("Enter value to populate...")
-            self.field_input.setStyleSheet(f"""
-                QLineEdit {{
-                    background-color: {COLORS.get('surface_alt', '#0D1117')};
-                    border: 1px solid {border_color};
-                    border-radius: 6px;
-                    padding: 8px 10px;
-                    color: {text_color};
-                    font-size: 13px;
-                }}
-            """)
-            self.field_input.returnPressed.connect(self._on_resume_clicked)
-            input_box.addWidget(self.field_input)
-            layout.addLayout(input_box)
+            if unresolved:
+                fields_container = QVBoxLayout()
+                fields_container.setSpacing(10)
+
+                for fn in unresolved:
+                    fn_str = str(fn).strip()
+                    if not fn_str:
+                        continue
+                    item_box = QVBoxLayout()
+                    item_box.setSpacing(4)
+                    lbl_prompt = QLabel(f"Question / Field: <b>{fn_str}</b>")
+                    lbl_prompt.setStyleSheet(f"color: {text_color}; font-size: 13px;")
+                    lbl_prompt.setWordWrap(True)
+                    item_box.addWidget(lbl_prompt)
+
+                    inp = QLineEdit()
+                    inp.setPlaceholderText(f"Enter answer for '{fn_str}'...")
+                    inp.setStyleSheet(f"""
+                        QLineEdit {{
+                            background-color: {COLORS.get('surface_alt', '#0D1117')};
+                            border: 1px solid {border_color};
+                            border-radius: 6px;
+                            padding: 8px 10px;
+                            color: {text_color};
+                            font-size: 13px;
+                        }}
+                        QLineEdit:focus {{
+                            border: 1px solid {primary_color};
+                        }}
+                    """)
+                    inp.returnPressed.connect(self._on_resume_clicked)
+                    item_box.addWidget(inp)
+                    fields_container.addLayout(item_box)
+                    self.field_inputs[fn_str] = inp
+
+                if self.field_inputs:
+                    self.field_input = list(self.field_inputs.values())[0]
+
+                if len(self.field_inputs) > 2:
+                    scroll_widget = QWidget()
+                    scroll_widget.setLayout(fields_container)
+                    scroll_area = QScrollArea()
+                    scroll_area.setWidgetResizable(True)
+                    scroll_area.setWidget(scroll_widget)
+                    scroll_area.setMaximumHeight(220)
+                    scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+                    layout.addWidget(scroll_area)
+                else:
+                    layout.addLayout(fields_container)
+            else:
+                input_box = QVBoxLayout()
+                input_box.setSpacing(4)
+                lbl_prompt = QLabel("Provide answer for missing field:")
+                lbl_prompt.setStyleSheet(f"color: {text_color}; font-size: 12px;")
+                input_box.addWidget(lbl_prompt)
+
+                self.field_input = QLineEdit()
+                self.field_input.setPlaceholderText("Enter value to populate...")
+                self.field_input.setStyleSheet(f"""
+                    QLineEdit {{
+                        background-color: {COLORS.get('surface_alt', '#0D1117')};
+                        border: 1px solid {border_color};
+                        border-radius: 6px;
+                        padding: 8px 10px;
+                        color: {text_color};
+                        font-size: 13px;
+                    }}
+                """)
+                self.field_input.returnPressed.connect(self._on_resume_clicked)
+                input_box.addWidget(self.field_input)
+                layout.addLayout(input_box)
         elif is_otp:
             input_box = QVBoxLayout()
             input_box.setSpacing(6)
@@ -302,7 +359,17 @@ class UniversalInterventionDialog(QDialog):
 
     def _on_resume_clicked(self) -> None:
         data: Dict[str, Any] = {"action": "RESUME"}
-        if self.field_input:
+        if self.field_inputs:
+            has_unresolved_list = bool(self.details.get("unresolved_fields"))
+            for field_name, inp in self.field_inputs.items():
+                val = inp.text().strip()
+                if has_unresolved_list or len(self.field_inputs) > 1:
+                    data[field_name] = val
+                if "value" not in data:
+                    data["value"] = val
+            if "value" not in data and self.field_inputs:
+                data["value"] = list(self.field_inputs.values())[0].text().strip()
+        elif self.field_input:
             val = self.field_input.text().strip()
             data["value"] = val
             type_str = getattr(self.intervention_type, "value", str(self.intervention_type))
