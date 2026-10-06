@@ -1230,16 +1230,23 @@ def critical_error_log(possible_reason: str, stack_trace: Exception) -> None:
     print_lg(possible_reason, stack_trace, datetime.now(), from_critical=True)
 
 
-def get_log_path():
+def get_log_path() -> str:
     '''
-    Function to replace '//' with '/' for logs path
+    Function to resolve canonical logs path using AppPaths.
     '''
     try:
-        path = logs_folder_path+"/log.txt"
-        return path.replace("//","/")
-    except Exception as e:
-        critical_error_log("Failed getting log path! So assigning default logs path: './logs/log.txt'", e)
-        return "logs/log.txt"
+        from app.services.os.app_paths import AppPaths
+        logs_dir = AppPaths.get_logs_dir()
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        return str((logs_dir / "log.txt").resolve())
+    except Exception:
+        try:
+            path = logs_folder_path + "/log.txt"
+            p = pathlib.Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return str(p.resolve())
+        except Exception:
+            return "log.txt"
 
 
 __logs_file_path = get_log_path()
@@ -1262,7 +1269,9 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
     '''
     Function to log and print. **Note that, `end` and `flush` parameters are ignored if `pretty = True`**
     '''
+    global __logs_file_path
     try:
+        log_path = __logs_file_path if __logs_file_path else get_log_path()
         for message in msgs:
             msg_str = str(message)
             try:
@@ -1271,18 +1280,19 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
             except Exception:
                 pass
             pprint(msg_str) if pretty else print(msg_str, end=end, flush=flush)
-            with open(__logs_file_path, 'a+', encoding="utf-8") as file:
-                file.write(msg_str + end)
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, 'a+', encoding="utf-8") as file:
+                    file.write(msg_str + end)
+            except Exception as file_err:
+                print(f"[Log Error] Could not write to {log_path}: {file_err}", file=sys.stderr)
             for listener in list(_log_listeners):
                 try:
                     listener(msg_str)
                 except Exception:
                     pass
     except Exception as e:
-        trail = f'Skipped saving this message: "{message}" to log.txt!' if from_critical else "We'll try one more time to log..."
-        alert(f"log.txt in {logs_folder_path} is open or is occupied by another program! Please close it! {trail}", "Failed Logging")
-        if not from_critical:
-            critical_error_log("Log.txt is open or is occupied by another program!", e)
+        print(f"[Logger Warning] Exception in print_lg: {e}", file=sys.stderr)
 #>
 
 

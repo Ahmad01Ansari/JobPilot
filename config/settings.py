@@ -66,8 +66,11 @@ except Exception:
 
 # Directory and name of the files where history of applied jobs is saved (Sentence after the last "/" will be considered as the file name).
 file_name = "all excels/all_applied_applications_history.csv"
-failed_file_name = "all excels/all_failed_applications_history.csv"
-logs_folder_path = "logs/"
+try:
+    from app.services.os.app_paths import AppPaths
+    logs_folder_path = str(AppPaths.get_logs_dir()) + "/"
+except Exception:
+    logs_folder_path = "logs/"
 
 # Set the maximum amount of time allowed to wait between each click in secs
 click_gap = _plat.get("click_gap", 1)                       # Enter max allowed secs to wait approximately. (Only Non Negative Integers Eg: 0,1,2,3,....)
