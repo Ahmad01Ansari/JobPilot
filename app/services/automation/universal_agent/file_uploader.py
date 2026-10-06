@@ -7,7 +7,7 @@ attachment to <input type="file"> elements without operating system file dialog 
 import hashlib
 import os
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from app.services.automation.universal_agent.browser_agent.base import BrowserAgent
 
@@ -27,6 +27,7 @@ def calculate_sha256(file_path: str) -> str:
 class FileUploader:
     """Validates and executes file attachments using native browser automation."""
 
+    def __init__(self, managed_storage_dir: Optional[Union[str, Path]] = None) -> None:
         if managed_storage_dir:
             self.managed_storage_dir = Path(managed_storage_dir).resolve()
         else:
