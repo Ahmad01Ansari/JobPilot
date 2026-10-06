@@ -12,10 +12,12 @@ icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot.ico
 if not os.path.exists(icon_path):
     icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot_256.png")
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 added_data = [
     (str(project_root / "app" / "ui" / "assets"), os.path.join("app", "ui", "assets")),
     (str(project_root / "config"), "config"),
-]
+] + collect_data_files("stagehand") + collect_data_files("certifi")
 
 hidden_imports = [
     "PySide6",
@@ -37,7 +39,7 @@ hidden_imports = [
     "app.ui",
     "modules",
     "platforms",
-]
+] + collect_submodules("stagehand")
 
 a = Analysis(
     ["run_desktop.py"],

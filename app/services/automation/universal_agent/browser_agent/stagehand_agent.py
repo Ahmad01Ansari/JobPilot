@@ -9,6 +9,8 @@ import shutil
 import tempfile
 from typing import Any, Dict, List, Optional
 
+import sys
+
 from stagehand import Stagehand, local_browser
 from stagehand.browser import StagehandBrowser
 from stagehand.page import Page
@@ -17,6 +19,60 @@ from app.services.automation.universal_agent.browser_agent.base import BrowserAg
 from app.services.automation.universal_agent.browser_agent.session_manager import UniversalSessionManager
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_stagehand_extension_resolution() -> None:
+    """Ensures Stagehand unpacked extension directory is resolved accurately across frozen PyInstaller bundles and source trees."""
+    try:
+        import stagehand.extension_assets
+        import stagehand.browser
+
+        def safe_extension_directory() -> Path:
+            # 1. Check default stagehand extension directory
+            try:
+                candidate = Path(stagehand.extension_assets.__file__).with_name("_extension")
+                if (candidate / "manifest.json").is_file():
+                    return candidate
+            except Exception:
+                pass
+
+            # 2. Check PyInstaller _MEIPASS (frozen temporary bundle)
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                meipass = Path(sys._MEIPASS)
+                for d in [
+                    meipass / "stagehand" / "_extension",
+                    meipass / "_internal" / "stagehand" / "_extension",
+                    meipass / "_extension",
+                ]:
+                    if (d / "manifest.json").is_file():
+                        return d
+
+            # 3. Check relative to executable (one-dir bundle, e.g. /opt/jobpilot/jobpilot)
+            exe_dir = Path(sys.executable).parent
+            for d in [
+                exe_dir / "_internal" / "stagehand" / "_extension",
+                exe_dir / "stagehand" / "_extension",
+                exe_dir / "_extension",
+            ]:
+                if (d / "manifest.json").is_file():
+                    return d
+
+            # 4. Check virtual environment or site-packages fallback
+            for prefix in [Path.home() / ".venv", Path.cwd() / ".venv", Path(sys.prefix)]:
+                sp_cand = prefix / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "stagehand" / "_extension"
+                if (sp_cand / "manifest.json").is_file():
+                    return sp_cand
+
+            # 5. Fallback
+            return Path(stagehand.extension_assets.__file__).resolve().parents[3] / "extension" / "dist"
+
+        stagehand.extension_assets.extension_directory = safe_extension_directory
+        stagehand.browser.extension_directory = safe_extension_directory
+    except Exception as e:
+        logger.warning(f"Could not patch Stagehand extension resolver: {e}")
+
+
+_patch_stagehand_extension_resolution()
 
 
 class StagehandBrowserAgent(BrowserAgent):
