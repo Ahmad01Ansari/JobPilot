@@ -53,9 +53,9 @@ from app.ui.widgets.automation import (
     RunSummaryCard,
     UniversalTimelineWidget,
     UniversalTargetCard,
-    UniversalReviewDialog,
-    UniversalInterventionDialog,
 )
+from app.ui.views.automation.universal_review_dialog import UniversalReviewDialog
+from app.ui.views.automation.universal_intervention_dialog import UniversalInterventionDialog
 from app.ui.widgets.notification_bar import NotificationBar
 
 

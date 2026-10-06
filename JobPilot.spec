@@ -39,7 +39,7 @@ hidden_imports = [
     "app.ui",
     "modules",
     "platforms",
-] + collect_submodules("stagehand")
+] + collect_submodules("stagehand") + collect_submodules("app") + collect_submodules("platforms") + collect_submodules("modules") + collect_submodules("config")
 
 a = Analysis(
     ["run_desktop.py"],

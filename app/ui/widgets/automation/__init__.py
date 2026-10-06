@@ -16,8 +16,17 @@ from app.ui.widgets.automation.run_summary_card import RunSummaryCard
 from app.ui.widgets.automation.state import AutomationUIState
 from app.ui.widgets.automation.universal_timeline_widget import UniversalTimelineWidget
 from app.ui.widgets.automation.universal_target_card import UniversalTargetCard
-from app.ui.views.automation.universal_review_dialog import UniversalReviewDialog
-from app.ui.views.automation.universal_intervention_dialog import UniversalInterventionDialog
+
+
+def __getattr__(name: str):
+    if name == "UniversalReviewDialog":
+        from app.ui.views.automation.universal_review_dialog import UniversalReviewDialog
+        return UniversalReviewDialog
+    if name == "UniversalInterventionDialog":
+        from app.ui.views.automation.universal_intervention_dialog import UniversalInterventionDialog
+        return UniversalInterventionDialog
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AutomationHeader",
