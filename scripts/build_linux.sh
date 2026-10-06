@@ -39,14 +39,17 @@ if [ -d "dist/JobPilot" ]; then
     APPDIR="dist/AppDir"
     rm -rf "$APPDIR"
     mkdir -p "$APPDIR/usr/bin"
-    mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-
-    # Copy PyInstaller distribution binaries into AppDir
     cp -r dist/JobPilot/* "$APPDIR/usr/bin/"
 
-    # Copy icons
+    # Copy icons in all dimensions
+    for size in 16 24 32 48 64 128 256 512; do
+        icon_file="$PROJECT_ROOT/app/ui/assets/brand/jobpilot_${size}.png"
+        if [ -f "$icon_file" ]; then
+            mkdir -p "$APPDIR/usr/share/icons/hicolor/${size}x${size}/apps"
+            cp "$icon_file" "$APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/jobpilot.png"
+        fi
+    done
     cp "$PROJECT_ROOT/app/ui/assets/brand/jobpilot_256.png" "$APPDIR/jobpilot.png"
-    cp "$PROJECT_ROOT/app/ui/assets/brand/jobpilot_256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/jobpilot.png"
 
     # Create .desktop file in AppDir
     cat > "$APPDIR/jobpilot.desktop" <<EOF
@@ -133,8 +136,14 @@ exec /opt/jobpilot/JobPilot "$@"
 EOF
         chmod 755 "$DEB_DIR/usr/bin/jobpilot"
 
-        # Desktop entry and icon in both hicolor and pixmaps for universal desktop visibility
-        cp "$PROJECT_ROOT/app/ui/assets/brand/jobpilot_256.png" "$DEB_DIR/usr/share/icons/hicolor/256x256/apps/jobpilot.png"
+        # Copy brand icons in all standard hicolor dimensions
+        for size in 16 24 32 48 64 128 256 512; do
+            icon_file="$PROJECT_ROOT/app/ui/assets/brand/jobpilot_${size}.png"
+            if [ -f "$icon_file" ]; then
+                mkdir -p "$DEB_DIR/usr/share/icons/hicolor/${size}x${size}/apps"
+                cp "$icon_file" "$DEB_DIR/usr/share/icons/hicolor/${size}x${size}/apps/jobpilot.png"
+            fi
+        done
         cp "$PROJECT_ROOT/app/ui/assets/brand/jobpilot_256.png" "$DEB_DIR/usr/share/pixmaps/jobpilot.png"
         cat > "$DEB_DIR/usr/share/applications/jobpilot.desktop" <<EOF
 [Desktop Entry]

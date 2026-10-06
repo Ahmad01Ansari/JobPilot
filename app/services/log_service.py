@@ -14,8 +14,11 @@ class LogService:
         if log_path:
             self.log_path = Path(log_path)
         else:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            self.log_path = base_dir / "logs" / "log.txt"
+            try:
+                from app.services.os.app_paths import AppPaths
+                self.log_path = AppPaths.get_logs_dir() / "log.txt"
+            except Exception:
+                self.log_path = Path.home() / ".jobpilot" / "logs" / "log.txt"
 
     def ensure_log_file(self) -> bool:
         """Ensures the log directory and file exist."""

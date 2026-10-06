@@ -187,7 +187,8 @@ class GeneralSection(QWidget):
                 border-color: {COLORS.get('border_light', '#333A46')};
             }}
         """)
-        logs_dir = Path(__file__).resolve().parent.parent.parent.parent.parent / "logs"
+        from app.services.os.app_paths import AppPaths
+        logs_dir = AppPaths.get_logs_dir()
         logs_dir.mkdir(parents=True, exist_ok=True)
         btn_open_logs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs_dir))))
         l_layout.addWidget(btn_open_logs)
