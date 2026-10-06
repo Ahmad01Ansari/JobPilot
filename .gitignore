@@ -4,8 +4,10 @@ __pycache__/
 .idea/
 
 # Application Logs & Diagnostics
-logs/
+/logs/
 *.log
+!app/services/logs/
+!app/ui/views/logs/
 
 # Sensitive Credentials & Keys
 secrets.py
@@ -31,9 +33,10 @@ sys.sh
 PersonalData/
 all resumes/
 managed_resumes/
-resumes/
+/resumes/
 data/resumes/
 all excels/
+!app/ui/widgets/resumes/
 
 # CSV Application & Job History Exports
 *.csv
