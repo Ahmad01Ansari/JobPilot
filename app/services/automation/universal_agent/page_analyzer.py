@@ -130,6 +130,18 @@ _DOM_EXTRACTION_JS = """(() => {
             }
         }
 
+        // 0b. Google Forms / Typeform / Survey question container detection
+        const gformItem = el.closest('[role="listitem"], [jsmodel], .freebirdFormviewerViewItemsItemItem, .geS5n');
+        if (gformItem) {
+            const heading = gformItem.querySelector('[role="heading"], .M7eMe, [class*="ItemTitle"], [aria-level="3"]');
+            if (heading && heading.innerText && heading.innerText.trim()) {
+                const gTxt = heading.innerText.replace(/[*:]/g, '').trim();
+                if (gTxt && !/^(your answer|answer|short answer text|long answer text)$/i.test(gTxt)) {
+                    return gTxt;
+                }
+            }
+        }
+
         // 1. Direct label for=id
         if (el.id) {
             const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
@@ -155,14 +167,17 @@ _DOM_EXTRACTION_JS = """(() => {
             const labelled = document.getElementById(el.getAttribute('aria-labelledby'));
             if (labelled && labelled.innerText && labelled.innerText.trim()) labelText = labelled.innerText;
         }
-        // 5. aria-label
+        // 5. aria-label (ignore generic placeholder labels)
         if (!labelText && el.getAttribute('aria-label')) {
-            labelText = el.getAttribute('aria-label');
+            const ariaVal = el.getAttribute('aria-label').trim();
+            if (!/^(your answer|answer|short answer text|long answer text)$/i.test(ariaVal)) {
+                labelText = ariaVal;
+            }
         }
         // 5b. Direct element attributes (data-name, data-field-name, data-label, placeholder)
-        if (!labelText || /^(yes|no|true|false)$/i.test(labelText.trim())) {
+        if (!labelText || /^(yes|no|true|false|your answer|answer)$/i.test(labelText.trim())) {
             const attrLabel = el.getAttribute('data-name') || el.getAttribute('data-field-name') || el.getAttribute('data-label') || el.placeholder || '';
-            if (attrLabel && attrLabel.trim().length > 1) {
+            if (attrLabel && attrLabel.trim().length > 1 && !/^(your answer|answer|short answer text|long answer text)$/i.test(attrLabel.trim())) {
                 labelText = attrLabel;
             }
         }

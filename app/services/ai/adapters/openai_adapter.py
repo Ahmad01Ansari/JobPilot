@@ -60,7 +60,19 @@ class OpenAICompatibleAdapter(BaseAIAdapter):
             if not query:
                 query = "api-version=2024-02-15-preview"
         else:
-            path = f"{path}/chat/completions"
+            # Handle Ollama or bare host endpoints without /v1
+            if parsed.port == 11434 or "ollama" in clean.lower():
+                if path in ("", "/", "/api"):
+                    path = "/v1/chat/completions"
+                elif path.endswith("/v1"):
+                    path = f"{path}/chat/completions"
+                elif not path.endswith("/chat/completions"):
+                    path = f"{path}/chat/completions"
+            else:
+                if not path:
+                    path = "/v1/chat/completions"
+                elif not path.endswith("/chat/completions"):
+                    path = f"{path}/chat/completions"
 
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, query, parsed.fragment))
 
@@ -70,8 +82,20 @@ class OpenAICompatibleAdapter(BaseAIAdapter):
         path = parsed.path.rstrip("/")
         if path.endswith("/chat/completions"):
             path = path[:-len("/chat/completions")]
-        if not path.endswith("/models"):
-            path = f"{path}/models"
+
+        if parsed.port == 11434 or "ollama" in clean.lower():
+            if path in ("", "/", "/api"):
+                path = "/v1/models"
+            elif path.endswith("/v1"):
+                path = f"{path}/models"
+            elif not path.endswith("/models"):
+                path = f"{path}/models"
+        else:
+            if not path:
+                path = "/v1/models"
+            elif not path.endswith("/models"):
+                path = f"{path}/models"
+
         return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
 
     def _build_headers(

@@ -653,7 +653,11 @@ class UniversalApplicationOrchestrator:
                 mapping_result = self.field_mapper.map_fields(analysis)
 
                 if mapping_result.has_blocking_intervention:
-                    missing_labels = [m.field_info.label for m in mapping_result.unresolved_required_fields]
+                    missing_labels = [
+                        (m.field_info.label or m.field_info.name or m.field_info.placeholder or f"Question #{idx+1}").strip()
+                        for idx, m in enumerate(mapping_result.unresolved_required_fields)
+                    ]
+                    missing_labels = [lbl if lbl else f"Question #{idx+1}" for idx, lbl in enumerate(missing_labels)]
                     self.intervention_manager.trigger_intervention(
                         self.state_machine,
                         reason=InterventionReason.UNKNOWN_REQUIRED_FIELD,
