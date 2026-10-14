@@ -148,10 +148,15 @@ class MainWindow(QMainWindow):
 
         self.top_bar.toggle_sidebar_requested.connect(self.sidebar.toggle_collapse)
         self.top_bar.search_requested.connect(self.open_search_dialog)
+        self.top_bar.refresh_requested.connect(self._on_global_refresh_requested)
         self.top_bar.profile_clicked.connect(lambda: self.navigate_to("profile"))
         self.top_bar.about_clicked.connect(self._show_about_dialog)
         self.shortcut_search = QShortcut(QKeySequence("Ctrl+K"), self)
         self.shortcut_search.activated.connect(self.open_search_dialog)
+        self.shortcut_refresh_f5 = QShortcut(QKeySequence("F5"), self)
+        self.shortcut_refresh_f5.activated.connect(self._on_global_refresh_requested)
+        self.shortcut_refresh_ctrl_r = QShortcut(QKeySequence("Ctrl+R"), self)
+        self.shortcut_refresh_ctrl_r.activated.connect(self._on_global_refresh_requested)
 
         # Reflect real candidate name in TopBar
         self._update_top_bar_user_name()
@@ -363,8 +368,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # If pipeline, applications, interviews, or followups updated, ensure related views are also refreshed
-        if entity in ["applications", "interviews", "followups", "pipeline", "jobs"]:
+        # If pipeline, applications, interviews, followups, jobs or dashboard updated, ensure related views are refreshed
+        if entity in ["applications", "interviews", "followups", "pipeline", "jobs", "dashboard", "all"]:
             for v_id in ["applications", "interviews", "followups", "jobs", "analytics", "automation"]:
                 v = self.view_instances.get(v_id)
                 if v and v != curr and hasattr(v, "refresh"):
@@ -374,7 +379,7 @@ class MainWindow(QMainWindow):
                         pass
 
         # If search criteria updated, refresh search and platform views
-        if entity in ["search", "platforms"]:
+        if entity in ["search", "platforms", "all"]:
             for v_id in ["search", "platforms"]:
                 v = self.view_instances.get(v_id)
                 if v and v != curr and hasattr(v, "refresh"):
@@ -384,8 +389,19 @@ class MainWindow(QMainWindow):
                         pass
 
         # If profile/candidate updated, refresh TopBar candidate badge
-        if entity in ["profile", "candidate"]:
+        if entity in ["profile", "candidate", "all"]:
             self._update_top_bar_user_name()
+
+    def _on_global_refresh_requested(self) -> None:
+        """Global refresh trigger from TopBar or F5/Ctrl+R: refreshes active view and broadcasts to all."""
+        curr = self.get_current_view()
+        if curr and hasattr(curr, "refresh"):
+            try:
+                curr.refresh()
+            except Exception:
+                pass
+        self._on_data_updated("all")
+        self.state.notify("info", "All views refreshed and synchronized.")
 
 
     def _on_status_changed(self, component: str, status_text: str):

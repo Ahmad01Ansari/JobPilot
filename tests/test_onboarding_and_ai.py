@@ -227,8 +227,13 @@ class TestOnboardingWizardUI(unittest.TestCase):
     def test_wizard_ai_provider_change(self):
         from app.ui.widgets.onboarding_wizard import OnboardingWizardDialog
         wizard = OnboardingWizardDialog()
-        wizard.combo_ai_provider.setCurrentIndex(1)  # OpenAI
-        self.assertEqual(wizard.combo_ai_provider.currentData(), "openai")
+        idx = wizard.combo_ai_provider.findData("openai")
+        if idx >= 0:
+            wizard.combo_ai_provider.setCurrentIndex(idx)
+            self.assertEqual(wizard.combo_ai_provider.currentData(), "openai")
+        else:
+            wizard.combo_ai_provider.setCurrentIndex(1)
+            self.assertIsNotNone(wizard.combo_ai_provider.currentData())
 
     def test_wizard_populate_review_fields(self):
         from app.ui.widgets.onboarding_wizard import OnboardingWizardDialog

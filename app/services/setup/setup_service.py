@@ -194,8 +194,21 @@ class SetupService:
 
             # Perform live capability test
             ai = self._get_ai_service()
-            test_res = ai.test_connection(provider=provider)
-            is_ok = test_res.get("success", False) if isinstance(test_res, dict) else bool(test_res)
+            test_res = ai.test_connection(
+                provider=provider,
+                api_key=api_key.strip() if api_key else None,
+                api_url=endpoint.strip() if endpoint else None,
+                model=model.strip() if model else None,
+            )
+            test_msg = None
+            if isinstance(test_res, tuple):
+                is_ok = bool(test_res[0])
+                test_msg = str(test_res[1]) if len(test_res) > 1 else None
+            elif isinstance(test_res, dict):
+                is_ok = bool(test_res.get("success", False))
+                test_msg = str(test_res.get("message", ""))
+            else:
+                is_ok = bool(test_res)
 
             capabilities = {
                 "endpoint_reachable": is_ok,
@@ -208,10 +221,11 @@ class SetupService:
                 self._state.mark_step_completed("ai_provider")
                 self._change_summary.append(f"AI Provider ({provider}) configured and verified.")
             else:
-                self._state.log_event("AI_TEST_FAILED", "ai_provider", f"Connectivity check failed for {provider}.")
+                self._state.log_event("AI_TEST_FAILED", "ai_provider", f"Connectivity check failed for {provider}: {test_msg}")
 
             self._state.save(self._state_path)
-            return is_ok, None, capabilities
+            err_msg = None if is_ok else (test_msg or f"Connectivity check failed for {provider}.")
+            return is_ok, err_msg, capabilities
         except Exception as exc:
             logger.error("Failed to configure AI provider in setup: %s", exc)
             return False, str(exc), {}
@@ -274,12 +288,29 @@ class SetupService:
         extracted_text = ""
         try:
             parser = self._get_resume_parser()
-            parsed_doc = parser.parse_resume(str(path_obj))
-            extracted_text = parsed_doc.get("text", "") if isinstance(parsed_doc, dict) else str(parsed_doc)
+            if hasattr(parser, "extract_raw_text"):
+                extracted_text = parser.extract_raw_text(str(path_obj))
+            if not extracted_text:
+                parsed_doc = parser.parse_resume(str(path_obj))
+                if isinstance(parsed_doc, tuple):
+                    if len(parsed_doc) > 1 and isinstance(parsed_doc[1], str) and parsed_doc[1].strip():
+                        extracted_text = parsed_doc[1]
+                    elif len(parsed_doc) > 0 and isinstance(parsed_doc[0], str):
+                        extracted_text = parsed_doc[0]
+                elif isinstance(parsed_doc, dict):
+                    extracted_text = parsed_doc.get("text", "") or parsed_doc.get("raw_text", "")
+                elif isinstance(parsed_doc, str):
+                    extracted_text = parsed_doc
         except Exception as exc:
             logger.warning("Local resume text parsing error: %s", exc)
 
-        if not extracted_text:
+        if not extracted_text and path_obj.suffix.lower() == ".txt":
+            try:
+                extracted_text = path_obj.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+        if not extracted_text or not extracted_text.strip():
             return False, "Could not extract readable text from document.", {}
 
         # Stage 2: Personal Identity
@@ -773,27 +804,72 @@ class SetupService:
         return list(self._change_summary)
 
     # Heuristic Regex Fallback
-
     def _regex_heuristic_extraction(self, text: str) -> Dict[str, Any]:
-        """Fast regex extraction fallback when AI is unavailable."""
-        res = {}
-        # Email
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-        if email_match:
-            res["email"] = {"value": email_match.group(0), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+        """Comprehensive regex & heuristic extraction fallback when AI is unavailable."""
+        res: Dict[str, Any] = {}
+        try:
+            parser = self._get_resume_parser()
+            if hasattr(parser, "_extract_with_rules"):
+                rules_data = parser._extract_with_rules(text)
+                if isinstance(rules_data, dict):
+                    # Map personal
+                    personal = rules_data.get("personal", {})
+                    for field in ["first_name", "last_name", "email", "phone", "linkedin_url", "github_url"]:
+                        val = personal.get(field)
+                        if val:
+                            target_key = "phone_number" if field == "phone" else field
+                            res[target_key] = {
+                                "value": val,
+                                "source": "Resume · Rule extracted",
+                                "status": "EXTRACTED",
+                            }
+                    # Map professional
+                    prof = rules_data.get("professional", {})
+                    for field in ["current_title", "years_of_experience"]:
+                        val = prof.get(field)
+                        if val:
+                            res[field] = {
+                                "value": val,
+                                "source": "Resume · Rule extracted",
+                                "status": "EXTRACTED",
+                            }
+                    # Map skills
+                    skills = rules_data.get("skills", [])
+                    skill_names = [s.get("name") for s in skills if isinstance(s, dict) and s.get("name")]
+                    if skill_names:
+                        res["skills"] = {
+                            "value": skill_names,
+                            "source": "Resume · Catalog matched",
+                            "status": "EXTRACTED",
+                        }
+                        res["primary_skills"] = {
+                            "value": skill_names[:5],
+                            "source": "Resume · Catalog matched",
+                            "status": "EXTRACTED",
+                        }
+        except Exception as exc:
+            logger.warning("Heuristic rule extraction error: %s", exc)
 
-        # Phone
-        phone_match = re.search(r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
-        if phone_match:
-            res["phone_number"] = {"value": phone_match.group(0), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+        # Basic fallback regex for email and phone if still missing
+        if "email" not in res:
+            email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", text)
+            if email_match:
+                res["email"] = {"value": email_match.group(0), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
 
-        # First line candidate name
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if lines:
-            first_line = lines[0]
-            if len(first_line.split()) <= 4 and not any(c in first_line for c in "@:/\\"):
-                parts = first_line.split()
-                res["first_name"] = {"value": parts[0], "source": "Resume · Regex parsed", "status": "EXTRACTED"}
-                res["last_name"] = {"value": " ".join(parts[1:]), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+        if "phone_number" not in res:
+            phone_match = re.search(r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", text)
+            if phone_match:
+                res["phone_number"] = {"value": phone_match.group(0), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+
+        if "first_name" not in res:
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            for line in lines[:5]:
+                if "@" not in line and "http" not in line and not any(c.isdigit() for c in line) and not any(c in line for c in ":/\\"):
+                    words = line.split()
+                    if 1 <= len(words) <= 4:
+                        res["first_name"] = {"value": words[0].title(), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+                        if len(words) > 1:
+                            res["last_name"] = {"value": " ".join(words[1:]).title(), "source": "Resume · Regex parsed", "status": "EXTRACTED"}
+                        break
 
         return res

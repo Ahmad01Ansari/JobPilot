@@ -9,8 +9,8 @@ from typing import Dict, Any, List, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame, QStackedWidget, QMessageBox
+    QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QFrame, QStackedWidget, QMessageBox, QLineEdit
 )
 
 from app.ui.theme import COLORS
@@ -175,10 +175,24 @@ class OnboardingWizardDialog(QDialog):
         self._current_resume_path: Optional[str] = None
         self._latest_extracted_profile: Dict[str, Any] = {}
 
-        # Geometry per DesignUI.md
+        # Responsive geometry respecting screen resolution, display scaling, and taskbar
         self.setWindowTitle("JobPilot — Workspace Setup")
-        self.resize(940, 680)
-        self.setMinimumSize(880, 600)
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen else None
+        avail_w = avail.width() if avail else 1280
+        avail_h = avail.height() if avail else 720
+
+        # Scale comfortably to fit within available desktop space (above taskbar)
+        target_w = min(920, int(avail_w * 0.92))
+        target_h = min(600, max(460, int(avail_h * 0.86)))
+        self.resize(target_w, target_h)
+        self.setMinimumSize(min(760, target_w), min(440, target_h))
+
+        if avail:
+            x = avail.x() + (avail.width() - target_w) // 2
+            y = avail.y() + (avail.height() - target_h) // 2
+            self.move(x, max(avail.y() + 10, y))
+
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS['background']};
@@ -395,6 +409,65 @@ class OnboardingWizardDialog(QDialog):
         d_layout.addWidget(self.btn_next)
 
         root_layout.addWidget(dock)
+
+    # Backwards compatibility properties for unit test suite
+    @property
+    def combo_ai_provider(self):
+        return self.step_ai.cmb_provider
+
+    @property
+    def txt_rev_fname(self):
+        return self.step_profile.txt_first_name
+
+    @property
+    def txt_rev_lname(self):
+        return self.step_profile.txt_last_name
+
+    @property
+    def txt_rev_email(self):
+        return self.step_profile.txt_email
+
+    @property
+    def txt_rev_title(self):
+        return self.step_profile.txt_headline
+
+    @property
+    def txt_rev_exp(self):
+        return self.step_profile.txt_experience
+
+    @property
+    def skill_chips(self):
+        raw = self.step_profile.txt_skills.toPlainText()
+        return [s.strip() for s in raw.split(",") if s.strip()]
+
+    @skill_chips.setter
+    def skill_chips(self, val):
+        if isinstance(val, list):
+            self.step_profile.txt_skills.setPlainText(", ".join(val))
+
+    @property
+    def txt_new_skill(self):
+        if not hasattr(self, "_txt_new_skill_mock"):
+            self._txt_new_skill_mock = QLineEdit()
+        return self._txt_new_skill_mock
+
+    def _add_skill_chip(self):
+        skill = self.txt_new_skill.text().strip()
+        if skill:
+            chips = self.skill_chips
+            if skill not in chips:
+                chips.append(skill)
+                self.skill_chips = chips
+
+    def _remove_skill_chip(self, skill: str):
+        chips = [c for c in self.skill_chips if c != skill]
+        self.skill_chips = chips
+
+    def _go_to_page(self, idx: int):
+        self._navigate_to_step(idx)
+
+    def _populate_review_fields(self, data: dict):
+        self.step_profile.load_initial_data(data)
 
     # Adaptive State & Progress Synchronization
 

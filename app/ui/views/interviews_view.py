@@ -42,7 +42,7 @@ from app.services.search.search_result import NavigationAction, NavigationReques
 from app.ui.theme import COLORS
 from app.ui.widgets.notification_bar import NotificationBar
 from app.ui.widgets.page_header import PageHeader
-from app.ui.widgets.status_badge import StatusBadge
+from app.ui.widgets.status_badge import StatusBadge, StatusDropdownButton
 from app.utils_time import format_local_datetime
 
 
@@ -209,11 +209,13 @@ class InterviewFeedbackDialog(QDialog):
         self,
         interview: Interview,
         service: RecruitmentService,
+        app_service: Optional[ApplicationService] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.interview = interview
         self.service = service
+        self.app_service = app_service
 
         app = interview.application
         job = app.job if app else None
@@ -323,6 +325,22 @@ class InterviewFeedbackDialog(QDialog):
             self.cmb_status.setCurrentIndex(idx)
         form_layout.addRow("Round Status *", self.cmb_status)
 
+        # Job Stage Transition Option
+        current_stage = (app.status if app else "INTERVIEW").upper()
+        self.cmb_job_stage = QComboBox()
+        self.cmb_job_stage.addItem(f"Keep Current ({current_stage.title()})", current_stage)
+        for st_code, st_lbl in [
+            ("INTERVIEW", "🗓️ Interview Stage"),
+            ("OFFER", "🎉 Advance to Offer"),
+            ("REJECTED", "❌ Rejected / Closed"),
+            ("WITHDRAWN", "↩️ Withdrawn"),
+            ("UNDER_REVIEW", "⏳ Under Review"),
+            ("SUBMITTED", "📄 Submitted"),
+        ]:
+            if st_code != current_stage:
+                self.cmb_job_stage.addItem(st_lbl, st_code)
+        form_layout.addRow("Job Stage", self.cmb_job_stage)
+
         self.txt_feedback = QTextEdit()
         self.txt_feedback.setPlaceholderText("Detailed round learnings, questions asked, technical topics covered, self-evaluation, next steps...")
         self.txt_feedback.setMinimumHeight(110)
@@ -394,6 +412,20 @@ class InterviewFeedbackDialog(QDialog):
         )
 
         if updated:
+            target_stage = self.cmb_job_stage.currentData()
+            if (
+                target_stage
+                and self.interview.application
+                and target_stage != self.interview.application.status
+                and self.app_service
+            ):
+                self.app_service.transition_status(
+                    application_id=self.interview.application.id,
+                    new_status=target_stage,
+                    source="interviews_feedback",
+                    notes=f"Stage changed to {target_stage} from Round #{self.interview.round_number} feedback",
+                    allow_override=True,
+                )
             self.accept()
         else:
             QMessageBox.warning(self, "Update Error", f"Failed: {err}")
@@ -467,7 +499,7 @@ class InterviewsView(QWidget):
                 color: {COLORS['text']};
             }}
         """)
-        self.btn_refresh.clicked.connect(self.refresh)
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
 
         self.header.add_action_widget(self.btn_schedule)
         self.header.add_action_widget(self.btn_refresh)
@@ -525,23 +557,23 @@ class InterviewsView(QWidget):
             "Scheduled Time",
             "Interviewer",
             "Mode",
-            "Status",
+            "Job Stage",
             "Actions",
         ])
         self.table.horizontalHeader().setMinimumSectionSize(40)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table.setColumnWidth(1, 150)
+        self.table.setColumnWidth(1, 140)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.table.setColumnWidth(2, 155)
+        self.table.setColumnWidth(2, 150)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Interactive)
-        self.table.setColumnWidth(3, 110)
+        self.table.setColumnWidth(3, 115)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.table.setColumnWidth(4, 75)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 135)
+        self.table.setColumnWidth(5, 140)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
-        self.table.setColumnWidth(6, 175)
+        self.table.setColumnWidth(6, 190)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(44)
@@ -689,16 +721,21 @@ class InterviewsView(QWidget):
             m_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 4, m_item)
 
-            # 5. Status Badge
-            status_widget = QWidget()
-            status_widget.setStyleSheet("background: transparent; border: none;")
-            status_layout = QHBoxLayout(status_widget)
-            status_layout.setContentsMargins(0, 0, 0, 0)
-            status_layout.setAlignment(Qt.AlignCenter)
-            status_layout.addWidget(StatusBadge(item.status))
-            self.table.setCellWidget(row, 5, status_widget)
+            # 5. Job Stage (1-click interactive ATS status dropdown)
+            app_stage = app.status if app else "INTERVIEW"
+            stage_btn = StatusDropdownButton(app_stage)
+            stage_btn.status_changed.connect(
+                lambda new_st, iv=item: self._on_stage_changed(iv, new_st)
+            )
+            stage_widget = QWidget()
+            stage_widget.setStyleSheet("background: transparent; border: none; margin: 0; padding: 0;")
+            stage_layout = QHBoxLayout(stage_widget)
+            stage_layout.setContentsMargins(0, 0, 0, 0)
+            stage_layout.setAlignment(Qt.AlignCenter)
+            stage_layout.addWidget(stage_btn)
+            self.table.setCellWidget(row, 5, stage_widget)
 
-            # 6. Actions (Join Link + Feedback)
+            # 6. Actions (Consistent [Join Link] [Feedback] layout for all jobs)
             act_widget = QWidget()
             act_widget.setStyleSheet("background: transparent; border: none;")
             act_layout = QHBoxLayout(act_widget)
@@ -706,75 +743,68 @@ class InterviewsView(QWidget):
             act_layout.setSpacing(8)
             act_layout.setAlignment(Qt.AlignCenter)
 
+            btn_link = QPushButton("Join Link")
+            btn_link.setFixedSize(80, 26)
             if item.meeting_link:
-                btn_link = QPushButton("Join Link")
-                btn_link.setFixedSize(76, 26)
+                btn_link.setEnabled(True)
                 btn_link.setCursor(Qt.PointingHandCursor)
                 btn_link.setToolTip(f"Open meeting link: {item.meeting_link}")
                 btn_link.setStyleSheet(f"""
                     QPushButton {{
                         background-color: #1C2128;
                         color: {COLORS['accent']};
-                        border: 1px solid {COLORS['accent']}70;
+                        border: 1px solid {COLORS['accent']}80;
                         font-size: 11px;
                         font-weight: 600;
                         border-radius: 4px;
                         padding: 0px 4px;
                     }}
                     QPushButton:hover {{
-                        background-color: {COLORS['accent']}20;
+                        background-color: {COLORS['accent']}25;
                         border-color: {COLORS['accent']};
                         color: #FFFFFF;
                     }}
                 """)
                 btn_link.clicked.connect(lambda _, url=item.meeting_link: QDesktopServices.openUrl(QUrl(url)))
-                act_layout.addWidget(btn_link)
-
-                btn_update = QPushButton("Feedback")
-                btn_update.setFixedSize(76, 26)
-                btn_update.setCursor(Qt.PointingHandCursor)
-                btn_update.setToolTip("Update round status and interview feedback")
-                btn_update.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {COLORS['surface_alt']};
-                        color: {COLORS['text']};
-                        border: 1px solid {COLORS['border']};
+            else:
+                btn_link.setEnabled(False)
+                btn_link.setCursor(Qt.ArrowCursor)
+                btn_link.setToolTip("No meeting link provided for this round")
+                btn_link.setStyleSheet("""
+                    QPushButton {
+                        background-color: #161B22;
+                        color: #484F58;
+                        border: 1px solid #21262D;
                         font-size: 11px;
                         font-weight: 600;
                         border-radius: 4px;
                         padding: 0px 4px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {COLORS['surface_hover']};
-                        border-color: {COLORS['border_light']};
-                        color: #FFFFFF;
-                    }}
+                    }
                 """)
-                btn_update.clicked.connect(lambda _, iv=item: self._on_update_clicked(iv))
-                act_layout.addWidget(btn_update)
-            else:
-                btn_update = QPushButton("Update / Feedback")
-                btn_update.setFixedSize(130, 26)
-                btn_update.setCursor(Qt.PointingHandCursor)
-                btn_update.setToolTip("Update round status and interview feedback")
-                btn_update.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {COLORS['surface_alt']};
-                        color: {COLORS['text']};
-                        border: 1px solid {COLORS['border']};
-                        font-size: 11px;
-                        font-weight: 600;
-                        border-radius: 4px;
-                        padding: 0px 8px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {COLORS['surface_hover']};
-                        border-color: {COLORS['border_light']};
-                        color: #FFFFFF;
-                    }}
-                """)
-                btn_update.clicked.connect(lambda _, iv=item: self._on_update_clicked(iv))
-                act_layout.addWidget(btn_update)
+            act_layout.addWidget(btn_link)
+
+            btn_feedback = QPushButton("Feedback")
+            btn_feedback.setFixedSize(80, 26)
+            btn_feedback.setCursor(Qt.PointingHandCursor)
+            btn_feedback.setToolTip("Update round feedback and advance job stage")
+            btn_feedback.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface_alt']};
+                    color: {COLORS['text']};
+                    border: 1px solid {COLORS['border']};
+                    font-size: 11px;
+                    font-weight: 600;
+                    border-radius: 4px;
+                    padding: 0px 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['surface_hover']};
+                    border-color: {COLORS['border_light']};
+                    color: #FFFFFF;
+                }}
+            """)
+            btn_feedback.clicked.connect(lambda _, iv=item: self._on_update_clicked(iv))
+            act_layout.addWidget(btn_feedback)
 
             self.table.setCellWidget(row, 6, act_widget)
 
@@ -784,6 +814,58 @@ class InterviewsView(QWidget):
             req = self._pending_navigation_request
             self._pending_navigation_request = None
             self.handle_navigation_request(req)
+
+    def _on_stage_changed(self, interview: Interview, new_status: str) -> None:
+        """Handles 1-click job stage transition directly from the Interviews view."""
+        app_id = getattr(interview, "application_id", None)
+        if not app_id:
+            try:
+                if hasattr(interview, "application") and interview.application:
+                    app_id = interview.application.id
+            except Exception:
+                app_id = None
+
+        if not app_id:
+            return
+
+        app = self.app_service.get_application(app_id)
+        if not app:
+            return
+
+        company = app.job.company_raw if app.job else f"Application #{app.id}"
+        role = app.job.title if app.job else ""
+
+        updated, err = self.app_service.transition_status(
+            application_id=app.id,
+            new_status=new_status,
+            source="interviews_view",
+            notes=f"Job stage updated to {new_status} via Interviews Management",
+            allow_override=True,
+        )
+
+        if updated:
+            clean_name = new_status.replace("_", " ").title()
+            self.notification_bar.show_message(
+                "success",
+                f"Updated job stage to {clean_name} for {company} — {role}",
+            )
+            self.refresh()
+            self.data_updated.emit("interviews")
+            self.data_updated.emit("applications")
+            self.data_updated.emit("jobs")
+            self.data_updated.emit("pipeline")
+        else:
+            self.notification_bar.show_message("warning", f"Failed to update stage: {err}")
+
+    def _on_refresh_clicked(self) -> None:
+        """User-triggered refresh: reloads fresh interviews and metrics from DB."""
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("Refreshing...")
+        self.refresh()
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("Refresh")
+        self.notification_bar.show_message("info", "Interviews refreshed.")
+        self.data_updated.emit("interviews")
 
     def arm_navigation_request(self, request: NavigationRequest) -> None:
         """Stores request to be applied safely during or after refresh."""
@@ -832,13 +914,22 @@ class InterviewsView(QWidget):
             self.notification_bar.show_message("success", "Interview round scheduled successfully.")
             self.refresh()
             self.data_updated.emit("interviews")
+            self.data_updated.emit("applications")
+            self.data_updated.emit("jobs")
 
     def _on_update_clicked(self, interview: Interview) -> None:
-        dialog = InterviewFeedbackDialog(interview=interview, service=self.service, parent=self)
+        dialog = InterviewFeedbackDialog(
+            interview=interview,
+            service=self.service,
+            app_service=self.app_service,
+            parent=self,
+        )
         if dialog.exec() == QDialog.Accepted:
             self.notification_bar.show_message("success", "Interview feedback and status updated.")
             self.refresh()
             self.data_updated.emit("interviews")
+            self.data_updated.emit("applications")
+            self.data_updated.emit("jobs")
 
     def inspect_interview_by_id(self, interview_id: int) -> None:
         """Finds and opens feedback/details dialog for a specific interview by ID."""

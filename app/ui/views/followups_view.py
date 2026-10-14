@@ -370,7 +370,7 @@ class FollowupsView(QWidget):
                 color: {COLORS['text']};
             }}
         """)
-        self.btn_refresh.clicked.connect(self.refresh)
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
 
         self.header.add_action_widget(self.btn_add)
         self.header.add_action_widget(self.btn_refresh)
@@ -511,6 +511,16 @@ class FollowupsView(QWidget):
             self.tabs.setCurrentIndex(3)  # Toggle back to 'All'
         else:
             self.tabs.setCurrentIndex(target_tab)
+
+    def _on_refresh_clicked(self) -> None:
+        """User-triggered refresh: reloads followups and broadcasts updates."""
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("Refreshing...")
+        self.refresh()
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("Refresh")
+        self.notification_bar.show_message("info", "Follow-ups refreshed.")
+        self.data_updated.emit("followups")
 
     def refresh(self) -> None:
         """Reloads follow-up reminders and metrics."""

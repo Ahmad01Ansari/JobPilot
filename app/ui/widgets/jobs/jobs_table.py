@@ -1,5 +1,6 @@
 """ATS-style interactive data grid for Jobs management with bulk selection, sorting, density, and persistence."""
 
+from datetime import datetime
 from typing import List, Optional, Set
 from PySide6.QtCore import QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QPainter
@@ -21,120 +22,11 @@ from PySide6.QtWidgets import (
 
 from app.db.models import Job
 from app.ui.theme import COLORS
-from app.ui.widgets.status_badge import STATUS_DISPLAY_LABELS, StatusBadge
-
-
-class StatusDropdownButton(QPushButton):
-    """Interactive status pill button with a dropdown chevron for 1-click status transitions."""
-
-    status_changed = Signal(str)  # target status string
-
-    STATUS_OPTIONS = [
-        ("SUBMITTED", "📄 Submitted", "success"),
-        ("UNDER_REVIEW", "⏳ Under Review", "warning"),
-        ("INTERVIEW", "🎯 Interview / Shortlisted", "purple"),
-        ("OFFER", "🎉 Offer", "success"),
-        ("REJECTED", "❌ Rejected", "danger"),
-        ("WITHDRAWN", "↩️ Withdrawn", "neutral"),
-        ("FAILED", "⚠️ Failed", "danger"),
-        ("MANUAL_REQUIRED", "🖐️ Manual Check", "warning"),
-        ("NOT_APPLIED", "⚪ Not Applied", "neutral"),
-    ]
-
-    def __init__(self, current_status: str, parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.current_status = (current_status or "NOT_APPLIED").strip().upper()
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(115, 24)
-        self.update_display(self.current_status)
-        self.clicked.connect(self._show_menu)
-
-    def update_display(self, status: str) -> None:
-        self.current_status = (status or "NOT_APPLIED").strip().upper()
-        display_label = STATUS_DISPLAY_LABELS.get(self.current_status, self.current_status.replace("_", " ").title())
-        self.setText(f"{display_label} ▾")
-        self.setToolTip(f"Current Status: {display_label}\nClick to change status (e.g. Failed → Submitted)")
-
-        color_map = {
-            "success": ("#34D399", "#064E3B", "#059669"),
-            "warning": ("#FBBF24", "#451A03", "#D97706"),
-            "danger": ("#F87171", "#450A0A", "#DC2626"),
-            "primary": ("#FB923C", "#431407", "#EA580C"),
-            "purple": ("#C084FC", "#2E1065", "#7C3AED"),
-            "neutral": ("#9CA3AF", "#1F2937", "#374151"),
-        }
-        st = "neutral"
-        if self.current_status in ["SUBMITTED", "OFFER", "COMPLETED", "READY", "QUALIFIED"]:
-            st = "success"
-        elif self.current_status in ["UNDER_REVIEW", "WARNING", "MANUAL_REQUIRED", "PENDING"]:
-            st = "warning"
-        elif self.current_status in ["SHORTLISTED", "RECRUITER_CONTACTED", "ACTIVE"]:
-            st = "primary"
-        elif self.current_status in ["ASSESSMENT", "INTERVIEW", "SCHEDULED"]:
-            st = "purple"
-        elif self.current_status in ["REJECTED", "FAILED", "OVERDUE", "CANCELLED"]:
-            st = "danger"
-
-        fg, bg, border = color_map.get(st, color_map["neutral"])
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                color: {fg};
-                border: 1px solid {border};
-                border-radius: 12px;
-                padding: 1px 8px;
-                font-size: 11px;
-                font-weight: 700;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border-color: {fg};
-                background-color: {border}40;
-            }}
-        """)
-
-    def _show_menu(self) -> None:
-        menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {COLORS['surface']};
-                color: {COLORS['text']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 16px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QMenu::item:selected {{
-                background-color: {COLORS['surface_hover']};
-                color: {COLORS['primary_hover']};
-            }}
-            QMenu::separator {{
-                height: 1px;
-                background: {COLORS['border']};
-                margin: 4px 6px;
-            }}
-        """)
-
-        hdr = menu.addAction("Change Application Status:")
-        hdr.setEnabled(False)
-        menu.addSeparator()
-
-        for code, label, _ in self.STATUS_OPTIONS:
-            act = menu.addAction(label)
-            if code == self.current_status:
-                act.setText(f"✓ {label}")
-                act.setEnabled(False)
-            act.triggered.connect(lambda _, c=code: self.status_changed.emit(c))
-
-        menu.exec_(self.mapToGlobal(QPoint(0, self.height() + 2)))
+from app.ui.widgets.status_badge import (
+    STATUS_DISPLAY_LABELS,
+    StatusBadge,
+    StatusDropdownButton,
+)
 
 
 def create_match_badge(score: Optional[int], decision: Optional[str]) -> QWidget:
@@ -303,15 +195,15 @@ class JobsTable(QTableWidget):
 
     COLUMNS = [
         ("", None, False, QHeaderView.Fixed, 38),
-        ("Job Title", "title", True, QHeaderView.Stretch, 200),
+        ("Job Title", "title", True, QHeaderView.Stretch, 180),
         ("Company", "company", True, QHeaderView.Interactive, 125),
         ("Platform", "platform", True, QHeaderView.Interactive, 80),
-        ("Location", "location", True, QHeaderView.Interactive, 100),
-        ("Experience", None, False, QHeaderView.Interactive, 85),
-        ("Method", None, False, QHeaderView.Interactive, 85),
-        ("Match", "match", True, QHeaderView.Interactive, 95),
-        ("Status", "status", True, QHeaderView.Interactive, 120),
-        ("Discovered", "first_seen_at", True, QHeaderView.Interactive, 90),
+        ("Location", "location", True, QHeaderView.Interactive, 95),
+        ("Experience", None, False, QHeaderView.Interactive, 80),
+        ("Method", None, False, QHeaderView.Interactive, 115),
+        ("Match", "match", True, QHeaderView.Interactive, 80),
+        ("Status", "status", True, QHeaderView.Fixed, 140),
+        ("Discovered", "first_seen_at", True, QHeaderView.Interactive, 105),
     ]
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -521,7 +413,8 @@ class JobsTable(QTableWidget):
             app_status = "NOT_APPLIED"
             try:
                 if hasattr(job, "applications") and job.applications:
-                    app_status = job.applications[0].status
+                    latest_app = max(job.applications, key=lambda a: (a.updated_at or datetime.min, a.id or 0))
+                    app_status = latest_app.status
             except Exception:
                 app_status = "NOT_APPLIED"
 
@@ -531,7 +424,7 @@ class JobsTable(QTableWidget):
             )
 
             status_widget = QWidget()
-            status_widget.setStyleSheet("background: transparent; border: none;")
+            status_widget.setStyleSheet("background: transparent; border: none; margin: 0; padding: 0;")
             status_layout = QHBoxLayout(status_widget)
             status_layout.setContentsMargins(0, 0, 0, 0)
             status_layout.setAlignment(Qt.AlignCenter)

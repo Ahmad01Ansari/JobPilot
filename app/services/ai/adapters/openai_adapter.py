@@ -42,6 +42,12 @@ from app.services.ai.models import (
 class OpenAICompatibleAdapter(BaseAIAdapter):
     """Universal wire protocol adapter for OpenAI-compatible endpoints."""
 
+    def _safe_port(self, parsed: urllib.parse.SplitResult) -> Optional[int]:
+        try:
+            return parsed.port
+        except Exception:
+            return None
+
     def resolve_chat_endpoint(self, base_url: str, model: Optional[str] = None) -> str:
         clean = (base_url or "").strip()
         parsed = urllib.parse.urlsplit(clean)
@@ -61,7 +67,8 @@ class OpenAICompatibleAdapter(BaseAIAdapter):
                 query = "api-version=2024-02-15-preview"
         else:
             # Handle Ollama or bare host endpoints without /v1
-            if parsed.port == 11434 or "ollama" in clean.lower():
+            port = self._safe_port(parsed)
+            if port == 11434 or "ollama" in clean.lower():
                 if path in ("", "/", "/api"):
                     path = "/v1/chat/completions"
                 elif path.endswith("/v1"):
@@ -83,7 +90,8 @@ class OpenAICompatibleAdapter(BaseAIAdapter):
         if path.endswith("/chat/completions"):
             path = path[:-len("/chat/completions")]
 
-        if parsed.port == 11434 or "ollama" in clean.lower():
+        port = self._safe_port(parsed)
+        if port == 11434 or "ollama" in clean.lower():
             if path in ("", "/", "/api"):
                 path = "/v1/models"
             elif path.endswith("/v1"):
@@ -211,6 +219,11 @@ class OpenAICompatibleAdapter(BaseAIAdapter):
             )
 
         parsed = urllib.parse.urlsplit(clean_url)
+        try:
+            _ = parsed.port
+        except ValueError as err:
+            return False, f"Invalid URL '{clean_url}': {err}", 0.0
+
         is_local = "localhost" in parsed.netloc or "127.0.0.1" in parsed.netloc
         is_azure = "openai.azure.com" in parsed.netloc or "azure" in parsed.netloc
 

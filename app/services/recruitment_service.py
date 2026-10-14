@@ -4,7 +4,7 @@ Encapsulates candidate recruitment interactions, multi-round scheduling,
 deterministic contact management, audit history, and derived pipeline metrics.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -204,6 +204,33 @@ class RecruitmentService:
     ) -> List[Interview]:
         """Lists interviews with eager loaded application and job records."""
         with get_db_session(self._session_factory) as session:
+            # Self-healing: ensure any application currently in INTERVIEW stage has at least one Interview round
+            unlinked_apps = (
+                session.execute(
+                    select(Application)
+                    .where(
+                        Application.status == "INTERVIEW",
+                        ~Application.interviews.any(),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if unlinked_apps:
+                now = utc_now()
+                for u_app in unlinked_apps:
+                    init_iv = Interview(
+                        application_id=u_app.id,
+                        round_number=1,
+                        round_name="Interview Round 1",
+                        scheduled_at=now + timedelta(days=1),
+                        mode="VIRTUAL",
+                        status="SCHEDULED",
+                        notes="Auto-provisioned for Interview stage tracking",
+                    )
+                    session.add(init_iv)
+                session.commit()
+
             stmt = (
                 select(Interview)
                 .options(
@@ -391,6 +418,17 @@ class RecruitmentService:
                 return offer, None
         except Exception as e:
             return None, f"Error recording offer: {e}"
+
+    def get_offer(self, application_id: int) -> Tuple[Optional[Offer], Optional[str]]:
+        """Retrieves offer record for an application, if one exists."""
+        try:
+            with get_db_session(self._session_factory) as session:
+                offer = session.execute(
+                    select(Offer).where(Offer.application_id == application_id)
+                ).scalar_one_or_none()
+                return offer, None
+        except Exception as e:
+            return None, f"Error fetching offer: {e}"
 
     # --- Metrics ---
 

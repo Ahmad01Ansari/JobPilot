@@ -7,7 +7,8 @@ Includes creative local-first guarantee and privacy manifesto.
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame, QRadioButton, QButtonGroup
+    QPushButton, QFrame, QRadioButton, QButtonGroup,
+    QScrollArea
 )
 from app.ui.theme import COLORS
 
@@ -21,7 +22,16 @@ class StepWelcomeWidget(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(28, 20, 28, 20)
         layout.setSpacing(14)
 
@@ -188,6 +198,9 @@ class StepWelcomeWidget(QWidget):
 
         layout.addWidget(mode_frame)
         layout.addStretch(1)
+
+        scroll.setWidget(container)
+        root_layout.addWidget(scroll)
 
     def get_selected_mode(self) -> str:
         return "QUICK" if self.rad_quick.isChecked() else "ADVANCED"

@@ -10,7 +10,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame, QFileDialog
+    QPushButton, QFrame, QFileDialog, QScrollArea
 )
 from app.ui.theme import COLORS
 
@@ -27,7 +27,16 @@ class StepResumeWidget(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(28, 20, 28, 20)
         layout.setSpacing(16)
 
@@ -158,6 +167,9 @@ class StepResumeWidget(QWidget):
         layout.addWidget(self.lbl_status)
 
         layout.addStretch()
+
+        scroll.setWidget(container)
+        root_layout.addWidget(scroll)
 
     # Drag & Drop Handlers
 

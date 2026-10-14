@@ -252,7 +252,7 @@ class JobsView(QWidget):
                 background-color: {COLORS['surface_hover']};
             }}
         """)
-        self.btn_refresh.clicked.connect(self.refresh)
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
 
         self.header.add_action_widget(self.btn_export)
         self.header.add_action_widget(self.btn_add_manual)
@@ -990,6 +990,22 @@ class JobsView(QWidget):
         selected_job = self.table.get_selected_job()
         if selected_job:
             self._on_job_selected(selected_job)
+        self.data_updated.emit("jobs")
+        self.data_updated.emit("applications")
+        self.data_updated.emit("interviews")
+        self.data_updated.emit("pipeline")
+
+    def _on_refresh_clicked(self) -> None:
+        """User-triggered refresh: clears exact isolation filter and reloads fresh jobs from DB."""
+        if self._exact_job_id is not None:
+            self._exact_job_id = None
+            self.exact_filter_chip.clear()
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("Refreshing...")
+        self.refresh()
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("Refresh")
+        self.notification_bar.show_message("info", "Jobs repository refreshed.")
         self.data_updated.emit("jobs")
 
     def _on_add_manual_clicked(self) -> None:

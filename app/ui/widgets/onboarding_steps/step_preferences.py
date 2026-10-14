@@ -9,7 +9,8 @@ from typing import Dict, Any, List, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QCheckBox, QFrame, QGridLayout
+    QLineEdit, QCheckBox, QFrame, QGridLayout,
+    QScrollArea
 )
 from app.ui.theme import COLORS
 
@@ -21,7 +22,16 @@ class StepPreferencesWidget(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(28, 20, 28, 20)
         layout.setSpacing(14)
 
@@ -173,6 +183,9 @@ class StepPreferencesWidget(QWidget):
 
         layout.addWidget(frame_neg)
         layout.addStretch()
+
+        scroll.setWidget(container)
+        root_layout.addWidget(scroll)
 
     def load_preferences(self, prefs: Dict[str, Any], extracted_data: Optional[Dict[str, Any]] = None):
         """Loads saved preferences or intelligently suggests from AI extracted profile."""

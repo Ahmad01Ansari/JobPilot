@@ -45,7 +45,7 @@ from app.ui.widgets.exact_filter_chip import ExactFilterChip
 from app.ui.widgets.jobs import JobsPagination
 from app.ui.widgets.notification_bar import NotificationBar
 from app.ui.widgets.page_header import PageHeader
-from app.ui.widgets.status_badge import StatusBadge
+from app.ui.widgets.status_badge import StatusBadge, StatusDropdownButton
 from app.utils_time import format_local_datetime
 
 
@@ -1014,7 +1014,7 @@ class ApplicationsView(QWidget):
                 color: {COLORS['text']};
             }}
         """)
-        self.btn_refresh.clicked.connect(self.refresh)
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
         self.header.add_action_widget(self.btn_refresh)
         main_layout.addWidget(self.header)
 
@@ -1661,12 +1661,16 @@ class ApplicationsView(QWidget):
         st_item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row, 3, st_item)
 
+        btn_status = StatusDropdownButton(app.status)
+        btn_status.status_changed.connect(
+            lambda new_st, a=app: self._on_status_dropdown_changed(a, new_st)
+        )
         status_widget = QWidget()
         status_widget.setStyleSheet("background: transparent; border: none;")
         status_layout = QHBoxLayout(status_widget)
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setAlignment(Qt.AlignCenter)
-        status_layout.addWidget(StatusBadge(app.status))
+        status_layout.addWidget(btn_status)
         self.table.setCellWidget(row, 3, status_widget)
 
         # Applied Date (95px)
@@ -1753,6 +1757,42 @@ class ApplicationsView(QWidget):
             self.data_updated.emit("applications")
             self.data_updated.emit("interviews")
             self.data_updated.emit("followups")
+
+    def _on_status_dropdown_changed(self, app: Application, new_status: str) -> None:
+        """Handles 1-click inline status dropdown change from the applications table."""
+        if not app or app.status == new_status:
+            return
+        updated, err = self.service.transition_status(
+            application_id=app.id,
+            new_status=new_status,
+            source="USER",
+            notes=f"Status changed to {new_status} via Applications table dropdown",
+            allow_override=True,
+        )
+        if updated:
+            clean_name = new_status.replace("_", " ").title()
+            self.notification_bar.show_message("success", f"Application updated to {clean_name}.")
+            self.refresh()
+            self.data_updated.emit("applications")
+            self.data_updated.emit("interviews")
+            self.data_updated.emit("jobs")
+            self.data_updated.emit("pipeline")
+        else:
+            self.notification_bar.show_message("warning", f"Failed to update status: {err}")
+            self.refresh()
+
+    def _on_refresh_clicked(self) -> None:
+        """User-triggered refresh: clears isolation mode and reloads fresh applications from DB."""
+        if self._exact_app_id is not None:
+            self._exact_app_id = None
+            self.exact_filter_chip.clear()
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("Refreshing...")
+        self.refresh()
+        self.btn_refresh.setEnabled(True)
+        self.btn_refresh.setText("Refresh")
+        self.notification_bar.show_message("info", "Applications list refreshed.")
+        self.data_updated.emit("applications")
 
     def _on_history_clicked(self, app: Application) -> None:
         dialog = ApplicationHistoryDialog(application=app, service=self.service, parent=self)

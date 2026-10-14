@@ -479,36 +479,88 @@ class StepProfileWidget(QWidget):
         prof = existing.get("professional", {})
         skills = existing.get("skills", [])
 
-        self.txt_first_name.setText(pers.get("first_name", ""))
-        self.txt_middle_name.setText(pers.get("middle_name", ""))
-        self.txt_last_name.setText(pers.get("last_name", ""))
-        self.txt_email.setText(pers.get("email", ""))
-        self.txt_phone.setText(pers.get("phone_number", ""))
-        self.txt_city.setText(pers.get("current_city", ""))
-        self.txt_state.setText(pers.get("state", ""))
-        self.txt_country.setText(pers.get("country", ""))
-        self.txt_zip.setText(pers.get("zipcode", ""))
+        # Helper to extract value from extracted_data (handles flat and nested formats)
+        def get_ext(key, fallback=""):
+            if extracted_data and isinstance(extracted_data, dict):
+                # Check top-level
+                if key in extracted_data:
+                    item = extracted_data[key]
+                    v = item.get("value") if (isinstance(item, dict) and "value" in item) else item
+                    if v is not None and str(v).strip():
+                        return str(v).strip()
+                # Check nested under personal/professional
+                for section in ("personal", "professional"):
+                    sec_data = extracted_data.get(section)
+                    if isinstance(sec_data, dict) and key in sec_data:
+                        item = sec_data[key]
+                        v = item.get("value") if (isinstance(item, dict) and "value" in item) else item
+                        if v is not None and str(v).strip():
+                            return str(v).strip()
+            return fallback
 
-        if pers.get("willing_to_relocate") is False:
+        # Prepopulate with newly extracted resume data, falling back to existing DB profile
+        first_name = get_ext("first_name") or pers.get("first_name", "")
+        middle_name = get_ext("middle_name") or pers.get("middle_name", "")
+        last_name = get_ext("last_name") or pers.get("last_name", "")
+        email = get_ext("email") or pers.get("email", "")
+        phone = get_ext("phone_number") or get_ext("phone") or pers.get("phone_number", "")
+        city = get_ext("current_city") or pers.get("current_city", "")
+        state = get_ext("state") or pers.get("state", "")
+        country = get_ext("country") or pers.get("country", "")
+        zipcode = get_ext("zipcode") or pers.get("zipcode", "")
+
+        self.txt_first_name.setText(first_name)
+        self.txt_middle_name.setText(middle_name)
+        self.txt_last_name.setText(last_name)
+        self.txt_email.setText(email)
+        self.txt_phone.setText(phone)
+        self.txt_city.setText(city)
+        self.txt_state.setText(state)
+        self.txt_country.setText(country)
+        self.txt_zip.setText(zipcode)
+
+        if pers.get("willing_to_relocate") is False or get_ext("willing_to_relocate") == "False":
             self.cmb_relocate.setCurrentText("No")
         else:
             self.cmb_relocate.setCurrentText("Yes")
 
-        self.txt_headline.setText(prof.get("headline", prof.get("current_title", "")))
-        self.txt_employer.setText(prof.get("current_employer", ""))
-        self.txt_experience.setText(str(prof.get("years_of_experience", 2.0)))
-        self.txt_summary.setPlainText(prof.get("summary", ""))
+        headline = get_ext("headline") or get_ext("current_title") or prof.get("headline", prof.get("current_title", ""))
+        employer = get_ext("current_employer") or prof.get("current_employer", "")
+        exp = str(get_ext("years_of_experience") or prof.get("years_of_experience", 2.0))
+        summary = get_ext("summary") or prof.get("summary", "")
 
-        self.txt_current_ctc.setText(str(prof.get("current_ctc", "")))
-        self.txt_expected_ctc.setText(str(prof.get("expected_ctc", "")))
-        self.txt_notice.setText(str(prof.get("notice_period_days", 30)))
+        self.txt_headline.setText(headline)
+        self.txt_employer.setText(employer)
+        self.txt_experience.setText(exp)
+        self.txt_summary.setPlainText(summary)
 
-        if isinstance(skills, list):
-            self.txt_skills.setPlainText(", ".join(str(s) for s in skills))
+        self.txt_current_ctc.setText(str(prof.get("current_ctc", "") or get_ext("current_ctc", "")))
+        self.txt_expected_ctc.setText(str(prof.get("expected_ctc", "") or get_ext("expected_ctc", "")))
+        self.txt_notice.setText(str(prof.get("notice_period_days", "") or get_ext("notice_period_days", "30")))
 
-        self.txt_linkedin.setText(prof.get("linkedin_url", ""))
-        self.txt_github.setText(prof.get("github_url", ""))
-        self.txt_portfolio.setText(prof.get("portfolio_url", ""))
+        # Merge or prioritize skills
+        ext_skills = []
+        if extracted_data and "skills" in extracted_data:
+            s_item = extracted_data["skills"]
+            s_val = s_item.get("value") if (isinstance(s_item, dict) and "value" in s_item) else s_item
+            if isinstance(s_val, list):
+                for x in s_val:
+                    if isinstance(x, dict):
+                        name = x.get("name") or x.get("skill")
+                        if name:
+                            ext_skills.append(str(name).strip())
+                    elif str(x).strip():
+                        ext_skills.append(str(x).strip())
+        final_skills = ext_skills if ext_skills else (skills if isinstance(skills, list) else [])
+        if final_skills:
+            self.txt_skills.setPlainText(", ".join(str(s) for s in final_skills))
+
+        linkedin = prof.get("linkedin_url") or get_ext("linkedin_url")
+        github = prof.get("github_url") or get_ext("github_url")
+        portfolio = prof.get("portfolio_url") or get_ext("portfolio_url")
+        self.txt_linkedin.setText(linkedin)
+        self.txt_github.setText(github)
+        self.txt_portfolio.setText(portfolio)
 
         # 2. Check for conflicts if resume extraction was performed
         if extracted_data:
@@ -529,14 +581,15 @@ class StepProfileWidget(QWidget):
             # Update provenance badges for extracted values
             def get_src(key):
                 if key in extracted_data and extracted_data[key].get("value"):
-                    return "Resume · AI extracted"
+                    src = extracted_data[key].get("source")
+                    return src if src else "Resume · Extracted"
                 return "Existing profile"
 
             self.pill_first_name.set_source(get_src("first_name"))
             self.pill_last_name.set_source(get_src("last_name"))
             self.pill_email.set_source(get_src("email"))
             self.pill_phone.set_source(get_src("phone_number"))
-            self.pill_headline.set_source(get_src("current_title"))
+            self.pill_headline.set_source(get_src("current_title") if "current_title" in extracted_data else get_src("headline"))
             self.pill_employer.set_source(get_src("current_employer"))
             self.pill_exp.set_source(get_src("years_of_experience"))
 

@@ -241,6 +241,80 @@ class TestRecruitmentService(unittest.TestCase):
         metrics = self.recruitment_service.get_metrics()
         self.assertEqual(metrics["offers_received"], 1)
 
+    def test_transition_to_interview_auto_provisions_interview_record(self):
+        """Verifies that transitioning an application to INTERVIEW auto-provisions an interview record."""
+        updated, err = self.app_service.transition_status(
+            application_id=self.app.id,
+            new_status="INTERVIEW",
+            source="test",
+            allow_override=True,
+        )
+        self.assertIsNotNone(updated)
+        self.assertIsNone(err)
+        self.assertEqual(updated.status, "INTERVIEW")
+
+        ivs = self.recruitment_service.list_interviews(application_id=self.app.id)
+        self.assertEqual(len(ivs), 1)
+        self.assertEqual(ivs[0].status, "SCHEDULED")
+        self.assertEqual(ivs[0].round_name, "Interview Round 1")
+
+    def test_transition_to_offer_auto_provisions_offer_record(self):
+        """Verifies that transitioning an application to OFFER auto-provisions an offer record."""
+        updated, err = self.app_service.transition_status(
+            application_id=self.app.id,
+            new_status="OFFER",
+            source="test",
+            allow_override=True,
+        )
+        self.assertIsNotNone(updated)
+        self.assertIsNone(err)
+        self.assertEqual(updated.status, "OFFER")
+
+        offer, err = self.recruitment_service.get_offer(application_id=self.app.id)
+        self.assertIsNotNone(offer)
+        self.assertEqual(offer.status, "RECEIVED")
+
+    def test_transition_to_rejected_cancels_pending_interviews(self):
+        """Verifies that rejecting an application automatically marks pending interviews as cancelled."""
+        self.app_service.transition_status(
+            application_id=self.app.id,
+            new_status="INTERVIEW",
+            allow_override=True,
+        )
+        ivs = self.recruitment_service.list_interviews(application_id=self.app.id)
+        self.assertEqual(len(ivs), 1)
+        self.assertEqual(ivs[0].status, "SCHEDULED")
+
+        # Now transition to REJECTED
+        self.app_service.transition_status(
+            application_id=self.app.id,
+            new_status="REJECTED",
+            allow_override=True,
+        )
+        ivs_after = self.recruitment_service.list_interviews(application_id=self.app.id)
+        self.assertEqual(ivs_after[0].status, "CANCELLED")
+
+    def test_list_interviews_self_heals_unlinked_applications(self):
+        """Verifies that list_interviews auto-provisions an interview round for existing orphan applications."""
+        orphan_job, _ = self.job_service.create_manual_job(title="Orphan Engineer", company="Orphan Corp")
+        from app.db.session import get_db_session
+        from app.db.models import Application
+        with get_db_session(self.Session) as session:
+            orphan_app = Application(
+                job_id=orphan_job.id,
+                status="INTERVIEW",
+                application_type="MANUAL",
+            )
+            session.add(orphan_app)
+            session.commit()
+            orphan_id = orphan_app.id
+
+        # Calling list_interviews should self-heal and return the round
+        all_ivs = self.recruitment_service.list_interviews()
+        matching = [iv for iv in all_ivs if iv.application_id == orphan_id]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].status, "SCHEDULED")
+
 
 class TestPhase11Views(unittest.TestCase):
     """Headless PySide6 UI tests for InterviewsView and FollowupsView."""
@@ -293,7 +367,28 @@ class TestPhase11Views(unittest.TestCase):
         view.show()
 
         self.assertEqual(view.table.rowCount(), 1)
+        self.assertEqual(view.table.columnCount(), 7)
         self.assertIn("1 rounds", view.lbl_stats.text())
+
+    def test_interviews_view_stage_change_updates_application(self):
+        """Verifies 1-click stage change on InterviewsView transitions application status."""
+        from app.ui.views.interviews_view import InterviewsView
+
+        dt = utc_now() + timedelta(days=2)
+        iv, _ = self.recruitment_service.schedule_interview(
+            application_id=self.application.id,
+            round_name="Screening",
+            scheduled_at=dt,
+        )
+
+        view = InterviewsView(service=self.recruitment_service, app_service=self.app_service)
+        view.show()
+
+        # Change stage to OFFER via _on_stage_changed
+        view._on_stage_changed(iv, "OFFER")
+
+        app_refreshed = self.app_service.get_application(self.application.id)
+        self.assertEqual(app_refreshed.status, "OFFER")
 
     def test_followups_view_rendering_and_completion(self):
         """Verifies FollowupsView renders metric cards, table, and completes reminder."""

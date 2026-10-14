@@ -1,6 +1,6 @@
 """Repository for Application lifecycle management and status transitions."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -82,6 +82,29 @@ class ApplicationRepository(BaseRepository):
             notes=dto.notes,
         )
         self.session.add(history)
+
+        # Auto-provision Interview record if created directly in INTERVIEW status
+        if status_clean == "INTERVIEW":
+            from app.db.models.interview import Interview
+            init_iv = Interview(
+                application_id=app.id,
+                round_number=1,
+                round_name="Interview Round 1",
+                scheduled_at=now + timedelta(days=1),
+                mode="VIRTUAL",
+                status="SCHEDULED",
+                notes=dto.notes or "Auto-provisioned upon entering Interview stage",
+            )
+            self.session.add(init_iv)
+        elif status_clean == "OFFER":
+            from app.db.models.offer import Offer
+            init_off = Offer(
+                application_id=app.id,
+                status="RECEIVED",
+                notes=dto.notes or "Auto-provisioned upon entering Offer stage",
+            )
+            self.session.add(init_off)
+
         self.session.flush()
         return app
 
@@ -142,6 +165,58 @@ class ApplicationRepository(BaseRepository):
             notes=notes or failure_reason,
         )
         self.session.add(history)
+
+        # Auto-provision Interview record if transitioning to INTERVIEW and none exists
+        if target == "INTERVIEW":
+            from app.db.models.interview import Interview
+            has_interview = (
+                self.session.execute(
+                    select(Interview).where(Interview.application_id == app.id)
+                ).first()
+                is not None
+            )
+            if not has_interview:
+                init_iv = Interview(
+                    application_id=app.id,
+                    round_number=1,
+                    round_name="Interview Round 1",
+                    scheduled_at=now + timedelta(days=1),
+                    mode="VIRTUAL",
+                    status="SCHEDULED",
+                    notes=notes or "Auto-provisioned upon entering Interview stage",
+                )
+                self.session.add(init_iv)
+
+        # Auto-provision Offer record if transitioning to OFFER and none exists
+        elif target == "OFFER":
+            from app.db.models.offer import Offer
+            has_offer = (
+                self.session.execute(
+                    select(Offer).where(Offer.application_id == app.id)
+                ).first()
+                is not None
+            )
+            if not has_offer:
+                init_off = Offer(
+                    application_id=app.id,
+                    status="RECEIVED",
+                    notes=notes or "Auto-provisioned upon entering Offer stage",
+                )
+                self.session.add(init_off)
+
+        # Cancel pending interviews if application is rejected or withdrawn
+        elif target in ("REJECTED", "WITHDRAWN"):
+            from app.db.models.interview import Interview
+            pending_ivs = self.session.execute(
+                select(Interview).where(
+                    Interview.application_id == app.id,
+                    Interview.status == "SCHEDULED",
+                )
+            ).scalars().all()
+            for iv in pending_ivs:
+                iv.status = "CANCELLED"
+                iv.notes = (iv.notes or "") + f" [Auto-cancelled: application {target}]"
+
         self.session.flush()
         return app
 

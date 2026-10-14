@@ -34,8 +34,10 @@ echo Running PyInstaller build...
 
 if exist "dist\JobPilot" (
     echo Packaging zip distribution...
-    powershell -Command "Compress-Archive -Path dist\JobPilot -DestinationPath dist\JobPilot-v0.1.0-beta.1-windows-x64.zip -Force"
-    echo === Build Complete! Package created: dist\JobPilot-v0.1.0-beta.1-windows-x64.zip ===
+    for /f "tokens=*" %%i in ('"%VENV_PYTHON%" -c "import app.version; print(app.version.__version__)"') do set APP_VERSION=%%i
+    if "%APP_VERSION%"=="" set APP_VERSION=0.1.0-beta.2
+    powershell -Command "Compress-Archive -Path dist\JobPilot -DestinationPath dist\JobPilot-v%APP_VERSION%-windows-x64.zip -Force"
+    echo === Build Complete! Package created: dist\JobPilot-v%APP_VERSION%-windows-x64.zip ===
 ) else (
     echo ERROR: Build failed; dist\JobPilot directory was not created.
     exit /b 1

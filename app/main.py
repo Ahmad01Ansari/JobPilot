@@ -43,6 +43,9 @@ def main() -> int:
     except Exception:
         pass
 
+    # Silence harmless Linux desktop host portal registration warnings
+    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.services.warning=false")
+
     app = QApplication(sys.argv)
     app.setApplicationName("JobPilot")
     app.setOrganizationName("JobPilot")

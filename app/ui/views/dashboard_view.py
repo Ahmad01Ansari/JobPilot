@@ -12,8 +12,11 @@ Layout Hierarchy:
     6. Secondary row: Pipeline Funnel (Left) + Recent Activity (Right)
 """
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from PySide6.QtCore import QSize, Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -47,7 +50,7 @@ from app.utils_time import format_local_datetime, get_application_timezone, to_l
 
 
 class _DashboardLoadWorker(QThread):
-    """Background worker fetching complete dashboard snapshot without freezing the GUI."""
+    """Background worker fetching complete dashboard snapshot from local DB in <50ms without freezing GUI."""
 
     snapshot_loaded = Signal(object)  # DashboardSnapshotDTO
     load_failed = Signal(str)
@@ -58,23 +61,30 @@ class _DashboardLoadWorker(QThread):
 
     def run(self) -> None:
         try:
-            # 1. INSTANT FIRST PAINT: Fetch and emit local DB snapshot immediately (<100ms)
             snapshot = self._service.get_dashboard_snapshot()
             self.snapshot_loaded.emit(snapshot)
-
-            # 2. BACKGROUND SYNC: Check external mailbox without delaying UI load
-            try:
-                from app.services.inbound_sync_service import InboundSyncService
-                inbound_sync = InboundSyncService(session_factory=self._service._session_factory)
-                sync_res = inbound_sync.sync_mailbox()
-                # If new recruiter messages or replies were ingested, refresh snapshot
-                if sync_res and (sync_res.get("ingested_count", 0) > 0 or sync_res.get("replies_count", 0) > 0):
-                    fresh_snapshot = self._service.get_dashboard_snapshot()
-                    self.snapshot_loaded.emit(fresh_snapshot)
-            except Exception as sync_err:
-                logger.debug("Background mailbox sync skipped/idle: %s", sync_err)
         except Exception as e:
             self.load_failed.emit(str(e))
+
+
+class _MailboxSyncWorker(QThread):
+    """Decoupled background worker for non-blocking recruiter email mailbox check."""
+
+    sync_completed = Signal(dict)
+
+    def __init__(self, session_factory):
+        super().__init__()
+        self._session_factory = session_factory
+
+    def run(self) -> None:
+        try:
+            from app.services.inbound_sync_service import InboundSyncService
+            inbound_sync = InboundSyncService(session_factory=self._session_factory)
+            res = inbound_sync.sync_mailbox()
+            if res:
+                self.sync_completed.emit(res)
+        except Exception as err:
+            logger.debug("Background mailbox sync idle/skipped: %s", err)
 
 
 class _SearchPerfWorker(QThread):
@@ -104,6 +114,7 @@ class DashboardView(QWidget):
 
     navigation_requested = Signal(str)
     action_requested = Signal(str, dict)  # (action_type, payload)
+    data_updated = Signal(str)
 
     def __init__(
         self,
@@ -156,7 +167,7 @@ class DashboardView(QWidget):
                 color: {COLORS['primary']};
             }}
         """)
-        self.btn_refresh.clicked.connect(self.refresh)
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
         self.header.add_action_widget(self.btn_refresh)
         main_layout.addWidget(self.header)
 
@@ -351,6 +362,12 @@ class DashboardView(QWidget):
         scroll.setWidget(container)
         main_layout.addWidget(scroll, 1)
 
+    def _on_refresh_clicked(self) -> None:
+        """User-triggered refresh: reloads local DB snapshot and broadcasts updates."""
+        self.refresh()
+        self.notification_bar.show_message("info", "Dashboard refreshed.")
+        self.data_updated.emit("dashboard")
+
     def refresh(self) -> None:
         """Launches asynchronous load worker to update all dashboard sections."""
         if self._load_worker and self._load_worker.isRunning():
@@ -462,6 +479,10 @@ class DashboardView(QWidget):
                     clean_name = new_status.replace("_", " ").title()
                     self.notification_bar.show_message("success", f"Application updated to {clean_name}.")
                     self.refresh()
+                    self.data_updated.emit("applications")
+                    self.data_updated.emit("interviews")
+                    self.data_updated.emit("jobs")
+                    self.data_updated.emit("pipeline")
                     return
                 except Exception as e:
                     self.notification_bar.show_message("danger", f"Failed to update status: {e}")
@@ -488,6 +509,11 @@ class DashboardView(QWidget):
 
                 self.notification_bar.show_message("info", "Item dismissed from queue.")
                 self.refresh()
+                self.data_updated.emit("applications")
+                self.data_updated.emit("interviews")
+                self.data_updated.emit("followups")
+                self.data_updated.emit("jobs")
+                self.data_updated.emit("pipeline")
                 return
             except Exception as e:
                 self.notification_bar.show_message("warning", f"Could not dismiss item: {e}")

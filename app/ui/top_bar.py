@@ -13,6 +13,7 @@ class TopBar(QWidget):
     """Application top bar showing current view title, quick search, and user profile pill."""
 
     search_requested = Signal()
+    refresh_requested = Signal()
     profile_clicked = Signal()
     about_clicked = Signal()
     toggle_sidebar_requested = Signal()
@@ -55,6 +56,29 @@ class TopBar(QWidget):
         layout.addWidget(self.btn_search)
 
         layout.addStretch()
+
+        # Global Refresh Button
+        self.btn_refresh = QPushButton(" ↻ Refresh ")
+        self.btn_refresh.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh.setToolTip("Refresh current page and synchronize all views (Ctrl+R)")
+        self.btn_refresh.setStyleSheet("""
+            QPushButton {
+                background-color: #1C2128;
+                color: #8B949E;
+                border: 1px solid #333A46;
+                border-radius: 16px;
+                padding: 5px 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #262C36;
+                color: #F0F6FC;
+                border-color: #FF5F15;
+            }
+        """)
+        self.btn_refresh.clicked.connect(self.refresh_requested.emit)
+        layout.addWidget(self.btn_refresh)
 
 
         # Profile Pill Button

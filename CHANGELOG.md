@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.0-beta.2] — 2026-10-14
+
+### Private Beta Maintenance & Compatibility Release (Windows & Linux)
+
+This update addresses Windows VM display scaling, setup wizard ergonomics, AI provider validation, and table status lifecycle consistency.
+
+#### Fixed
+- **Setup Wizard Window Sizing & Visibility**: Added responsive geometry based on screen `availableGeometry()`, centering above taskbars, and wrapped onboarding step pages in responsive scroll areas so action buttons ("Next", "Continue", "Finish Setup") remain accessible across any display resolution or Windows display scaling (125%/150%).
+- **AI Provider Connection Validation**: Fixed false-positive connection check in setup wizard. Connections now pass the active API key, endpoint, and model into `test_connection()` and correctly surface error responses instead of falsely indicating success.
+- **Resume Parsing & Profile Pre-population**: Integrated raw text extraction and heuristic parsing fallback (`ResumeParserService` pattern catalog) into the setup wizard, automatically pre-filling candidate details (name, email, phone, title, skills) into the profile review step.
+- **Status Badge & Pipeline Consistency**: Standardized `StatusDropdownButton` geometry (112x22px) and removed cell margin clipping across `JobsTable` and `InterviewsView`. Standardized stage lifecycle transitions across Home, Jobs Repository, and Interview Tracking views.
+- **Packaging & CI Release Automation**: Automated dynamic version resolution in `scripts/build_windows.bat` and `scripts/build_linux.sh` from `app.version`, and upgraded GitHub Actions release pipeline for flexible Windows artifact bundling (`JobPilot-*-windows-x64.zip`).
+
+---
+
 ## [0.1.0-beta.1] — 2026-10-06
 
 ### Private Beta Initial Release (Windows 10/11 & Ubuntu/Linux)

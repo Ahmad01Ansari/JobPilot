@@ -16,6 +16,8 @@ if [ ! -f "$VENV_PYTHON" ]; then
     exit 1
 fi
 
+APP_VERSION="$("$VENV_PYTHON" -c "import app.version; print(app.version.__version__)" 2>/dev/null || echo "0.1.0-beta.2")"
+
 # Ensure pyinstaller is installed
 if ! "$VENV_PYTHON" -m pip show pyinstaller > /dev/null 2>&1; then
     echo "Installing PyInstaller in virtualenv..."
@@ -81,7 +83,7 @@ EOF
     mkdir -p build
     APPIMAGETOOL="build/appimagetool-x86_64.AppImage"
     APPIMAGE_RUNTIME="build/runtime-x86_64"
-    APPIMAGE_OUT="dist/JobPilot-0.1.0-beta.1-x86_64.AppImage"
+    APPIMAGE_OUT="dist/JobPilot-${APP_VERSION}-x86_64.AppImage"
 
     if [ ! -f "$APPIMAGETOOL" ]; then
         echo "Fetching appimagetool..."
@@ -111,7 +113,7 @@ EOF
     # --------------------------------------------------------------------------
     # 2. Debian (.deb) Package Generation
     # --------------------------------------------------------------------------
-    DEB_OUT="dist/jobpilot_0.1.0-beta.1_amd64.deb"
+    DEB_OUT="dist/jobpilot_${APP_VERSION}_amd64.deb"
     if command -v dpkg-deb >/dev/null 2>&1; then
         echo "Creating Debian (.deb) package structure..."
         DEB_DIR="build/deb_pkg"
@@ -163,7 +165,7 @@ EOF
         # Package metadata control file
         cat > "$DEB_DIR/DEBIAN/control" <<EOF
 Package: jobpilot
-Version: 0.1.0-beta.1
+Version: ${APP_VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -214,7 +216,7 @@ EOF
     # --------------------------------------------------------------------------
     echo "Packaging portable tar.gz distribution..."
     cd dist
-    tar -czf "jobpilot-v0.1.0-beta.1-linux-x86_64.tar.gz" JobPilot/
+    tar -czf "jobpilot-v${APP_VERSION}-linux-x86_64.tar.gz" JobPilot/
     cd "$PROJECT_ROOT"
 
     echo "=== Build Complete! ==="
@@ -224,7 +226,7 @@ EOF
     if [ -f "$DEB_OUT" ]; then
         echo "✓ Debian package:  $DEB_OUT"
     fi
-    echo "✓ Tarball created:  dist/jobpilot-v0.1.0-beta.1-linux-x86_64.tar.gz"
+    echo "✓ Tarball created:  dist/jobpilot-v${APP_VERSION}-linux-x86_64.tar.gz"
 else
     echo "ERROR: Build failed; dist/JobPilot directory was not created."
     exit 1
