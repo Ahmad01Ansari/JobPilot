@@ -23,13 +23,18 @@ from modules.stealth import apply_stealth_to_driver
 from selenium.common.exceptions import SessionNotCreatedException
 
 
-def find_chrome_executable() -> Optional[str]:
-    """Resolves absolute path to installed Google Chrome executable across operating systems."""
+def find_chrome_executable(allow_fallback_chromium: bool = True) -> Optional[str]:
+    """Resolves absolute path to installed Google Chrome or Chromium executable across operating systems.
+    
+    If allow_fallback_chromium is True, falls back to Brave, Chromium, or Microsoft Edge
+    (standard on Windows VMs and systems where Chrome has not yet been installed).
+    """
     configured = os.environ.get("CHROME_PATH")
     if configured and os.path.isfile(configured):
         return configured
 
     if os.name == "nt":
+        # 1. Primary: Google Chrome
         candidates = [
             os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
             os.path.join(os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"),
@@ -41,7 +46,7 @@ def find_chrome_executable() -> Optional[str]:
             if cand and os.path.isfile(cand):
                 return cand
 
-        # Query Windows Registry for App Paths
+        # Query Windows Registry for Chrome App Path
         try:
             import winreg
             for root_key in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -57,14 +62,60 @@ def find_chrome_executable() -> Optional[str]:
 
         import shutil
         cand_which = shutil.which("chrome.exe") or shutil.which("chrome")
-        if cand_which:
+        if cand_which and os.path.isfile(cand_which):
             return cand_which
+
+        # 2. Secondary Fallback: Brave, Chromium, and Microsoft Edge (preinstalled on all Windows OS/VMs)
+        if allow_fallback_chromium:
+            alt_candidates = [
+                # Microsoft Edge (standard default on every Windows 10/11 system)
+                os.path.join(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(os.environ.get("PROGRAMFILES", r"C:\Program Files"), "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                # Brave Browser
+                os.path.join(os.environ.get("PROGRAMFILES", ""), "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                # Chromium
+                os.path.join(os.environ.get("PROGRAMFILES", ""), "Chromium", "Application", "chrome.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Chromium", "Application", "chrome.exe"),
+            ]
+            for cand in alt_candidates:
+                if cand and os.path.isfile(cand):
+                    return cand
+
+            # Registry check for Edge and Brave
+            try:
+                import winreg
+                for app_binary in ("msedge.exe", "brave.exe"):
+                    for root_key in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                        try:
+                            with winreg.OpenKey(root_key, rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{app_binary}") as key:
+                                val, _ = winreg.QueryValueEx(key, "")
+                                if val and os.path.isfile(val):
+                                    return val
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+
+            cand_alt_which = (
+                shutil.which("msedge.exe")
+                or shutil.which("msedge")
+                or shutil.which("brave.exe")
+                or shutil.which("brave")
+            )
+            if cand_alt_which and os.path.isfile(cand_alt_which):
+                return cand_alt_which
 
     elif sys.platform == "darwin":
         mac_candidates = [
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
         ]
         for cand in mac_candidates:
             if os.path.isfile(cand):
@@ -72,9 +123,12 @@ def find_chrome_executable() -> Optional[str]:
     else:
         # Linux / Unix
         import shutil
-        for binary in ("google-chrome-stable", "google-chrome", "chromium-browser", "chromium"):
+        binaries = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"]
+        if allow_fallback_chromium:
+            binaries.extend(["brave-browser", "microsoft-edge-stable", "microsoft-edge"])
+        for binary in binaries:
             found = shutil.which(binary)
-            if found:
+            if found and os.path.isfile(found):
                 return found
 
     return None

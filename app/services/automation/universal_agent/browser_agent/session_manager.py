@@ -95,7 +95,7 @@ class UniversalSessionManager:
         # Explicit Chrome executable path for Windows/Linux
         try:
             from modules.open_chrome import find_chrome_executable
-            chrome_path = find_chrome_executable()
+            chrome_path = find_chrome_executable(allow_fallback_chromium=True)
             if chrome_path:
                 options["executable_path"] = chrome_path
                 os.environ["CHROME_PATH"] = chrome_path

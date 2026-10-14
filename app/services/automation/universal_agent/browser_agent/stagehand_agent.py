@@ -101,6 +101,24 @@ class StagehandBrowserAgent(BrowserAgent):
             return
 
         launch_options = self.session_manager.get_launch_options(headless=headless, **kwargs)
+
+        # Ensure executable_path or CHROME_PATH is set to a valid browser binary
+        exec_path = launch_options.get("executable_path") or os.environ.get("CHROME_PATH")
+        if not exec_path or not os.path.isfile(str(exec_path)):
+            from modules.open_chrome import find_chrome_executable
+            resolved = find_chrome_executable(allow_fallback_chromium=True)
+            if resolved and os.path.isfile(resolved):
+                launch_options["executable_path"] = resolved
+                os.environ["CHROME_PATH"] = resolved
+            else:
+                raise RuntimeError(
+                    "Google Chrome (or Chromium/Microsoft Edge) installation not found. "
+                    "Please install Google Chrome (https://www.google.com/chrome) or set CHROME_PATH."
+                )
+        else:
+            launch_options["executable_path"] = str(exec_path)
+            os.environ["CHROME_PATH"] = str(exec_path)
+
         self.browser = await local_browser.launch(**launch_options)
 
         # Initialize Stagehand with native caching and self-healing
