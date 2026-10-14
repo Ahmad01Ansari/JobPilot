@@ -5,7 +5,24 @@ Initializes QApplication, theme tokens, and primary MainWindow shell.
 
 import sys
 import os
+import io
 from pathlib import Path
+
+# Safeguard against 'NoneType' object has no attribute 'write' in frozen GUI builds on Windows
+class _SafeStream:
+    def write(self, s: str) -> int:
+        return len(s) if s else 0
+    def flush(self) -> None:
+        pass
+    def isatty(self) -> bool:
+        return False
+
+if sys.stdout is None or not hasattr(sys.stdout, "write"):
+    sys.stdout = _SafeStream()
+if sys.stderr is None or not hasattr(sys.stderr, "write"):
+    sys.stderr = _SafeStream()
+if sys.stdin is None:
+    sys.stdin = io.StringIO()
 
 # Ensure project root is present in sys.path for direct execution
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

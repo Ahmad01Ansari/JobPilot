@@ -69,6 +69,11 @@ class UniversalSessionManager:
 
     def get_launch_options(self, headless: bool = False, **overrides: Any) -> Dict[str, Any]:
         """Constructs standardized launch options for local_browser.launch."""
+        try:
+            from modules.browser_lock import cleanup_stale_profile_locks
+            cleanup_stale_profile_locks(self.profile_dir)
+        except Exception:
+            pass
         downloads_dir = os.path.join(self.profile_dir, "downloads")
         os.makedirs(downloads_dir, exist_ok=True)
         options: Dict[str, Any] = {

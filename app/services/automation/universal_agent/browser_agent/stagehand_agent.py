@@ -119,6 +119,21 @@ class StagehandBrowserAgent(BrowserAgent):
             launch_options["executable_path"] = str(exec_path)
             os.environ["CHROME_PATH"] = str(exec_path)
 
+        # Ensure sys.stdout and sys.stderr are non-None streams in frozen GUI execution
+        import sys, io
+        class _SafeStream:
+            def write(self, s: str) -> int:
+                return len(s) if s else 0
+            def flush(self) -> None:
+                pass
+            def isatty(self) -> bool:
+                return False
+
+        if sys.stdout is None or not hasattr(sys.stdout, "write"):
+            sys.stdout = _SafeStream()
+        if sys.stderr is None or not hasattr(sys.stderr, "write"):
+            sys.stderr = _SafeStream()
+
         self.browser = await local_browser.launch(**launch_options)
 
         # Initialize Stagehand with native caching and self-healing
@@ -128,6 +143,7 @@ class StagehandBrowserAgent(BrowserAgent):
             dom_settle_timeout_ms=3000,
             cache=True,
             self_heal=True,
+            logging={"level": "warn"},
         )
 
         # Acquire primary active page
