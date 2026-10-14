@@ -24,6 +24,7 @@ The complete engineering standards and architectural boundaries are defined in t
 - 🔒 **Security & Secret Hygiene:** [`docs/ai/SECURITY_RULES.md`](docs/ai/SECURITY_RULES.md)
 - 🗄️ **Database & Persistence:** [`docs/ai/DATABASE_RULES.md`](docs/ai/DATABASE_RULES.md)
 - 🧪 **Testing & Verification:** [`docs/ai/TESTING_RULES.md`](docs/ai/TESTING_RULES.md)
+- 📦 **Git, CI/CD & Releases:** [`docs/ai/GIT_AND_RELEASE_RULES.md`](docs/ai/GIT_AND_RELEASE_RULES.md)
 
 ### Development Templates
 - 📋 **Feature Template:** [`docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md`](docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md)
@@ -232,6 +233,33 @@ All AI agents working on JobPilot must adhere unconditionally to these 32 OS, co
 18. New feature ideas belong in `docs/BETA_BACKLOG.md` during feature freeze.
 19. Maintain Windows/Linux compatibility.
 20. Do not break future macOS compatibility through unnecessary assumptions.
+
+---
+
+## 11. Git, GitHub CI/CD & Release Standardization Rules (Permanent Invariants)
+
+All AI agents working on JobPilot must strictly adhere to these 10 Git, CI/CD, and release invariants:
+
+1. **Mandatory Commit Author Identity:** Every git commit executed by an AI agent must explicitly attribute the repository author:
+   `git commit --author="Ahmad Raza <rjaahmad60@gmail.com>"`
+2. **Conventional Commits Standard:** Use descriptive conventional commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `perf:`.
+3. **Commit Frequently to `main`, Release Deliberately:** Regular bug fixes, internal refactorings, and documentation updates should be committed and pushed directly to `main` without triggering release builds. Do NOT create git tags or GitHub releases for every individual incremental fix.
+4. **Preserve GitHub Actions CI Minutes:** Pushing a release tag (`v*`) triggers resource-intensive cross-platform matrix builds (Windows & Linux PyInstaller workflows). Only push release tags when explicitly instructed by the user or when shipping an approved beta/production milestone.
+5. **Always Pull/Rebase Before Pushing:** Always verify remote branch alignment using `git pull --rebase origin main` before pushing to eliminate merge conflicts and stray merge commits.
+6. **Single Source of Truth for Versions:** When preparing an authorized release, maintain strict version synchronization across:
+   - `version.py` (`__version__ = "X.Y.Z"`)
+   - `app/__init__.py` (`__version__ = "X.Y.Z"`)
+   - `pyproject.toml` (`version = "X.Y.Z"`)
+   - `CHANGELOG.md` (detailed release notes under `## [X.Y.Z] - YYYY-MM-DD`)
+7. **Mandatory 3-Gate Pre-Release Verification:** Never push a release tag without verifying all 3 gates pass locally:
+   - *Gate 1 (Compilation):* `.venv/bin/python -m py_compile run_desktop.py app.py config/*.py ...`
+   - *Gate 2 (Unit & Contract Tests):* `.venv/bin/python -m unittest discover -s tests`
+   - *Gate 3 (Headless UI Sanity):* `.venv/bin/python run_desktop.py --offscreen --test-run`
+8. **Clean Working Tree & Secret Hygiene:** Never commit secrets, `.env` files, browser profile directories (`data/profiles/`), SQLite databases (`data/*.db`), or raw session dumps.
+9. **Atomic Commits:** Scope each commit to a cohesive, well-defined change set. Do not bundle unrelated UI tweaks, automation fixes, and docs into a single monolithic commit.
+10. **Annotated Semantic Tags:** All release tags must follow Semantic Versioning (`vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-beta.N`) and be created as annotated tags:
+    `git tag -a v0.1.0-beta.N -m "Release v0.1.0-beta.N"`
+
 
 
 
