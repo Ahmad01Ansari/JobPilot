@@ -368,27 +368,31 @@ class ProfileService:
             # Build personal_data dict matching save_profile's expected format
             personal_data = {
                 "first_name": first_name,
+                "middle_name": pers.get("middle_name", "").strip() or None,
                 "last_name": last_name,
                 "email": email or "candidate@jobpilot.local",
                 "phone_number": phone,
-                "current_city": pers.get("current_city", "Delhi").strip() or "Delhi",
-                "state": pers.get("state", "Delhi").strip() or "Delhi",
-                "country": pers.get("country", "India").strip() or "India",
+                "current_city": pers.get("current_city", "").strip() or "City",
+                "state": pers.get("state", "").strip() or "",
+                "country": pers.get("country", "").strip() or "India",
+                "zipcode": pers.get("zipcode", "").strip() or None,
+                "address": pers.get("address", "").strip() or None,
                 "willing_to_relocate": qna_data.get("open_to_relocation", "Yes").strip().lower() == "yes",
             }
 
             # Build professional_data dict matching save_profile's expected format
             professional_data = {
                 "title": prof.get("current_title", "Software Engineer").strip() or "Software Engineer",
+                "current_employer": prof.get("current_employer", "").strip() or None,
                 "years_of_experience": float(prof.get("years_of_experience", 2.0)),
                 "current_ctc": int(prof.get("current_ctc", 350000)),
                 "expected_ctc": int(prof.get("expected_ctc", 550000)),
                 "notice_period_days": int(prof.get("notice_period_days", 30)),
                 "skills": extracted_skills,
-                "linkedin_url": pers.get("linkedin_url", "").strip() or None,
-                "github_url": pers.get("github_url", "").strip() or None,
-                "portfolio_url": pers.get("portfolio_url", "").strip() or None,
-                "headline": prof.get("current_title", "").strip() or None,
+                "linkedin_url": prof.get("linkedin_url") or pers.get("linkedin_url", "").strip() or None,
+                "github_url": prof.get("github_url") or pers.get("github_url", "").strip() or None,
+                "portfolio_url": prof.get("portfolio_url") or pers.get("portfolio_url", "").strip() or None,
+                "headline": prof.get("headline") or prof.get("current_title", "").strip() or None,
                 "summary": prof.get("summary", "").strip() or None,
             }
 

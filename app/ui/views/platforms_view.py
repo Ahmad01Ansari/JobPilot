@@ -90,6 +90,9 @@ class PlatformConfigDialog(QDialog):
                 height: 0px;
                 background: none;
             }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
 
         # Main root layout

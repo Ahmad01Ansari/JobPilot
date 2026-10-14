@@ -1341,3 +1341,7 @@ class ProfileView(QWidget):
                 duration_ms=6000,
             )
         self._refresh_readiness_indicator()
+
+    def refresh(self) -> None:
+        """Reloads the candidate profile from database and updates display."""
+        self.load_profile()

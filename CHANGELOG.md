@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.1.0-beta.3] — 2026-10-14
+
+### Windows Polish & Feedback Release (Windows & Linux)
+
+This update resolves UI focus outline styling, Windows scrollbar dithering, canonical Q&A hydration on clean installs, product tour overlay visibility, and onboarding candidate profile synchronization.
+
+#### Fixed
+- **Windows Button Outline & Scrollbar Stippling**: Eliminated Windows native dotted focus outlines on action buttons with `outline: none;` and `NoFocus` policies. Configured transparent `add-page` and `sub-page` scrollbar track rules across the application to permanently eliminate Windows 1-bit dithered checkerboard patterns.
+- **100+ Canonical Screening Q&A Catalog on Fresh Installs**: Updated `MigrationService` and `SetupService` to automatically seed the full 100+ canonical question catalog into SQLite on initial setup and fresh installs. Added dynamic PyInstaller `sys._MEIPASS` path resolution so frozen Windows executables reliably locate `canonical_qna_catalog.json`.
+- **Product Tour Overlay Ergonomics & Transparency**: Prevented duplicate tour guide overlays on onboarding completion. Changed the overlay scrim from an opaque 75% dark tint to a subtle `rgba(15, 17, 23, 0.28)` backdrop and re-anchored the card to the bottom center so users can clearly see and relate to underlying views.
+- **Candidate Profile Onboarding Synchronization**: Added `refresh()` capability to `ProfileView` and connected it to onboarding completion signals. Fixed `ProfileService.apply_onboarding_data` and `SetupService.get_existing_profile` to preserve all candidate fields (`current_employer`, `middle_name`, `zipcode`, `address`, `linkedin_url`), immediately reflecting verified resume details in the profile view.
+
+---
+
 ## [0.1.0-beta.2] — 2026-10-14
 
 ### Private Beta Maintenance & Compatibility Release (Windows & Linux)

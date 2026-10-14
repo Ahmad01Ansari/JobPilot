@@ -16,10 +16,10 @@ class TestBetaReadinessVersioning(unittest.TestCase):
     """Verifies single authoritative version invariants across package namespaces."""
 
     def test_authoritative_version_string(self):
-        self.assertEqual(VERSION, "0.1.0-beta.2")
+        self.assertEqual(VERSION, "0.1.0-beta.3")
         self.assertEqual(RELEASE_CHANNEL, "private-beta")
-        self.assertEqual(app.__version__, "0.1.0-beta.2")
-        self.assertEqual(app.VERSION, "0.1.0-beta.2")
+        self.assertEqual(app.__version__, "0.1.0-beta.3")
+        self.assertEqual(app.VERSION, "0.1.0-beta.3")
 
 
 class TestDiagnosticService(unittest.TestCase):
@@ -40,7 +40,7 @@ class TestDiagnosticService(unittest.TestCase):
         self.assertIn("workspace_readiness", report)
         self.assertIn("recent_diagnostic_logs", report)
 
-        self.assertEqual(report["metadata"]["version"], "0.1.0-beta.2")
+        self.assertEqual(report["metadata"]["version"], "0.1.0-beta.3")
         self.assertEqual(report["metadata"]["release_channel"], "private-beta")
         self.assertEqual(report["metadata"]["application"], "JobPilot")
 
@@ -48,7 +48,7 @@ class TestDiagnosticService(unittest.TestCase):
         md = self.service.generate_markdown()
         self.assertIsInstance(md, str)
         self.assertIn("# JobPilot Diagnostic Report", md)
-        self.assertIn("0.1.0-beta.2", md)
+        self.assertIn("0.1.0-beta.3", md)
         self.assertIn("System & Runtime Environment", md)
         self.assertIn("Storage & Filesystem", md)
         self.assertIn("Database & Schema Status", md)
@@ -61,7 +61,7 @@ class TestDiagnosticService(unittest.TestCase):
             self.assertTrue(exported.exists())
             content = exported.read_text(encoding="utf-8")
             self.assertIn("JobPilot Diagnostic Report", content)
-            self.assertIn("0.1.0-beta.2", content)
+            self.assertIn("0.1.0-beta.3", content)
 
     def test_diagnostics_sanitizes_secrets(self):
         """Verifies that sensitive API keys and passwords never survive in diagnostic outputs."""

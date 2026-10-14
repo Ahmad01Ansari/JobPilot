@@ -134,40 +134,59 @@ class ThemeManager:
             font-weight: 500;
         }}
 
-        /* Smooth Thin Pill Scrollbars */
+        /* Smooth Thin Pill Scrollbars (Windows/Linux Cross-Platform Safe) */
         QScrollBar:vertical {{
             border: none;
             background: transparent;
-            width: 6px;
+            width: 8px;
             margin: 0px;
         }}
         QScrollBar::handle:vertical {{
             background: {tokens["border_light"]};
             min-height: 28px;
-            border-radius: 3px;
+            border-radius: 4px;
         }}
         QScrollBar::handle:vertical:hover {{
             background: {tokens["primary"]};
         }}
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
             height: 0px;
+            width: 0px;
+            background: transparent;
+            border: none;
+        }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: transparent;
+            border: none;
         }}
         QScrollBar:horizontal {{
             border: none;
             background: transparent;
-            height: 6px;
+            height: 8px;
             margin: 0px;
         }}
         QScrollBar::handle:horizontal {{
             background: {tokens["border_light"]};
             min-width: 28px;
-            border-radius: 3px;
+            border-radius: 4px;
         }}
         QScrollBar::handle:horizontal:hover {{
             background: {tokens["primary"]};
         }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+            height: 0px;
             width: 0px;
+            background: transparent;
+            border: none;
+        }}
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+        QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {{
+            background: transparent;
+            border: none;
         }}
 
         /* Push Buttons */
@@ -179,18 +198,25 @@ class ThemeManager:
             padding: 8px 16px;
             font-size: 13px;
             font-weight: 600;
+            outline: none;
         }}
         QPushButton:hover {{
             background-color: {tokens["surface_hover"]};
             border-color: {tokens["border_light"]};
+            outline: none;
+        }}
+        QPushButton:focus {{
+            outline: none;
         }}
         QPushButton:pressed {{
             background-color: {tokens["surface_alt"]};
+            outline: none;
         }}
         QPushButton:disabled {{
             background-color: {tokens["surface"]};
             color: {tokens["text_dark"]};
             border-color: {tokens["border"]};
+            outline: none;
         }}
 
         /* LineEdits and Inputs */

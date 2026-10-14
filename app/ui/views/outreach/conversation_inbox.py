@@ -457,6 +457,13 @@ class ConversationInbox(QWidget):
             QScrollBar::handle:vertical:hover {{
                 background: {COLORS['primary']};
             }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
 
         self._cards_container = QWidget()

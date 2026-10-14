@@ -358,6 +358,7 @@ class OnboardingWizardDialog(QDialog):
         d_layout.addStretch()
 
         self.btn_back = QPushButton("< Back")
+        self.btn_back.setFocusPolicy(Qt.NoFocus)
         self.btn_back.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['surface_alt']};
@@ -367,15 +368,20 @@ class OnboardingWizardDialog(QDialog):
                 padding: 6px 14px;
                 font-weight: 700;
                 font-size: 11px;
+                outline: none;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['primary']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_back.clicked.connect(self._go_back)
         d_layout.addWidget(self.btn_back)
 
         self.btn_skip = QPushButton("Skip Step")
+        self.btn_skip.setFocusPolicy(Qt.NoFocus)
         self.btn_skip.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -383,26 +389,37 @@ class OnboardingWizardDialog(QDialog):
                 border: none;
                 padding: 6px 10px;
                 font-size: 11px;
+                outline: none;
             }}
             QPushButton:hover {{
                 color: {COLORS['text']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_skip.clicked.connect(self._skip_current_step)
         d_layout.addWidget(self.btn_skip)
 
         self.btn_next = QPushButton("Continue →")
+        self.btn_next.setFocusPolicy(Qt.NoFocus)
         self.btn_next.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['primary']};
                 color: #FFFFFF;
+                border: none;
                 border-radius: 6px;
                 padding: 7px 20px;
                 font-weight: 800;
                 font-size: 12px;
+                outline: none;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['primary_hover']};
+            }}
+            QPushButton:focus {{
+                outline: none;
+                border: none;
             }}
         """)
         self.btn_next.clicked.connect(self._go_next)
@@ -650,7 +667,3 @@ class OnboardingWizardDialog(QDialog):
         ok, change_log = self.setup_service.complete_setup()
         self.onboarding_completed.emit({"changes": change_log})
         self.accept()
-        parent_win = self.parent()
-        if parent_win and hasattr(parent_win, "launch_product_tour"):
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(400, parent_win.launch_product_tour)

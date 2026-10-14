@@ -398,7 +398,32 @@ class SetupService:
         data = {}
         if hasattr(ps, "get_primary_user_profile"):
             raw = ps.get_primary_user_profile()
-            if isinstance(raw, dict) and raw:
+            if isinstance(raw, tuple) and len(raw) >= 3:
+                u, p, pp = raw[0], raw[1], raw[2]
+                data.setdefault("personal", {})
+                data.setdefault("professional", {})
+                if u:
+                    parts = (u.name or "").split(None, 1)
+                    data["personal"]["first_name"] = p.first_name if (p and p.first_name) else (parts[0] if parts else "")
+                    data["personal"]["last_name"] = p.last_name if (p and p.last_name) else (parts[1] if len(parts) > 1 else "")
+                    data["personal"]["email"] = u.email or ""
+                    data["personal"]["phone_number"] = u.phone or ""
+                if p:
+                    data["personal"]["current_city"] = p.current_city or ""
+                    data["personal"]["state"] = p.state or ""
+                    data["personal"]["country"] = p.country or ""
+                    data["personal"]["zipcode"] = p.zipcode or ""
+                    data["personal"]["willing_to_relocate"] = p.willing_to_relocate
+                if pp:
+                    data["professional"]["current_title"] = pp.current_title or pp.headline or ""
+                    data["professional"]["headline"] = pp.headline or ""
+                    data["professional"]["current_employer"] = pp.current_employer or ""
+                    data["professional"]["years_of_experience"] = pp.years_of_experience or 0
+                    data["professional"]["current_ctc"] = pp.current_ctc or 0
+                    data["professional"]["expected_ctc"] = pp.expected_ctc or 0
+                    data["professional"]["notice_period_days"] = pp.notice_period_days or 30
+                    data["professional"]["skills"] = pp.skills or []
+            elif isinstance(raw, dict) and raw:
                 data.setdefault("personal", {})
                 data.setdefault("professional", {})
                 if "personal_info" in raw and isinstance(raw["personal_info"], dict):
@@ -654,6 +679,13 @@ class SetupService:
         """Loads the real 398+ screening Q&A records and statistics from QnAService."""
         qs = self._get_qna_service()
         stats = qs.get_stats() if hasattr(qs, "get_stats") else {}
+        total = stats.get("total_entries", 0)
+        if total < 20 and hasattr(qs, "seed_canonical_bank"):
+            try:
+                qs.seed_canonical_bank(user_id=self.get_primary_user_id(), force=False)
+                stats = qs.get_stats() if hasattr(qs, "get_stats") else stats
+            except Exception as exc:
+                logger.debug("Failed auto-seeding canonical bank: %s", exc)
         entries = qs.list_entries(
             category=category,
             search=search,

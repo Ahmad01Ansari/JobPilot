@@ -208,6 +208,7 @@ class StepQnAKnowledgeWidget(QWidget):
 
         # Edit Selected Button
         self.btn_edit = QPushButton("✏️ Edit Answer")
+        self.btn_edit.setFocusPolicy(Qt.NoFocus)
         self.btn_edit.setCursor(Qt.PointingHandCursor)
         self.btn_edit.setStyleSheet(f"""
             QPushButton {{
@@ -218,10 +219,14 @@ class StepQnAKnowledgeWidget(QWidget):
                 padding: 6px 14px;
                 font-size: 12px;
                 font-weight: 700;
+                outline: none;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['primary']};
                 color: {COLORS['primary']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_edit.clicked.connect(self._on_edit_clicked)
@@ -229,6 +234,7 @@ class StepQnAKnowledgeWidget(QWidget):
 
         # Mark Complete Button
         self.btn_mark_complete = QPushButton("✓ Mark Q&A Complete")
+        self.btn_mark_complete.setFocusPolicy(Qt.NoFocus)
         self.btn_mark_complete.setCursor(Qt.PointingHandCursor)
         self.btn_mark_complete.setStyleSheet(f"""
             QPushButton {{
@@ -239,10 +245,14 @@ class StepQnAKnowledgeWidget(QWidget):
                 padding: 6px 14px;
                 font-size: 12px;
                 font-weight: 700;
+                outline: none;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['success']};
                 color: #FFFFFF;
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_mark_complete.clicked.connect(self._on_mark_complete_clicked)
@@ -271,6 +281,7 @@ class StepQnAKnowledgeWidget(QWidget):
                 color: {COLORS['text']};
                 gridline-color: {COLORS['border_light']};
                 font-size: 12px;
+                outline: none;
             }}
             QHeaderView::section {{
                 background-color: {COLORS['surface_alt']};
@@ -288,6 +299,27 @@ class StepQnAKnowledgeWidget(QWidget):
                 background-color: {COLORS['primary_subtle']};
                 color: {COLORS['text']};
             }}
+            QScrollBar:vertical {{
+                border: none;
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {COLORS['border_light']};
+                min-height: 24px;
+                border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {COLORS['primary']};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+                background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
         """)
         layout.addWidget(self.table)
 
@@ -299,11 +331,13 @@ class StepQnAKnowledgeWidget(QWidget):
         page_row.addStretch()
 
         self.btn_prev = QPushButton("< Previous")
+        self.btn_prev.setFocusPolicy(Qt.NoFocus)
         self.btn_prev.setStyleSheet(self._page_btn_qss())
         self.btn_prev.clicked.connect(self._go_prev_page)
         page_row.addWidget(self.btn_prev)
 
         self.btn_next = QPushButton("Next >")
+        self.btn_next.setFocusPolicy(Qt.NoFocus)
         self.btn_next.setStyleSheet(self._page_btn_qss())
         self.btn_next.clicked.connect(self._go_next_page)
         page_row.addWidget(self.btn_next)
@@ -449,10 +483,14 @@ class StepQnAKnowledgeWidget(QWidget):
                 padding: 4px 10px;
                 font-size: 11px;
                 font-weight: 600;
+                outline: none;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['primary']};
                 color: {COLORS['primary']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
             QPushButton:disabled {{
                 color: {COLORS['text_dark']};

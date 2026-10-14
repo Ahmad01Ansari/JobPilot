@@ -202,7 +202,9 @@ class MainWindow(QMainWindow):
         wizard.exec()
 
     def launch_product_tour(self) -> None:
-        """Launches the contextual 9-stop product tour overlay."""
+        """Launches the contextual 11-stop product tour overlay."""
+        if hasattr(self, "_product_tour") and self._product_tour and self._product_tour.isVisible():
+            return
         from app.ui.widgets.tour_overlay import ProductTourOverlay
         self._product_tour = ProductTourOverlay(main_window=self, parent=self)
         self._product_tour.start()
@@ -211,15 +213,17 @@ class MainWindow(QMainWindow):
         """Callback after the onboarding wizard finishes successfully."""
         self._update_top_bar_user_name()
         self.state.notify("success", "Welcome! Your profile, resume, and Q&A knowledge base are ready.")
-        # Refresh dashboard if visible
-        dashboard = self.view_instances.get("dashboard")
-        if dashboard and hasattr(dashboard, "refresh"):
-            try:
-                dashboard.refresh()
-            except Exception:
-                pass
+        
+        # Refresh views with the latest onboarding profile and facts
+        for view_key in ("dashboard", "profile", "resumes", "qna"):
+            view_inst = self.view_instances.get(view_key)
+            if view_inst and hasattr(view_inst, "refresh"):
+                try:
+                    view_inst.refresh()
+                except Exception:
+                    pass
 
-        # Trigger mandatory product tour overlay
+        # Trigger single product tour overlay
         from PySide6.QtCore import QTimer
         QTimer.singleShot(400, self.launch_product_tour)
 

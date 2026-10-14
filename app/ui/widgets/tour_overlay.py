@@ -99,19 +99,20 @@ class ProductTourOverlay(QWidget):
         self.main_window = main_window
         self.current_stop = 0
 
-        # Semi-transparent overlay canvas
+        # Semi-transparent overlay canvas (subtle scrim so candidate can see background views)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background-color: rgba(15, 17, 23, 0.75);")
+        self.setStyleSheet("background-color: rgba(15, 17, 23, 0.28);")
         self._init_ui()
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setAlignment(Qt.AlignCenter)
+        root_layout.setContentsMargins(32, 32, 32, 44)
+        root_layout.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
 
-        # Centered Tour Card
+        # Floating Tour Card anchored near bottom so full view content is visible
         self.card = QFrame()
         self.card.setObjectName("tour_card")
-        self.card.setFixedSize(520, 240)
+        self.card.setFixedSize(540, 230)
         self.card.setStyleSheet(f"""
             #tour_card {{
                 background-color: {COLORS['surface']};
@@ -124,12 +125,12 @@ class ProductTourOverlay(QWidget):
             }}
         """)
         c_layout = QVBoxLayout(self.card)
-        c_layout.setContentsMargins(20, 20, 20, 20)
-        c_layout.setSpacing(12)
+        c_layout.setContentsMargins(20, 18, 20, 18)
+        c_layout.setSpacing(10)
 
         # Header Row
         h_row = QHBoxLayout()
-        self.lbl_counter = QLabel("Stop 1 of 9")
+        self.lbl_counter = QLabel("Stop 1 of 11")
         self.lbl_counter.setStyleSheet(f"""
             color: {COLORS['primary']};
             background-color: {COLORS['primary_subtle']};
@@ -142,15 +143,20 @@ class ProductTourOverlay(QWidget):
         h_row.addStretch()
 
         self.btn_close = QPushButton("✕")
+        self.btn_close.setFocusPolicy(Qt.NoFocus)
         self.btn_close.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
                 color: {COLORS['text_muted']};
                 font-size: 14px;
                 border: none;
+                outline: none;
             }}
             QPushButton:hover {{
                 color: {COLORS['text']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_close.clicked.connect(self._close_tour)
@@ -159,28 +165,33 @@ class ProductTourOverlay(QWidget):
 
         # Stop Title
         self.lbl_title = QLabel("1. Workspace Dashboard")
-        self.lbl_title.setStyleSheet(f"font-size: 16px; font-weight: 800; color: {COLORS['text']};")
+        self.lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['text']};")
         c_layout.addWidget(self.lbl_title)
 
         # Stop Description
         self.lbl_desc = QLabel("Tour description text...")
         self.lbl_desc.setWordWrap(True)
-        self.lbl_desc.setStyleSheet(f"font-size: 13px; color: {COLORS['text_muted']}; line-height: 1.4;")
+        self.lbl_desc.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; line-height: 1.4;")
         c_layout.addWidget(self.lbl_desc)
         c_layout.addStretch()
 
         # Action Buttons
         btn_row = QHBoxLayout()
         self.btn_skip = QPushButton("Skip Tour")
+        self.btn_skip.setFocusPolicy(Qt.NoFocus)
         self.btn_skip.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
                 color: {COLORS['text_muted']};
                 font-size: 12px;
                 border: none;
+                outline: none;
             }}
             QPushButton:hover {{
                 color: {COLORS['text']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_skip.clicked.connect(self._close_tour)
@@ -188,6 +199,7 @@ class ProductTourOverlay(QWidget):
         btn_row.addStretch()
 
         self.btn_prev = QPushButton("< Previous")
+        self.btn_prev.setFocusPolicy(Qt.NoFocus)
         self.btn_prev.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['surface_alt']};
@@ -196,22 +208,38 @@ class ProductTourOverlay(QWidget):
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-weight: 700;
+                font-size: 11px;
+                outline: none;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['primary']};
+            }}
+            QPushButton:focus {{
+                outline: none;
             }}
         """)
         self.btn_prev.clicked.connect(self._go_prev)
         btn_row.addWidget(self.btn_prev)
 
         self.btn_next = QPushButton("Next Stop ►")
+        self.btn_next.setFocusPolicy(Qt.NoFocus)
         self.btn_next.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['primary']};
                 color: #FFFFFF;
+                border: none;
                 border-radius: 6px;
                 padding: 6px 16px;
                 font-weight: 700;
+                font-size: 11px;
+                outline: none;
             }}
             QPushButton:hover {{
                 background-color: {COLORS['primary_hover']};
+            }}
+            QPushButton:focus {{
+                outline: none;
+                border: none;
             }}
         """)
         self.btn_next.clicked.connect(self._go_next)

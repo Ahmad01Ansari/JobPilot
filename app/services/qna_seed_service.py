@@ -17,12 +17,35 @@ from sqlalchemy.orm import sessionmaker
 from app.db.models import QnAEntry
 from app.db.session import SessionLocal, get_db_session
 from app.repositories.dto import QnACreateDTO
+import sys
 from app.repositories.qna_repository import QnARepository, normalize_question_text
 from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "canonical_qna_catalog.json"
+
+def _resolve_canonical_catalog_path() -> Path:
+    """Resolves canonical question catalog path across frozen bundles and source trees."""
+    # 1. PyInstaller _MEIPASS (frozen temporary bundle)
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass_path = Path(sys._MEIPASS) / "config" / "canonical_qna_catalog.json"
+        if meipass_path.exists():
+            return meipass_path
+
+    # 2. Source root relative to this file
+    src_path = Path(__file__).resolve().parent.parent.parent / "config" / "canonical_qna_catalog.json"
+    if src_path.exists():
+        return src_path
+
+    # 3. Current working directory
+    cwd_path = Path.cwd() / "config" / "canonical_qna_catalog.json"
+    if cwd_path.exists():
+        return cwd_path
+
+    return src_path
+
+
+DEFAULT_CATALOG_PATH = _resolve_canonical_catalog_path()
 
 
 class QnASeedService:
@@ -34,15 +57,18 @@ class QnASeedService:
         catalog_path: Optional[Path] = None,
     ):
         self._session_factory = session_factory or SessionLocal
-        self.catalog_path = catalog_path or DEFAULT_CATALOG_PATH
+        self.catalog_path = catalog_path or _resolve_canonical_catalog_path()
 
     def load_catalog(self) -> Dict[str, Any]:
         """Loads canonical question definitions from disk."""
-        if not self.catalog_path.exists():
-            logger.warning("Canonical QnA catalog not found at %s", self.catalog_path)
+        target_path = self.catalog_path
+        if not target_path.exists():
+            target_path = _resolve_canonical_catalog_path()
+        if not target_path.exists():
+            logger.warning("Canonical QnA catalog not found at %s", target_path)
             return {"questions": []}
         try:
-            with open(self.catalog_path, "r", encoding="utf-8") as f:
+            with open(target_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as exc:
             logger.error("Failed to load canonical QnA catalog: %s", exc)

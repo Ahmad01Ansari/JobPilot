@@ -422,6 +422,14 @@ class MigrationService:
             entry = qna_repo.upsert_answer(dto)
             entries.append(entry)
 
+        # Hydrate complete canonical screening question catalog (100+ screening questions)
+        try:
+            from app.services.qna_seed_service import QnASeedService
+            seeder = QnASeedService(session_factory=self._session_factory)
+            seeder.seed_for_user(user_id=user_id, force=False)
+        except Exception:
+            pass
+
         return entries
 
     # ----------------------------------------------------------------------
