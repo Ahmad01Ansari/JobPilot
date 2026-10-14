@@ -190,6 +190,12 @@ class ProfileService:
             # Synchronize changes back to config/profile.json so automation engines pick them up immediately
             if not self.is_test:
                 self._sync_to_profile_json(personal_data, professional_data)
+                try:
+                    from app.services.qna_service import QnAService
+                    qs = QnAService(session_factory=self._session_factory)
+                    qs.resync_profile_answers(user_id=user_id)
+                except Exception:
+                    pass
 
             return True, None
         except Exception as e:
@@ -408,6 +414,14 @@ class ProfileService:
             # Sync QnA questions into database
             if qna_data:
                 self._sync_onboarding_qna(qna_data)
+
+            # Re-sync candidate screening answers with the newly applied profile & skills
+            try:
+                from app.services.qna_service import QnAService
+                qs = QnAService(session_factory=self._session_factory)
+                qs.resync_profile_answers(user_id=user_id)
+            except Exception:
+                pass
 
             return True, None
         except Exception as exc:

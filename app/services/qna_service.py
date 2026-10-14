@@ -242,11 +242,11 @@ class QnAService:
         seeder = QnASeedService(session_factory=self._session_factory)
         return seeder.seed_for_user(user_id=user_id, ai_service=ai_service, force=force)
 
-    def resync_profile_answers(self, user_id: int = 1) -> int:
-        """Refreshes all profile-dependent answers (CTC, notice period, location) for a candidate."""
+    def resync_profile_answers(self, user_id: int = 1, ai_service: Optional[Any] = None) -> int:
+        """Refreshes all profile-dependent answers (CTC, notice period, location, skills, behavioral) for a candidate."""
         from app.services.qna_seed_service import QnASeedService
         seeder = QnASeedService(session_factory=self._session_factory)
-        return seeder.resync_user_profile_answers(user_id=user_id)
+        return seeder.resync_user_profile_answers(user_id=user_id, ai_service=ai_service)
 
     def export_qna_to_dict(self) -> Dict[str, Any]:
         """Exports all active QnA entries into a portable dictionary."""

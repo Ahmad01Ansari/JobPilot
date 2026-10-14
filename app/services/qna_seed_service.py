@@ -267,21 +267,34 @@ class QnASeedService:
         )
         return created, updated
 
-    def resync_user_profile_answers(self, user_id: int = 1) -> int:
-        """Re-evaluates and updates all PROFILE_VAR answers in the database when user changes profile."""
+    def resync_user_profile_answers(
+        self,
+        user_id: int = 1,
+        ai_service: Optional[Any] = None,
+    ) -> int:
+        """Re-evaluates and updates all profile-dependent (PROFILE_VAR, SKILL_MATCH, BEHAVIORAL_LLM) answers when user changes profile."""
         catalog = self.load_catalog()
         questions = catalog.get("questions", [])
-        var_questions = [q for q in questions if q.get("strategy", "").upper() == "PROFILE_VAR"]
+        dynamic_strategies = {"PROFILE_VAR", "SKILL_MATCH", "BEHAVIORAL_LLM"}
+        dynamic_questions = [q for q in questions if q.get("strategy", "").upper() in dynamic_strategies]
 
-        if not var_questions:
+        if not dynamic_questions:
             return 0
+
+        # Try auto-resolving UniversalAIService if not passed
+        if ai_service is None:
+            try:
+                from app.services.ai_service import UniversalAIService
+                ai_service = UniversalAIService()
+            except Exception:
+                pass
 
         context = self.get_candidate_context(user_id)
         updated = 0
 
         with get_db_session(self._session_factory) as session:
-            for q_def in var_questions:
-                new_ans = self.resolve_question_answer(q_def, context)
+            for q_def in dynamic_questions:
+                new_ans = self.resolve_question_answer(q_def, context, ai_service=ai_service)
                 patterns = [q_def.get("question_text", "")] + q_def.get("normalized_patterns", [])
 
                 for pat in patterns:
@@ -292,6 +305,7 @@ class QnASeedService:
                     for entry in entries:
                         if entry.answer_text != new_ans:
                             entry.answer_text = new_ans
+                            entry.validation_status = "VERIFIED"
                             updated += 1
 
             session.commit()

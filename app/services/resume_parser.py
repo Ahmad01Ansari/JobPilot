@@ -213,6 +213,46 @@ class ResumeParserService:
         except Exception as e:
             raise RuntimeError(f"Failed to read DOCX file: {e}")
 
+    def extract_hyperlinks(self, file_path: str) -> List[str]:
+        """Extracts embedded hyperlinks from PDF annotations or DOCX relationships."""
+        path = Path(file_path).resolve()
+        if not path.exists() or not path.is_file():
+            return []
+
+        links: List[str] = []
+        ext = path.suffix.lower()
+
+        if ext == ".pdf":
+            try:
+                reader = pypdf.PdfReader(str(path))
+                for page in reader.pages:
+                    annots = page.annotations or []
+                    for annot in annots:
+                        obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                        if isinstance(obj, dict) and "/A" in obj:
+                            action = obj["/A"]
+                            if hasattr(action, "get_object"):
+                                action = action.get_object()
+                            if isinstance(action, dict) and "/URI" in action:
+                                uri = str(action["/URI"]).strip()
+                                if uri and uri not in links:
+                                    links.append(uri)
+            except Exception:
+                pass
+        elif ext in (".docx", ".doc"):
+            try:
+                import docx
+                doc = docx.Document(str(path))
+                for rel in doc.part.rels.values():
+                    if "hyperlink" in getattr(rel, "reltype", "").lower() and hasattr(rel, "target_ref"):
+                        target = str(rel.target_ref).strip()
+                        if target and target not in links:
+                            links.append(target)
+            except Exception:
+                pass
+
+        return links
+
     def parse_resume(self, file_path: str) -> Tuple[Dict[str, Any], str, str]:
         """Parses resume file into structured candidate dictionary.
 
@@ -223,29 +263,45 @@ class ResumeParserService:
         if not raw_text.strip():
             raise ValueError("Resume file contains no extractable text.")
 
+        hyperlinks = self.extract_hyperlinks(file_path)
+
         if self.ai_service:
             try:
                 cfg = self.ai_service.get_config() if hasattr(self.ai_service, "get_config") else {}
                 if cfg.get("enabled", True):
-                    ai_data = self._extract_with_ai(raw_text)
+                    ai_data = self._extract_with_ai(raw_text, hyperlinks=hyperlinks)
                     if self._validate_extracted_payload(ai_data):
+                        # Ensure links are populated if AI omitted them but hyperlinks contained them
+                        rule_fallback = self._extract_with_rules(raw_text, hyperlinks=hyperlinks)
+                        pers = ai_data.setdefault("personal", {})
+                        if not pers.get("linkedin_url") and rule_fallback.get("personal", {}).get("linkedin_url"):
+                            pers["linkedin_url"] = rule_fallback["personal"]["linkedin_url"]
+                        if not pers.get("github_url") and rule_fallback.get("personal", {}).get("github_url"):
+                            pers["github_url"] = rule_fallback["personal"]["github_url"]
+                        if not pers.get("portfolio_url") and rule_fallback.get("personal", {}).get("portfolio_url"):
+                            pers["portfolio_url"] = rule_fallback["personal"]["portfolio_url"]
                         return ai_data, raw_text, "ai"
             except Exception:
                 pass
 
-        heuristic_data = self._extract_with_rules(raw_text)
+        heuristic_data = self._extract_with_rules(raw_text, hyperlinks=hyperlinks)
         return heuristic_data, raw_text, "heuristic"
 
-    def _extract_with_ai(self, text: str) -> Dict[str, Any]:
-        """Sends truncated resume text to AI Engine for structured JSON generation."""
+    def _extract_with_ai(self, text: str, hyperlinks: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Sends truncated resume text and extracted hyperlinks to AI Engine for structured JSON generation."""
+        links_context = ""
+        if hyperlinks:
+            links_context = "\nDetected Embedded Document Hyperlinks:\n" + "\n".join(f"- {link}" for link in hyperlinks[:10])
+
         prompt = (
             "Extract candidate personal information, professional summary, and skills "
             "from the following resume text:\n\n"
             f"{text[:3500]}"
+            f"{links_context}"
         )
         schema_desc = (
             '{"personal": {"first_name": "", "last_name": "", "email": "", "phone": "", '
-            '"linkedin_url": "", "github_url": ""}, '
+            '"linkedin_url": "", "github_url": "", "portfolio_url": ""}, '
             '"professional": {"current_title": "", "years_of_experience": 0.0}, '
             '"skills": [{"name": ""}]}'
         )
@@ -261,25 +317,50 @@ class ResumeParserService:
             return False
         return "personal" in payload or "professional" in payload
 
-    def _extract_with_rules(self, text: str) -> Dict[str, Any]:
+    def _extract_with_rules(self, text: str, hyperlinks: Optional[List[str]] = None) -> Dict[str, Any]:
         """Extracts standard identity and career attributes using regex heuristics."""
         lines = [line.strip() for line in text.splitlines() if line.strip()]
+        all_links = list(hyperlinks or [])
 
         # Email
         email_match = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", text)
         email = email_match.group(1).lower() if email_match else ""
+        if not email:
+            for lk in all_links:
+                if lk.startswith("mailto:"):
+                    email = lk[7:].strip().lower()
+                    break
 
         # Phone
         phone_match = re.search(r"(\+?\d[\d\s\-\(\)]{8,15}\d)", text)
         phone = re.sub(r"\s+", "", phone_match.group(1)) if phone_match else ""
 
-        # LinkedIn
-        linkedin_match = re.search(r"https?://(?:www\.)?linkedin\.com/in/[a-zA-Z0-9_-]+", text, re.IGNORECASE)
-        linkedin_url = linkedin_match.group(0) if linkedin_match else ""
+        # LinkedIn: support both text with/without https:// and embedded hyperlinks
+        linkedin_url = ""
+        for source_str in [text] + all_links:
+            linkedin_match = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9_\-\./]+)", source_str, re.IGNORECASE)
+            if linkedin_match:
+                slug = linkedin_match.group(1).strip().strip("/").split("?")[0]
+                linkedin_url = f"https://linkedin.com/in/{slug}"
+                break
 
-        # GitHub
-        github_match = re.search(r"https?://(?:www\.)?github\.com/[a-zA-Z0-9_-]+", text, re.IGNORECASE)
-        github_url = github_match.group(0) if github_match else ""
+        # GitHub: support both text with/without https:// and embedded hyperlinks
+        github_url = ""
+        for source_str in [text] + all_links:
+            github_match = re.search(r"(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_\-\./]+)", source_str, re.IGNORECASE)
+            if github_match:
+                slug = github_match.group(1).strip().strip("/").split("?")[0]
+                if slug.lower() not in ("about", "features", "pricing", "security", "team"):
+                    github_url = f"https://github/{slug}" if not slug else f"https://github.com/{slug}"
+                    break
+
+        # Portfolio URL: find other relevant portfolio/personal URLs
+        portfolio_url = ""
+        for lk in all_links:
+            lk_clean = lk.strip()
+            if lk_clean.startswith("http") and not any(d in lk_clean.lower() for d in ["linkedin.com", "github.com", "mailto:"]):
+                portfolio_url = lk_clean
+                break
 
         # Name extraction
         first_name = ""

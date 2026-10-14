@@ -57,11 +57,17 @@ def _patch_stagehand_extension_resolution() -> None:
                 if (d / "manifest.json").is_file():
                     return d
 
-            # 4. Check virtual environment or site-packages fallback
-            for prefix in [Path.home() / ".venv", Path.cwd() / ".venv", Path(sys.prefix)]:
-                sp_cand = prefix / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "stagehand" / "_extension"
-                if (sp_cand / "manifest.json").is_file():
-                    return sp_cand
+            # 4. Check virtual environment or site-packages fallback (POSIX and Windows layouts)
+            for prefix in [Path.home() / ".venv", Path.cwd() / ".venv", Path(sys.prefix), Path(sys.base_prefix)]:
+                for sub in [
+                    Path("lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "stagehand" / "_extension",
+                    Path("Lib") / "site-packages" / "stagehand" / "_extension",
+                    Path("site-packages") / "stagehand" / "_extension",
+                    Path("stagehand") / "_extension",
+                ]:
+                    sp_cand = prefix / sub
+                    if (sp_cand / "manifest.json").is_file():
+                        return sp_cand
 
             # 5. Fallback
             return Path(stagehand.extension_assets.__file__).resolve().parents[3] / "extension" / "dist"

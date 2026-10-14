@@ -179,23 +179,59 @@ class QnAEngine:
         # Extract and cache candidate resume text for RAG
         self.resume_text = ""
         try:
-            resume_path = self.prof.get("resume_path") or "PersonalData/Mohd_Ahmad_Raza_Ansari_Resume_11_09_2026.pdf"
-            from pathlib import Path
-            p = Path(resume_path)
-            if not p.is_absolute():
-                from modules.config_loader import _BASE_DIR
-                p = _BASE_DIR / resume_path
-            if p.exists() and p.suffix.lower() == ".pdf":
-                from pypdf import PdfReader
-                reader = PdfReader(str(p))
-                self.resume_text = "\n".join([page.extract_text() or "" for page in reader.pages]).strip()
+            from modules.config_loader import get_resume
+            resume_path = self.prof.get("resume_path") or get_resume()
+            if resume_path:
+                from pathlib import Path
+                p = Path(resume_path)
+                if not p.is_absolute():
+                    from modules.config_loader import _BASE_DIR
+                    p = _BASE_DIR / resume_path
+                if p.exists() and p.suffix.lower() == ".pdf":
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(p))
+                    self.resume_text = "\n".join([page.extract_text() or "" for page in reader.pages]).strip()
         except Exception:
             pass
 
-        if self.resume_text and "RESUME CONTENT:" not in self.ai_context:
-            self.full_ai_context = f"{self.ai_context}\n\nRESUME CONTENT:\n{self.resume_text[:4000]}"
-        else:
-            self.full_ai_context = self.ai_context
+        # Build candidate contextual profile summary for AI answering
+        cand_summary = []
+        name = f"{self.personal.get('first_name', '')} {self.personal.get('last_name', '')}".strip()
+        if name:
+            cand_summary.append(f"Candidate Name: {name}")
+        title = self.prof.get("title") or self.prof.get("current_title")
+        if title:
+            cand_summary.append(f"Title: {title}")
+        exp = self.prof.get("years_of_experience")
+        if exp is not None:
+            cand_summary.append(f"Experience: {exp} years")
+        skills = self.prof.get("skills")
+        if skills:
+            skills_str = ", ".join(skills) if isinstance(skills, list) else str(skills)
+            cand_summary.append(f"Key Skills: {skills_str}")
+        city = self.personal.get("current_city")
+        country = self.personal.get("country", "India")
+        if city:
+            cand_summary.append(f"Location: {city}, {country}")
+        curr_ctc = self.prof.get("current_ctc")
+        des_sal = self.prof.get("desired_salary")
+        if curr_ctc:
+            cand_summary.append(f"Current CTC: {curr_ctc}")
+        if des_sal:
+            cand_summary.append(f"Expected CTC / Desired Salary: {des_sal}")
+        notice = self.prof.get("notice_period_days")
+        if notice is not None:
+            cand_summary.append(f"Notice Period: {notice} days")
+
+        context_blocks = []
+        if cand_summary:
+            context_blocks.append("CANDIDATE FACTS:\n" + "\n".join(cand_summary))
+        if self.ai_context:
+            context_blocks.append(self.ai_context)
+        if self.resume_text:
+            context_blocks.append("RESUME CONTENT:\n" + self.resume_text[:4000])
+
+        self.full_ai_context = "\n\n".join(context_blocks) if context_blocks else "N/A"
 
         # Pre-calculated compensation
         self.desired_salary = self.prof.get("desired_salary", 550000)

@@ -653,7 +653,27 @@ class AutomationWorker(QThread):
 
         target_url = self.target_url
         if not target_url:
-            self.record_error("No target_url specified for universal automation.")
+            try:
+                from app.repositories.job_repository import JobRepository
+                repo = JobRepository()
+                jobs = repo.get_jobs(limit=20)
+                portal_jobs = [
+                    j for j in jobs
+                    if getattr(j, "application_method", "") in ("COMPANY_PORTAL", "EXTERNAL")
+                    and (getattr(j, "application_url", None) or getattr(j, "url", None))
+                ]
+                if portal_jobs:
+                    target_url = getattr(portal_jobs[0], "application_url", None) or getattr(portal_jobs[0], "url", None)
+                    if not self.job_title:
+                        self.job_title = getattr(portal_jobs[0], "title", "Target Position")
+                    if not self.company:
+                        self.company = getattr(portal_jobs[0], "company", "Target Company")
+                    self.emit_activity(f"Selected pending company portal job: {self.job_title} @ {self.company}")
+            except Exception:
+                pass
+
+        if not target_url:
+            self.record_error("No target application URL specified. Please enter a portal URL or select a discovered job.")
             return
 
         title = self.job_title or "Target Position"

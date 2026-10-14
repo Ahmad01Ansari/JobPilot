@@ -72,30 +72,8 @@ class FounditBrowser:
     @staticmethod
     def _get_chrome_major_version() -> Optional[int]:
         """Detects installed Chrome major version on host system."""
-        commands: list[list[str]] = []
-        if os.name == "nt":
-            commands.extend([
-                [r"C:\Program Files\Google\Chrome\Application\chrome.exe", "--version"],
-                [r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", "--version"]
-            ])
-        elif sys.platform == "darwin":
-            commands.append(["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"])
-        else:
-            commands.extend([
-                ["google-chrome", "--version"],
-                ["google-chrome-stable", "--version"],
-                ["chromium", "--version"]
-            ])
-
-        for command in commands:
-            try:
-                output = subprocess.check_output(command, stderr=subprocess.STDOUT, text=True).strip()
-                match = re.search(r"(\d+)\.", output)
-                if match:
-                    return int(match.group(1))
-            except Exception:
-                continue
-        return None
+        from modules.open_chrome import get_installed_chrome_major_version
+        return get_installed_chrome_major_version()
 
     def start(self) -> uc.Chrome:
         """Starts an isolated Chrome session with persistent profile."""
@@ -122,19 +100,25 @@ class FounditBrowser:
         options.add_argument("--disable-notifications")
         options.add_argument("--disable-blink-features=AutomationControlled")
 
-        chrome_version = self._get_chrome_major_version()
+        from modules.open_chrome import find_chrome_executable, get_installed_chrome_major_version
+        chrome_path = find_chrome_executable()
+        chrome_version = get_installed_chrome_major_version()
+
         init_kwargs = {
             "user_data_dir": self.profile_dir,
             "options": options,
         }
+        if chrome_path:
+            init_kwargs["browser_executable_path"] = chrome_path
         if chrome_version:
             init_kwargs["version_main"] = chrome_version
 
         try:
             self.driver = uc.Chrome(**init_kwargs)
         except Exception as e:
-            print_lg(f"[FounditBrowser] Failed to start Chrome with version_main: {e}. Retrying with auto-detect...")
-            init_kwargs.pop("version_main", None)
+            print_lg(f"[FounditBrowser] Failed to start Chrome: {e}. Retrying with clean lock...")
+            _cleanup_stale_profile_locks(self.profile_dir)
+            time.sleep(2)
             self.driver = uc.Chrome(**init_kwargs)
 
         try:

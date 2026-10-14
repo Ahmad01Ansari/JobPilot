@@ -49,6 +49,7 @@ class LinkedInPlatform(BasePlatformApplier):
             stealth = ln_cfg.get("stealth_mode", True)
             headless = ln_cfg.get("run_in_background", False)
             self.browser = LinkedInBrowser(stealth=stealth, headless=headless, user_id=self.user_id)
+            self.browser.start()
 
         if self.browser:
             from platforms.linkedin.applier import LinkedInApplier
@@ -69,6 +70,10 @@ class LinkedInPlatform(BasePlatformApplier):
 
     def login(self) -> bool:
         """LinkedIn login check."""
+        if not self.browser:
+            self.initialize()
+        elif not getattr(self.browser, "driver", None):
+            self.browser.start()
         if self.browser and getattr(self.browser, "driver", None):
             return self.browser.is_logged_in()
         return True
@@ -83,6 +88,11 @@ class LinkedInPlatform(BasePlatformApplier):
             res = self.runner_func()
             return {"platform": "linkedin", "result": res}
 
+        if not self.browser:
+            self.initialize()
+        elif not getattr(self.browser, "driver", None):
+            self.browser.start()
+
         if self.rotator and self.browser and getattr(self.browser, "driver", None):
             stats = self.rotator.run(stop_check=stop_check)
             return {"platform": "linkedin", "status": "completed", **stats}
@@ -90,6 +100,10 @@ class LinkedInPlatform(BasePlatformApplier):
         import sys
         if "unittest" in sys.modules or os.environ.get("TESTING") == "1":
             return {"platform": "linkedin", "status": "completed"}
+
+        # In a packaged executable (PyInstaller), subprocess execution of runAiBot.py is invalid
+        if getattr(sys, "frozen", False):
+            raise RuntimeError("LinkedIn browser session failed to initialize in desktop runner.")
 
         import subprocess
         print_lg("[LinkedInPlatform] Starting LinkedIn automation engine...")

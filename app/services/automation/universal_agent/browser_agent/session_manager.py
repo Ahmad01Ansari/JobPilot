@@ -8,11 +8,18 @@ from typing import Any, Dict, Optional
 class UniversalSessionManager:
     """Manages isolated browser user profile directories, viewports, and launch configs."""
 
-    DEFAULT_PROFILE_DIR = os.path.expanduser("~/.jobpilot-universal-profile")
+    @classmethod
+    def get_default_profile_dir(cls) -> str:
+        try:
+            from app.services.os.app_paths import AppPaths
+            return str(AppPaths.get_profiles_dir() / "universal")
+        except Exception:
+            return os.path.expanduser("~/.jobpilot-universal-profile")
+
     DEFAULT_VIEWPORT = {"width": 1280, "height": 800}
 
     def __init__(self, profile_dir: Optional[str] = None) -> None:
-        self.profile_dir = profile_dir or self.DEFAULT_PROFILE_DIR
+        self.profile_dir = profile_dir or self.get_default_profile_dir()
         self._ensure_profile_dir()
 
     def _ensure_profile_dir(self) -> None:
@@ -20,13 +27,12 @@ class UniversalSessionManager:
         os.makedirs(self.profile_dir, mode=0o700, exist_ok=True)
         try:
             from modules.browser_lock import extract_pid_from_lock, is_pid_alive, cleanup_stale_profile_locks
-            import signal, time
+            from app.services.os.process_manager import ProcessManager
             lock_path = os.path.join(self.profile_dir, "SingletonLock")
             pid = extract_pid_from_lock(lock_path)
             if pid and is_pid_alive(pid):
                 try:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(0.5)
+                    ProcessManager.kill_process_tree(pid, timeout_seconds=1.5)
                 except Exception:
                     pass
             cleanup_stale_profile_locks(self.profile_dir)
@@ -86,6 +92,16 @@ class UniversalSessionManager:
                 "--disable-geolocation",
             ],
         }
+        # Explicit Chrome executable path for Windows/Linux
+        try:
+            from modules.open_chrome import find_chrome_executable
+            chrome_path = find_chrome_executable()
+            if chrome_path:
+                options["executable_path"] = chrome_path
+                os.environ["CHROME_PATH"] = chrome_path
+        except Exception:
+            pass
+
         options.update(overrides)
         return options
 

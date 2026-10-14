@@ -23,38 +23,112 @@ from modules.stealth import apply_stealth_to_driver
 from selenium.common.exceptions import SessionNotCreatedException
 
 
-def get_installed_chrome_major_version() -> int | None:
-    """Detects installed Google Chrome major version."""
-    commands: list[list[str]] = []
+def find_chrome_executable() -> Optional[str]:
+    """Resolves absolute path to installed Google Chrome executable across operating systems."""
+    configured = os.environ.get("CHROME_PATH")
+    if configured and os.path.isfile(configured):
+        return configured
+
     if os.name == "nt":
-        commands.extend([[r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", "--version"], [r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe", "--version"], ["reg", "query", r"HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon", "/v", "version"], ["reg", "query", r"HKEY_LOCAL_MACHINE\\Software\\Google\\Chrome\\BLBeacon", "/v", "version"]])
-    elif sys.platform == "darwin":
-        commands.append(["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--version"])
-    else:
-        commands.extend([["google-chrome", "--version"], ["google-chrome-stable", "--version"], ["chromium", "--version"], ["chromium-browser", "--version"]])
-    for command in commands:
+        candidates = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        for cand in candidates:
+            if cand and os.path.isfile(cand):
+                return cand
+
+        # Query Windows Registry for App Paths
         try:
-            completed = subprocess.run(command, capture_output=True, text=True, timeout=5)
-            output = (completed.stdout or completed.stderr or "").strip()
-            match = re.search(r"(\d+)\.\d+\.\d+\.\d+", output)
-            if match: return int(match.group(1))
-        except Exception:
-            continue
+            import winreg
+            for root_key in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(root_key, r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe") as key:
+                        val, _ = winreg.QueryValueEx(key, "")
+                        if val and os.path.isfile(val):
+                            return val
+                except OSError:
+                    pass
+        except (ImportError, Exception):
+            pass
+
+        import shutil
+        cand_which = shutil.which("chrome.exe") or shutil.which("chrome")
+        if cand_which:
+            return cand_which
+
+    elif sys.platform == "darwin":
+        mac_candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+        for cand in mac_candidates:
+            if os.path.isfile(cand):
+                return cand
+    else:
+        # Linux / Unix
+        import shutil
+        for binary in ("google-chrome-stable", "google-chrome", "chromium-browser", "chromium"):
+            found = shutil.which(binary)
+            if found:
+                return found
+
     return None
 
+
+def get_installed_chrome_major_version() -> int | None:
+    """Detects installed Google Chrome major version."""
+    chrome_path = find_chrome_executable()
+    if chrome_path:
+        try:
+            completed = subprocess.run([chrome_path, "--version"], capture_output=True, text=True, timeout=5)
+            output = (completed.stdout or completed.stderr or "").strip()
+            match = re.search(r"(\d+)\.\d+\.\d+\.\d+", output)
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+
+    # Fallback to registry query on Windows
+    if os.name == "nt":
+        for reg_cmd in (
+            ["reg", "query", r"HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon", "/v", "version"],
+            ["reg", "query", r"HKEY_LOCAL_MACHINE\Software\Google\Chrome\BLBeacon", "/v", "version"],
+        ):
+            try:
+                completed = subprocess.run(reg_cmd, capture_output=True, text=True, timeout=5)
+                output = (completed.stdout or completed.stderr or "").strip()
+                match = re.search(r"(\d+)\.\d+\.\d+\.\d+", output)
+                if match:
+                    return int(match.group(1))
+            except Exception:
+                pass
+
+    return None
+
+
 def create_undetected_chrome(options, profile_dir=None):
+    chrome_path = find_chrome_executable()
     chrome_major = get_installed_chrome_major_version()
 
+    kwargs = {"options": options, "user_data_dir": profile_dir}
+    if chrome_path:
+        kwargs["browser_executable_path"] = chrome_path
     if chrome_major:
+        kwargs["version_main"] = chrome_major
         print_lg(
-            f"Detected Chrome major version: {chrome_major}. Using matching ChromeDriver."
+            f"Detected Chrome {chrome_major} at {chrome_path or 'default path'}. Using matching ChromeDriver."
         )
-        return uc.Chrome(options=options, user_data_dir=profile_dir, version_main=chrome_major)
+    else:
+        print_lg(
+            "Could not detect Chrome version automatically. Falling back to default detection."
+        )
 
-    print_lg(
-        "Could not detect Chrome version automatically. Falling back to default detection."
-    )
-    return uc.Chrome(options=options, user_data_dir=profile_dir)
+    return uc.Chrome(**kwargs)
 
 def createChromeSession(isRetry: bool = False):
     make_directories([file_name,failed_file_name,logs_folder_path+"/screenshots",default_resume_path,generated_resume_path+"/temp"])
