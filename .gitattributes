@@ -1,0 +1,48 @@
+# Set default behavior: treat all files as text and normalize line endings to LF on commit
+* text=auto eol=lf
+
+# Explicit text files with LF line endings (ensures scripts do not fail with /bin/bash^M on Linux)
+*.sh text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.qss text eol=lf
+*.desktop text eol=lf
+*.spec text eol=lf
+
+# Windows Batch and Command scripts must use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets (do not touch line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.pdf binary
+*.docx binary
+*.doc binary
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+*.deb binary
+*.AppImage binary
+*.exe binary
+*.dll binary
+*.so binary
+*.pyd binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

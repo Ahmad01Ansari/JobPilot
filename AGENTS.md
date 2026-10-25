@@ -25,6 +25,7 @@ The complete engineering standards and architectural boundaries are defined in t
 - 🗄️ **Database & Persistence:** [`docs/ai/DATABASE_RULES.md`](docs/ai/DATABASE_RULES.md)
 - 🧪 **Testing & Verification:** [`docs/ai/TESTING_RULES.md`](docs/ai/TESTING_RULES.md)
 - 📦 **Git, CI/CD & Releases:** [`docs/ai/GIT_AND_RELEASE_RULES.md`](docs/ai/GIT_AND_RELEASE_RULES.md)
+- 💻 **Cross-Platform & Contributor Rules:** [`.agents/rules/cross-platform-rules.md`](.agents/rules/cross-platform-rules.md)
 
 ### Development Templates
 - 📋 **Feature Template:** [`docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md`](docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md)
