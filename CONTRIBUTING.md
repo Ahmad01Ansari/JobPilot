@@ -30,15 +30,18 @@ JobPilot runs on both **Ubuntu/Linux** and **Windows**. When writing code:
 git clone https://github.com/<your-username>/JobPilot.git
 cd JobPilot
 
-# 2. Create and activate a Python 3.11 virtual environment
+# 2. Add upstream remote to track original repository
+git remote add upstream https://github.com/Ahmad01Ansari/JobPilot.git
+
+# 3. Create and activate a Python 3.11 virtual environment
 python -m venv .venv
 .venv\Scripts\activate
 
-# 3. Upgrade pip and install dependencies
+# 4. Upgrade pip and install dependencies
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# 4. Verify installation
+# 5. Verify installation
 python run_desktop.py --offscreen --test-run
 ```
 
@@ -51,19 +54,22 @@ python run_desktop.py --offscreen --test-run
 git clone https://github.com/<your-username>/JobPilot.git
 cd JobPilot
 
-# 2. Install system libraries (for PySide6 and packaging)
+# 2. Add upstream remote to track original repository
+git remote add upstream https://github.com/Ahmad01Ansari/JobPilot.git
+
+# 3. Install system libraries (for PySide6 and packaging)
 sudo apt-get update
 sudo apt-get install -y python3.11 python3.11-venv python3-pip libfuse2 libgl1-mesa-glx
 
-# 3. Create and activate virtual environment
+# 4. Create and activate virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
 
-# 4. Upgrade pip and install dependencies
+# 5. Upgrade pip and install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 5. Verify installation
+# 6. Verify installation
 python run_desktop.py --offscreen --test-run
 ```
 
@@ -130,6 +136,30 @@ This creates:
 ---
 
 ## 5. Contribution Workflow & PR Guidelines
+
+### 5.1. Keeping Your Fork Synchronized with Upstream
+When other commits are merged into the original repository, your fork does not update automatically. To fetch the latest commits:
+
+```bash
+# 1. Fetch the latest changes from the original repository
+git fetch upstream
+
+# 2. Check out your local main branch
+git checkout main
+
+# 3. Fast-forward or rebase onto upstream/main
+git merge upstream/main
+# (or: git rebase upstream/main)
+
+# 4. Push the updated main branch to your personal fork on GitHub
+git push origin main
+```
+
+> **Tip:** You can also sync directly from GitHub by navigating to your fork on `github.com/<your-username>/JobPilot`, clicking the **"Sync fork"** button, and selecting **"Update branch"**. Then run `git pull origin main` locally.
+
+---
+
+### 5.2. Creating a Feature Branch & Submitting a PR
 
 1. **Create a Feature Branch:**
    ```bash
