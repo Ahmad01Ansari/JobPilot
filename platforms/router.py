@@ -68,14 +68,85 @@ class LinkedInPlatform(BasePlatformApplier):
                 user_id=self.user_id,
             )
 
-    def login(self) -> bool:
-        """LinkedIn login check."""
+    def login(self, stop_check: Optional[Callable[[], bool]] = None) -> bool:
+        """LinkedIn authentication verification and login flow."""
         if not self.browser:
             self.initialize()
         elif not getattr(self.browser, "driver", None):
             self.browser.start()
         if self.browser and getattr(self.browser, "driver", None):
-            return self.browser.is_logged_in()
+            from platforms.linkedin.selectors import HOME_URL, LOGIN_URL
+            print_lg("[LinkedInPlatform] Navigating to LinkedIn to verify session...")
+            self.browser.navigate(HOME_URL)
+            time.sleep(2)
+            if self.browser.is_logged_in():
+                print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+                return True
+
+            print_lg("[LinkedInPlatform] Session not authenticated. Navigating to login page...")
+            self.browser.navigate(LOGIN_URL)
+            time.sleep(2)
+
+            # Attempt credential entry if configured
+            try:
+                from config.secrets import get_linkedin_credentials
+                eff_username, eff_password = get_linkedin_credentials()
+            except Exception:
+                try:
+                    import config.secrets as secrets
+                    eff_username = getattr(secrets, "username", None) or os.environ.get("LINKEDIN_USERNAME")
+                    eff_password = getattr(secrets, "password", None) or os.environ.get("LINKEDIN_PASSWORD")
+                except Exception:
+                    eff_username, eff_password = None, None
+
+            if (
+                eff_username
+                and eff_password
+                and eff_username != "username@example.com"
+                and eff_password != "CHANGE_ME_TO_YOUR_LINKEDIN_PASSWORD"
+            ):
+                try:
+                    driver = self.browser.driver
+                    from selenium.webdriver.common.by import By
+                    for user_sel in ["#username", "#session_key", "input[name='session_key']", "input[type='email']"]:
+                        try:
+                            uf = driver.find_element(By.CSS_SELECTOR, user_sel)
+                            if uf.is_displayed():
+                                uf.clear()
+                                uf.send_keys(eff_username)
+                                time.sleep(0.5)
+                                break
+                        except Exception:
+                            pass
+
+                    for pwd_sel in ["#password", "#session_password", "input[name='session_password']", "input[type='password']"]:
+                        try:
+                            pf = driver.find_element(By.CSS_SELECTOR, pwd_sel)
+                            if pf.is_displayed():
+                                pf.clear()
+                                pf.send_keys(eff_password)
+                                time.sleep(0.5)
+                                break
+                        except Exception:
+                            pass
+
+                    for sub_xp in [
+                        '//button[@type="submit"]',
+                        '//button[contains(@class, "btn__primary")]',
+                        '//button[@data-litms-control-urn="login-submit"]',
+                    ]:
+                        try:
+                            btn = driver.find_element(By.XPATH, sub_xp)
+                            if btn.is_displayed():
+                                driver.execute_script("arguments[0].click();", btn)
+                                time.sleep(3)
+                                break
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print_lg(f"[LinkedInPlatform] Automated credential submission notice: {e}")
+
+            return self.browser.ensure_authenticated(max_wait_seconds=180, stop_check=stop_check)
         return True
 
     def search_and_apply(
@@ -1246,7 +1317,11 @@ class PlatformRouter:
         print_lg("======================================================================\n")
         try:
             self.linkedin_platform.initialize()
-            if self.linkedin_platform.login():
+            try:
+                login_ok = self.linkedin_platform.login(stop_check=stop_check)
+            except TypeError:
+                login_ok = self.linkedin_platform.login()
+            if login_ok:
                 try:
                     return self.linkedin_platform.search_and_apply(stop_check=stop_check, log_callback=log_callback)
                 except TypeError:
