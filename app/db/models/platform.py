@@ -7,7 +7,7 @@ Credentials and sessions remain in local environment/secrets and persistent brow
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, IntIdMixin, JsonType, UTCDateTime
@@ -60,6 +60,11 @@ class PlatformAccount(Base, IntIdMixin, TimestampMixin):
 
     # Extension JSON for platform-specific extras only
     extra_settings: Mapped[Optional[Dict[str, Any]]] = mapped_column(JsonType, nullable=True)
+
+    # Unique constraint per platform and account name
+    __table_args__ = (
+        UniqueConstraint("platform_id", "account_name", name="uq_platform_accounts_platform_account"),
+    )
 
     # Relationship
     platform: Mapped["Platform"] = relationship("Platform", back_populates="accounts")
