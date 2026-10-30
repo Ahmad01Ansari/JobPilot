@@ -352,21 +352,21 @@ class LinkedInPlatform(BasePlatformApplier):
 
     def pause(self) -> None:
         """Freezes subprocess execution on cooperative pause."""
-        if getattr(self, "_active_proc", None) and hasattr(os, "kill"):
+        if getattr(self, "_active_proc", None):
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGSTOP)
-                print_lg("[LinkedInPlatform] Subprocess paused via SIGSTOP.")
+                from app.services.os.process_manager import ProcessManager
+                if ProcessManager.suspend_process(self._active_proc.pid):
+                    print_lg("[LinkedInPlatform] Subprocess paused.")
             except Exception as e:
                 print_lg(f"[LinkedInPlatform] Notice pausing subprocess: {e}")
 
     def resume(self) -> None:
         """Resumes subprocess execution from cooperative pause."""
-        if getattr(self, "_active_proc", None) and hasattr(os, "kill"):
+        if getattr(self, "_active_proc", None):
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGCONT)
-                print_lg("[LinkedInPlatform] Subprocess resumed via SIGCONT.")
+                from app.services.os.process_manager import ProcessManager
+                if ProcessManager.resume_process(self._active_proc.pid):
+                    print_lg("[LinkedInPlatform] Subprocess resumed.")
             except Exception as e:
                 print_lg(f"[LinkedInPlatform] Notice resuming subprocess: {e}")
 
@@ -1422,10 +1422,10 @@ class PlatformRouter:
 
     def pause(self) -> None:
         """Freezes subprocess execution on cooperative pause."""
-        if hasattr(self, "_active_proc") and self._active_proc and hasattr(os, "kill"):
+        if hasattr(self, "_active_proc") and self._active_proc:
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGSTOP)
+                from app.services.os.process_manager import ProcessManager
+                ProcessManager.suspend_process(self._active_proc.pid)
             except Exception as e:
                 print_lg(f"[PlatformRouter] Notice pausing subprocess: {e}")
         if hasattr(self, "linkedin_platform") and self.linkedin_platform:
@@ -1437,10 +1437,10 @@ class PlatformRouter:
 
     def resume(self) -> None:
         """Resumes subprocess execution from cooperative pause."""
-        if hasattr(self, "_active_proc") and self._active_proc and hasattr(os, "kill"):
+        if hasattr(self, "_active_proc") and self._active_proc:
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGCONT)
+                from app.services.os.process_manager import ProcessManager
+                ProcessManager.resume_process(self._active_proc.pid)
             except Exception as e:
                 print_lg(f"[PlatformRouter] Notice resuming subprocess: {e}")
         if hasattr(self, "linkedin_platform") and self.linkedin_platform:

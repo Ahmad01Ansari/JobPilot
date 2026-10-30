@@ -106,6 +106,20 @@ class TestProcessManager(unittest.TestCase):
         ProcessManager.safe_terminate_process(proc, timeout_seconds=1.0)
         self.assertFalse(ProcessManager.is_pid_alive(proc.pid))
 
+    def test_suspend_and_resume_process(self):
+        """Verifies suspend_process and resume_process methods execute without unhandled exceptions."""
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        try:
+            self.assertTrue(ProcessManager.is_pid_alive(proc.pid))
+            # Test suspend
+            res_suspend = ProcessManager.suspend_process(proc.pid)
+            self.assertIsInstance(res_suspend, bool)
+            # Test resume
+            res_resume = ProcessManager.resume_process(proc.pid)
+            self.assertIsInstance(res_resume, bool)
+        finally:
+            ProcessManager.safe_terminate_process(proc, timeout_seconds=1.0)
+
 
 class TestCrashReporter(unittest.TestCase):
     """Verifies crash telemetry sanitization and dump generation."""
