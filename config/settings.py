@@ -66,6 +66,7 @@ except Exception:
 
 # Directory and name of the files where history of applied jobs is saved (Sentence after the last "/" will be considered as the file name).
 file_name = "all excels/all_applied_applications_history.csv"
+failed_file_name = "all excels/failed_applications_history.csv"
 try:
     from app.services.os.app_paths import AppPaths
     logs_folder_path = str(AppPaths.get_logs_dir()) + "/"

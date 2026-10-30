@@ -153,16 +153,12 @@ class BrowserSection(QWidget):
         p_layout.addWidget(lbl_p_title)
 
         # Check existing profiles on disk
-        home = Path.home()
-        li_dir = home / ".jobpilot-chrome-profile"
-        if not li_dir.exists():
-            li_dir = home / ".apply-and-pray-chrome-profile"
-        li_exists = li_dir.exists()
+        from modules.browser_lock import get_profile_dir
+        li_path = Path(get_profile_dir("linkedin"))
+        li_exists = li_path.exists()
 
-        nk_dir = home / ".jobpilot-naukri-profile"
-        if not nk_dir.exists():
-            nk_dir = home / ".apply-and-pray-naukri-profile"
-        nk_exists = nk_dir.exists()
+        nk_path = Path(get_profile_dir("naukri"))
+        nk_exists = nk_path.exists()
 
         lbl_li = QLabel(f"• <b>LinkedIn Session Profile:</b> {'● Ready' if li_exists else '○ Initialized on first run'}")
         lbl_li.setStyleSheet(f"font-size: 12px; color: {COLORS.get('success', '#2EA043') if li_exists else COLORS.get('text_muted', '#8B949E')};")
@@ -192,7 +188,8 @@ class BrowserSection(QWidget):
                 border-color: {COLORS.get('border_light', '#333A46')};
             }}
         """)
-        target_dir = li_dir if li_dir.exists() else home
+        from app.services.os.app_paths import AppPaths
+        target_dir = li_path if li_path.exists() else AppPaths.get_user_data_dir()
         btn_open_profile.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir))))
         p_btn_row.addWidget(btn_open_profile)
         p_btn_row.addStretch()

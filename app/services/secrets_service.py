@@ -56,11 +56,8 @@ class SecretsService:
         if self._fernet is not None:
             return self._fernet
 
-        self._key_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(str(self._key_path.parent), 0o700)
-        except Exception:
-            pass
+        from app.services.os.app_paths import AppPaths
+        AppPaths.safe_set_permissions(self._key_path.parent, 0o700)
 
         if not self._key_path.exists():
             key = Fernet.generate_key()
@@ -70,10 +67,7 @@ class SecretsService:
             with os.fdopen(fd, "wb") as f:
                 f.write(key)
         else:
-            try:
-                os.chmod(str(self._key_path), 0o600)
-            except Exception:
-                pass
+            AppPaths.safe_set_permissions(self._key_path, 0o600)
 
         with open(self._key_path, "rb") as f:
             key_data = f.read().strip()

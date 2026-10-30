@@ -50,6 +50,14 @@ class TestAppPaths(unittest.TestCase):
             success = AppPaths.safe_set_permissions(p, mode=0o600)
             self.assertTrue(success)
 
+    def test_get_profile_dir_resolution(self):
+        """Verifies browser_lock.get_profile_dir resolves deterministic profile paths without throwing exceptions."""
+        from modules.browser_lock import get_profile_dir
+        for plat in ("linkedin", "naukri", "indeed", "foundit", "glassdoor"):
+            prof = get_profile_dir(plat)
+            self.assertIsInstance(prof, str)
+            self.assertTrue(len(prof) > 0)
+
 
 class TestSystemService(unittest.TestCase):
     """Verifies system diagnostics and cross-platform file opening."""
