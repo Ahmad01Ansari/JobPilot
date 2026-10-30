@@ -58,6 +58,31 @@ POST_LOGIN_DISMISS_XPATHS = [
     '//a[contains(normalize-space(.), "Skip for now") or contains(normalize-space(.), "Not now")]',
 ]
 
+# Login form input & submit selectors
+LOGIN_USERNAME_SELECTORS = [
+    "#username",
+    "#session_key",
+    "input[name='session_key']",
+    "input[autocomplete='username']",
+    "input[type='email']",
+    "input[name='username']",
+]
+
+LOGIN_PASSWORD_SELECTORS = [
+    "#password",
+    "#session_password",
+    "input[name='session_password']",
+    "input[autocomplete='current-password']",
+    "input[type='password']",
+]
+
+LOGIN_SUBMIT_SELECTORS = [
+    "button[type='submit']",
+    "button[data-litms-control-urn*='login-submit']",
+    ".btn__primary--large",
+    "button.btn__primary--large",
+]
+
 # Job Search & Listings
 JOB_RESULTS_CONTAINER = ".jobs-search-results-list"
 JOB_CARD_ITEMS = [

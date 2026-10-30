@@ -251,17 +251,47 @@ def _should_skip_linkedin_chrome_init() -> bool:
     if "--platform" in sys.argv:
         try:
             idx = sys.argv.index("--platform")
-            if idx + 1 < len(sys.argv) and sys.argv[idx + 1].strip().lower() in ["naukri", "indeed", "foundit", "glassdoor"]:
+            if idx + 1 < len(sys.argv) and sys.argv[idx + 1].strip().lower() in ["naukri", "indeed", "foundit", "glassdoor", "universal"]:
                 return True
         except Exception:
             pass
+    # Guard against desktop GUI, PyInstaller frozen builds, and non-CLI module imports
+    if getattr(sys, "frozen", False) or os.environ.get("JOBPILOT_DESKTOP") == "1":
+        return True
+    if sys.argv and not any(sys.argv[0].endswith(x) for x in ["runAiBot.py", "runAiBot"]):
+        return True
     return False
 
-options, driver, actions, wait = None, None, None, None
+def _register_driver_cleanup(drv) -> None:
+    if drv:
+        try:
+            import signal
 
-if not _should_skip_linkedin_chrome_init():
+            def _terminate_chrome_session(signum, frame):
+                try:
+                    if drv:
+                        drv.quit()
+                except Exception:
+                    pass
+                sys.exit(0)
+
+            signal.signal(signal.SIGTERM, _terminate_chrome_session)
+            signal.signal(signal.SIGINT, _terminate_chrome_session)
+        except Exception:
+            pass
+
+def get_chrome_session(is_retry: bool = False):
+    """Initializes and returns (options, driver, actions, wait), reusing active session if valid."""
+    global options, driver, actions, wait
+    if driver is not None:
+        try:
+            _ = driver.window_handles
+            return options, driver, actions, wait
+        except Exception:
+            driver = None
+
     try:
-        options, driver, actions, wait = createChromeSession()
+        options, driver, actions, wait = createChromeSession(isRetry=is_retry)
     except SessionNotCreatedException as e:
         critical_error_log("Failed to create Chrome Session, retrying with guest profile", e)
         options, driver, actions, wait = createChromeSession(True)
@@ -280,19 +310,10 @@ if not _should_skip_linkedin_chrome_init():
             pass
         sys.exit(1)
 
-if driver:
-    try:
-        import signal
+    _register_driver_cleanup(driver)
+    return options, driver, actions, wait
 
-        def _terminate_chrome_session(signum, frame):
-            try:
-                if driver:
-                    driver.quit()
-            except Exception:
-                pass
-            sys.exit(0)
+options, driver, actions, wait = None, None, None, None
 
-        signal.signal(signal.SIGTERM, _terminate_chrome_session)
-        signal.signal(signal.SIGINT, _terminate_chrome_session)
-    except Exception:
-        pass
+if not _should_skip_linkedin_chrome_init():
+    options, driver, actions, wait = get_chrome_session()

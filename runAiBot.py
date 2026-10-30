@@ -2512,12 +2512,15 @@ linkedIn_tab = False
 def main() -> None:
     total_runs = 1
     try:
-        global linkedIn_tab, tabs_count, useNewResume, aiClient
+        global linkedIn_tab, tabs_count, useNewResume, aiClient, driver, options, actions, wait
         alert_title = "Error Occurred. Closing Browser!"
         validate_config()
         
         if not os.path.exists(default_resume_path):
             show_modern_alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
+        if driver is None:
+            from modules.open_chrome import get_chrome_session
+            options, driver, actions, wait = get_chrome_session()
         if driver is None:
             print_lg("[CRITICAL] Chrome driver was not initialized. Aborting automation.")
             show_modern_alert(

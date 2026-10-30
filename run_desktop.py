@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """JobPilot Desktop Application root launcher."""
 
+import os
+os.environ["JOBPILOT_DESKTOP"] = "1"
+
 import sys
 import io
 

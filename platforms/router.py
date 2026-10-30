@@ -54,6 +54,15 @@ class LinkedInPlatform(BasePlatformApplier):
         if self.browser:
             from platforms.linkedin.applier import LinkedInApplier
             from platforms.linkedin.rotator import LinkedInRotator
+            search_terms = None
+            if self.platform_config and self.platform_config.get("search_terms"):
+                search_terms = self.platform_config.get("search_terms")
+            if not search_terms:
+                try:
+                    import config.search as sc
+                    search_terms = getattr(sc, "search_terms", None)
+                except Exception:
+                    pass
             self.applier = LinkedInApplier(
                 browser=self.browser,
                 tracker=self.tracker,
@@ -65,18 +74,68 @@ class LinkedInPlatform(BasePlatformApplier):
                 tracker=self.tracker,
                 applier=self.applier,
                 automation_bridge=self.automation_bridge,
+                search_terms=search_terms,
                 user_id=self.user_id,
             )
 
     def login(self) -> bool:
-        """LinkedIn login check."""
+        """LinkedIn authentication verification with session check, credential login, and manual intervention."""
         if not self.browser:
             self.initialize()
         elif not getattr(self.browser, "driver", None):
             self.browser.start()
-        if self.browser and getattr(self.browser, "driver", None):
-            return self.browser.is_logged_in()
-        return True
+
+        if not (self.browser and getattr(self.browser, "driver", None)):
+            return False
+
+        from platforms.linkedin.selectors import HOME_URL
+        print_lg("[LinkedInPlatform] Navigating to LinkedIn feed to verify active session...")
+        self.browser.navigate(HOME_URL)
+        time.sleep(2)
+
+        if self.browser.is_logged_in():
+            print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+            return True
+
+        # Attempt credentials from secrets.py or environment
+        user = None
+        pwd = None
+        try:
+            import config.secrets as secrets
+            user = getattr(secrets, "username", None) or os.environ.get("LINKEDIN_USERNAME")
+            pwd = getattr(secrets, "password", None) or os.environ.get("LINKEDIN_PASSWORD")
+        except Exception:
+            user = os.environ.get("LINKEDIN_USERNAME")
+            pwd = os.environ.get("LINKEDIN_PASSWORD")
+
+        is_placeholder = (
+            not user
+            or not pwd
+            or "example.com" in str(user).lower()
+            or "example_password" in str(pwd).lower()
+        )
+
+        if not is_placeholder:
+            print_lg("[LinkedInPlatform] Attempting login with configured credentials...")
+            success, msg = self.browser.login(user, pwd)
+            if success and self.browser.is_logged_in():
+                print_lg("[LinkedInPlatform] Login successful and authenticated session verified.")
+                return True
+            print_lg(f"[LinkedInPlatform] Automated login notice: {msg}")
+
+        # Check if login succeeded after redirect or cookies
+        if self.browser.is_logged_in():
+            print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+            return True
+
+        # Fallback to manual authentication gate
+        print_lg("[LinkedInPlatform] Awaiting manual login/OTP in the open Chrome browser window...")
+        if self.browser.ensure_authenticated(max_wait_seconds=180):
+            print_lg("[LinkedInPlatform] Authentication confirmed! Proceeding with session.")
+            return True
+
+        print_lg("[LinkedInPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
+        return False
 
     def search_and_apply(
         self,
