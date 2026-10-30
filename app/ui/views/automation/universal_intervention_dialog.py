@@ -51,7 +51,8 @@ class UniversalInterventionDialog(QDialog):
         self.on_cancelled_cb = on_cancelled
 
         self.setWindowTitle("Action Required — Automation Paused")
-        self.setFixedSize(580, 420)
+        self.setMinimumSize(540, 380)
+        self.resize(600, 440)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         self._setup_ui()

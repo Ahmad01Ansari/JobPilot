@@ -25,7 +25,8 @@ class AboutDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("About JobPilot")
-        self.setFixedSize(640, 490)
+        self.setMinimumSize(580, 440)
+        self.resize(650, 500)
         self.setModal(True)
         self._setup_ui()
 
