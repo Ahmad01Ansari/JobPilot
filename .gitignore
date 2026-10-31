@@ -76,7 +76,11 @@ image/
 !app/ui/assets/brand/*.png
 !app/ui/assets/brand/*.ico
 !JobPilot.png
-!WorkingFlow/image.png
+!docs/flows/image.png
+
+# User Data & Storage
+data/
+data/*
 
 # Virtual Environments
 .venv
