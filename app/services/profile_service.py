@@ -600,6 +600,109 @@ class ProfileService:
         except Exception as exc:
             return False, f"Failed to import profile: {exc}"
 
+    @staticmethod
+    def render_cover_letter(
+        template: str,
+        company: Optional[str] = None,
+        job_title: Optional[str] = None,
+        candidate_name: Optional[str] = None,
+    ) -> str:
+        """Renders cover letter template by replacing placeholders with runtime job facts.
+
+        Handles:
+        - [Target Position] / [Job Title] / [Position] / [Role] -> Scraped target position
+        - [Company Name] / [Company] -> Scraped company name (multiple occurrences supported)
+        - [Candidate Name] / [Your Name] -> Candidate name
+        - Graceful grammatical fallbacks if company or position is confidential or unlisted.
+        """
+        import re
+
+        if not template:
+            return ""
+
+        text = str(template)
+
+        # 1. Target Position / Role Substitution
+        clean_title = (job_title or "").strip()
+        if clean_title:
+            clean_title = re.sub(r"(?i)\s*[\(\[\{]\s*(?:immediate|urgent|hiring|fresher|\d+\+?\s*years?)[^\)\]\}]*[\)\]\}]", "", clean_title).strip()
+            clean_title = re.sub(r"\s*[-–|]\s*(?:Remote|Hybrid|On-site|India|USA|UK|Full-?time|Part-?time)\b", "", clean_title, flags=re.IGNORECASE).strip()
+
+        if clean_title:
+            lower_title = clean_title.lower()
+            # If title already ends in "position", "role", "job", "internship", don't duplicate suffix
+            suffix = "" if any(lower_title.endswith(w) for w in ["position", "role", "job", "opening", "internship"]) else " position"
+
+            # Replace "the [Target Position]" with "the <clean_title> position"
+            text = re.sub(
+                r"(?i)\bthe\s+\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                f"the {clean_title}{suffix}",
+                text,
+            )
+            # Replace standalone [Target Position]
+            text = re.sub(
+                r"\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                clean_title,
+                text,
+            )
+            text = re.sub(
+                r"\{(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\}",
+                clean_title,
+                text,
+            )
+            text = re.sub(
+                r"<(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)>",
+                clean_title,
+                text,
+            )
+        else:
+            # Fallback when job title is missing or unlisted
+            text = re.sub(
+                r"(?i)\b(?:in|for)\s+the\s+\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                "for this opening",
+                text,
+            )
+            text = re.sub(
+                r"\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                "this position",
+                text,
+            )
+            text = re.sub(
+                r"\{(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\}",
+                "this position",
+                text,
+            )
+
+        # 2. Company Name Substitution (Handles multiple occurrences throughout text)
+        clean_company = (company or "").strip()
+        if clean_company and clean_company.lower() in ["confidential", "confidential company", "unknown", "n/a", "none"]:
+            clean_company = ""
+
+        if clean_company:
+            # Replace [Company Name], [Company], {company_name}, etc.
+            text = re.sub(r"\[(?i:company[\s_-]*name|company)\]", clean_company, text)
+            text = re.sub(r"\{(?i:company[\s_-]*name|company)\}", clean_company, text)
+            text = re.sub(r"<(?i:company[\s_-]*name|company)>", clean_company, text)
+        else:
+            # Grammatical fallbacks when company is confidential / unlisted
+            text = re.sub(r"(?i)\bat\s+\[(?i:company[\s_-]*name|company)\]", "with your organization", text)
+            text = re.sub(r"(?i)\bfor\s+\[(?i:company[\s_-]*name|company)\]", "for your company", text)
+            text = re.sub(r"(?i)\bto\s+\[(?i:company[\s_-]*name|company)\]", "to your organization", text)
+            text = re.sub(r"(?i)\bof\s+\[(?i:company[\s_-]*name|company)\]", "of your team", text)
+            text = re.sub(r"\[(?i:company[\s_-]*name|company)\]", "your organization", text)
+            text = re.sub(r"\{(?i:company[\s_-]*name|company)\}", "your organization", text)
+
+        # 3. Candidate Name Substitution
+        clean_cand = (candidate_name or "").strip()
+        if clean_cand:
+            text = re.sub(r"\[(?i:candidate[\s_-]*name|your[\s_-]*name|name)\]", clean_cand, text)
+            text = re.sub(r"\{(?i:candidate[\s_-]*name|your[\s_-]*name|name)\}", clean_cand, text)
+
+        # 4. Hiring Manager Greeting
+        text = re.sub(r"\[(?i:hiring[\s_-]*manager[\s_-]*name|hiring[\s_-]*manager|recruiter[\s_-]*name)\]", "Hiring Team", text)
+
+        return text.strip()
+
     def generate_narrative_content(
         self,
         field_type: str = "all",

@@ -568,9 +568,24 @@ class SemanticFieldMapper:
             for k in ["profile.cover_letter", "cover_letter", "profile.summary", "summary"]:
                 if k in facts and facts[k][0]:
                     val, prov = facts[k]
+                    val_str = str(val)
+                    if "cover_letter" in k:
+                        try:
+                            from app.services.profile_service import ProfileService
+                            comp = facts.get("target_job.company", (None,))[0] or facts.get("company", (None,))[0]
+                            title = facts.get("target_job.title", (None,))[0] or facts.get("title", (None,))[0]
+                            cand = facts.get("full_name", (None,))[0]
+                            val_str = ProfileService.render_cover_letter(
+                                template=val_str,
+                                company=str(comp) if comp else None,
+                                job_title=str(title) if title else None,
+                                candidate_name=str(cand) if cand else None,
+                            )
+                        except Exception:
+                            pass
                     return FieldMapping(
                         field_info=f_info,
-                        resolved_value=str(val),
+                        resolved_value=val_str,
                         provenance=prov,
                         is_resolved=True,
                     )
@@ -578,7 +593,13 @@ class SemanticFieldMapper:
             if self.qna_engine and f_info.input_type != "file":
                 try:
                     q_lbl = clean_label or f_info.label or "cover letter"
-                    ans = self.qna_engine.resolve_text_answer(q_lbl)
+                    comp = facts.get("target_job.company", (None,))[0] or facts.get("company", (None,))[0]
+                    title = facts.get("target_job.title", (None,))[0] or facts.get("title", (None,))[0]
+                    ans = self.qna_engine.resolve_text_answer(
+                        q_lbl,
+                        company_name=str(comp) if comp else None,
+                        job_title=str(title) if title else None,
+                    )
                     if ans and ans.value and str(ans.value).strip():
                         prov = FieldProvenance(source_domain=ans.source or "profile", source_key="cover_letter", confidence=ans.confidence)
                         return FieldMapping(

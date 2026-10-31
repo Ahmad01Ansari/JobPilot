@@ -276,3 +276,74 @@ class TestProfileAIGenerationUI(unittest.TestCase):
         view_worker = ProfileNarrativeGenWorker(mock_service, field_type="all", context={"title": "Dev"}, user_id=123)
         view_worker.run()
         mock_service.generate_narrative_content.assert_called_with(field_type="all", context={"title": "Dev"}, user_id=123)
+
+
+class TestCoverLetterRuntimeRendering(unittest.TestCase):
+    """Verifies runtime replacement of [Target Position], [Company Name], and candidate details."""
+
+    def setUp(self):
+        self.sample_template = (
+            "Dear [Hiring Manager Name],\n\n"
+            "I am writing to express my interest in the [Target Position] at [Company Name]. "
+            "I am excited to bring my skills to [Company Name]. "
+            "I look forward to discussing how my skills support [Company Name].\n\n"
+            "Sincerely,\n"
+            "[Candidate Name]"
+        )
+
+    def test_render_cover_letter_full_replacement(self):
+        """Verifies clean substitution of position, all company occurrences, and candidate signature."""
+        rendered = ProfileService.render_cover_letter(
+            template=self.sample_template,
+            company="Accenture",
+            job_title="RPA Developer",
+            candidate_name="Mohd Ahmad Raza Ansari",
+        )
+
+        self.assertNotIn("[Target Position]", rendered)
+        self.assertNotIn("[Company Name]", rendered)
+        self.assertNotIn("[Candidate Name]", rendered)
+        self.assertNotIn("[Hiring Manager Name]", rendered)
+
+        self.assertIn("RPA Developer position at Accenture", rendered)
+        self.assertIn("skills to Accenture", rendered)
+        self.assertIn("support Accenture", rendered)
+        self.assertIn("Mohd Ahmad Raza Ansari", rendered)
+        self.assertIn("Dear Hiring Team", rendered)
+
+    def test_render_cover_letter_unlisted_company_and_role_fallbacks(self):
+        """Verifies natural grammatical fallbacks when company and title are missing or confidential."""
+        rendered = ProfileService.render_cover_letter(
+            template=self.sample_template,
+            company="Confidential",
+            job_title="",
+            candidate_name="Alex Mercer",
+        )
+
+        self.assertNotIn("[Target Position]", rendered)
+        self.assertNotIn("[Company Name]", rendered)
+        self.assertIn("for this opening with your organization", rendered)
+        self.assertIn("skills to your organization", rendered)
+        self.assertIn("Alex Mercer", rendered)
+
+    def test_qna_engine_renders_cover_letter_at_runtime(self):
+        """Verifies QnAEngine dynamically replaces placeholders when answering cover letter questions."""
+        from modules.qna_engine import QnAEngine
+
+        engine = QnAEngine()
+        engine.prof["cover_letter"] = self.sample_template
+        engine.full_name = "Mohd Ahmad Raza Ansari"
+
+        # Resolve through answer_question with job_context
+        ans = engine.answer_question(
+            question="Please provide your cover letter or note to the hiring team",
+            field_type="textarea",
+            job_context={"company": "Google", "title": "AI Automation Engineer"},
+        )
+
+        res_val = str(ans.value)
+        self.assertNotIn("[Company Name]", res_val)
+        self.assertNotIn("[Target Position]", res_val)
+        self.assertIn("AI Automation Engineer position at Google", res_val)
+        self.assertIn("skills to Google", res_val)
+        self.assertIn("Mohd Ahmad Raza Ansari", res_val)

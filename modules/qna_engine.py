@@ -245,6 +245,8 @@ class QnAEngine:
         question_label: str,
         job_description: Optional[str] = None,
         work_location: Optional[str] = None,
+        company_name: Optional[str] = None,
+        job_title: Optional[str] = None,
     ) -> Answer:
         """Resolves text or textarea input questions with full answer provenance."""
         lbl = question_label.lower().strip()
@@ -555,8 +557,19 @@ class QnAEngine:
         if "summary" in lbl or "about yourself" in lbl:
             ans = Answer(value=str(self.prof.get("summary", "")), source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
-        if "cover" in lbl:
-            ans = Answer(value=str(self.prof.get("cover_letter", "")), source="profile", confidence=1.0)
+        if "cover" in lbl or "letter of intent" in lbl or "statement of interest" in lbl:
+            raw_cover = str(self.prof.get("cover_letter", ""))
+            try:
+                from app.services.profile_service import ProfileService
+                rendered = ProfileService.render_cover_letter(
+                    template=raw_cover,
+                    company=company_name,
+                    job_title=job_title,
+                    candidate_name=self.full_name,
+                )
+            except Exception:
+                rendered = raw_cover
+            ans = Answer(value=rendered, source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
 
         # How did you hear
@@ -635,7 +648,15 @@ class QnAEngine:
         else:
             job_desc = job_context.get("description") if job_context else None
             work_loc = job_context.get("location") if job_context else None
-            return self.resolve_text_answer(question, job_description=job_desc, work_location=work_loc)
+            comp = (job_context.get("company") or job_context.get("company_name")) if job_context else None
+            title = (job_context.get("title") or job_context.get("job_title")) if job_context else None
+            return self.resolve_text_answer(
+                question,
+                job_description=job_desc,
+                work_location=work_loc,
+                company_name=comp,
+                job_title=title,
+            )
 
     def resolve_choice_answer(
         self,
