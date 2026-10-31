@@ -400,6 +400,7 @@ class ProfileService:
                 "portfolio_url": prof.get("portfolio_url") or pers.get("portfolio_url", "").strip() or None,
                 "headline": prof.get("headline") or prof.get("current_title", "").strip() or None,
                 "summary": prof.get("summary", "").strip() or None,
+                "cover_letter": prof.get("cover_letter", "").strip() or None,
             }
 
             # Save in database using the Dict-based save_profile
@@ -598,4 +599,199 @@ class ProfileService:
             return True, None
         except Exception as exc:
             return False, f"Failed to import profile: {exc}"
+
+    def generate_narrative_content(
+        self,
+        field_type: str = "all",
+        context: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        ai_service: Optional[Any] = None,
+    ) -> Dict[str, str]:
+        """Generates AI-tailored headline, summary, or cover letter based on stored candidate data.
+
+        Args:
+            field_type: Target field to generate ("headline", "summary", "cover_letter", or "all")
+            context: Optional dictionary containing user-edited field values (e.g. from current UI inputs)
+            user_id: User identifier (defaults to primary user)
+            ai_service: Optional UniversalAIService instance (for dependency injection or testing)
+
+        Returns:
+            Dictionary with generated content for requested fields:
+            e.g. {"headline": "...", "summary": "...", "cover_letter": "..."}
+        """
+        import json
+        import re
+
+        ctx = dict(context or {})
+        try:
+            if user_id:
+                user, profile, pro_profile = self.get_profile_by_user_id(user_id)
+            else:
+                user, profile, pro_profile = self.get_primary_user_profile()
+        except Exception:
+            user, profile, pro_profile = None, None, None
+
+        # Resolve candidate name
+        first_name = ctx.get("first_name") or (profile.first_name if profile else "")
+        last_name = ctx.get("last_name") or (profile.last_name if profile else "")
+        name = ctx.get("name") or f"{first_name} {last_name}".strip()
+        if not name and user and user.name:
+            name = user.name
+        name = name or "Candidate"
+
+        # Resolve title / headline
+        title = ctx.get("title") or ctx.get("current_title") or ctx.get("headline")
+        if not title and pro_profile:
+            title = pro_profile.current_title or pro_profile.headline
+        title = (title or "").strip()
+
+        # Resolve employer
+        employer = ctx.get("current_employer")
+        if not employer and pro_profile:
+            employer = pro_profile.current_employer
+        employer = (employer or "").strip()
+
+        # Resolve years of experience
+        exp_years = ctx.get("years_of_experience")
+        if exp_years is None and pro_profile:
+            exp_years = pro_profile.years_of_experience
+        try:
+            exp_val = float(exp_years) if exp_years is not None and str(exp_years).strip() != "" else 2.0
+        except (ValueError, TypeError):
+            exp_val = 2.0
+
+        # Resolve skills
+        skills_raw = ctx.get("skills")
+        if skills_raw is None and pro_profile:
+            skills_raw = pro_profile.skills or []
+        if isinstance(skills_raw, str):
+            skills_list = [s.strip() for s in re.split(r"[,;\n]", skills_raw) if s.strip()]
+        elif isinstance(skills_raw, list):
+            skills_list = [str(s).strip() for s in skills_raw if str(s).strip()]
+        else:
+            skills_list = []
+        skills_str = ", ".join(skills_list[:15]) if skills_list else ""
+
+        # Resolve location
+        location = ctx.get("location") or ctx.get("current_city")
+        if not location and profile:
+            location = f"{profile.current_city or ''}, {profile.country or ''}".strip(", ")
+        location = (location or "").strip()
+
+        # Minimum required context check
+        if not title and not skills_str and exp_val == 0:
+            raise ValueError(
+                "Insufficient profile data to generate content. Please provide at least a job title, skills, or experience."
+            )
+
+        # Fallback default title if still blank
+        effective_title = title or "Software Professional"
+
+        # Initialize AI service
+        ai = ai_service
+        if not ai:
+            from app.services.ai_service import UniversalAIService
+            ai = UniversalAIService(session_factory=self._session_factory)
+
+        # Verify AI is configured and enabled
+        cfg = ai.get_config()
+        if not cfg.get("enabled"):
+            raise RuntimeError(
+                "AI Engine is disabled in settings. Please enable and configure an AI provider in Settings or Setup Step 2."
+            )
+
+        facts_block = (
+            f"Candidate Name: {name}\n"
+            f"Professional Title / Role: {effective_title}\n"
+            f"Current Employer: {employer or 'Confidential'}\n"
+            f"Total Experience: {exp_val:g} years\n"
+            f"Core Technical Skills: {skills_str or 'Engineering & Problem Solving'}\n"
+            f"Location: {location or 'Open / Remote'}\n"
+        )
+
+        sys_prompt = (
+            "You are an expert executive resume strategist and career coach. "
+            "Write high-impact, professional, ATS-optimized candidate narrative content "
+            "strictly grounded in the provided candidate facts. "
+            "Never invent fictitious employers, universities, certifications, or false metrics."
+        )
+
+        target_field = (field_type or "all").lower()
+
+        if target_field == "headline":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Generate a single-line, punchy, ATS-friendly LinkedIn / Resume headline for this candidate.\n"
+                "Format: [Primary Role] | [Core Technologies / Specialties] | [Years Experience or Value Prop]\n"
+                "Constraints:\n"
+                "- Keep length between 50 and 110 characters.\n"
+                "- Output ONLY the clean headline text. Do not include quotes, prefixes, or markdown formatting."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            clean = raw.strip('"').strip("'").strip()
+            return {"headline": clean}
+
+        elif target_field == "summary":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Write a concise, compelling 3-4 sentence professional summary / bio for this candidate.\n"
+                "Constraints:\n"
+                "- Highlight depth of experience, key technical competencies, domain strengths, and problem-solving impact.\n"
+                "- Professional and direct; no buzzword salad or conversational preamble.\n"
+                "- Output ONLY the summary paragraph text. Do not include markdown code fences or quotes."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            return {"summary": raw}
+
+        elif target_field == "cover_letter":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Write a polished, versatile default cover letter template for this candidate (200 to 300 words).\n"
+                "Structure:\n"
+                "- Salutation: 'Dear Hiring Team,'\n"
+                "- Opening paragraph: Introduce role enthusiasm and summarize years of experience.\n"
+                "- 1-2 Body paragraphs: Highlight core technical proficiencies, problem-solving, and team impact based on provided skills.\n"
+                "- Closing paragraph: Express enthusiasm to contribute to company goals and request an interview.\n"
+                "- Use placeholders '[Company Name]' and '[Target Position]' for future customization.\n"
+                f"- Formal Sign-off: 'Sincerely,\\n{name}'\n"
+                "Constraints:\n"
+                "- Output ONLY the cover letter body. Do not include markdown headers or commentary."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            return {"cover_letter": raw}
+
+        else:
+            # "all" - Generate headline, summary, and cover letter
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Generate three cohesive narrative elements for this candidate in valid JSON format:\n"
+                "1. 'headline': 1-line punchy ATS headline (max 110 characters)\n"
+                "2. 'summary': 3-4 sentence impactful career summary\n"
+                "3. 'cover_letter': 200-300 word versatile default cover letter template with '[Company Name]' and '[Target Position]' placeholders and 'Sincerely, [Candidate Name]' sign-off\n\n"
+                "Output ONLY a raw JSON object with keys 'headline', 'summary', and 'cover_letter'."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            clean_json = raw
+            if "```json" in clean_json:
+                clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_json:
+                clean_json = clean_json.split("```")[1].split("```")[0].strip()
+
+            try:
+                parsed = json.loads(clean_json)
+                return {
+                    "headline": str(parsed.get("headline", "")).strip().strip('"').strip("'"),
+                    "summary": str(parsed.get("summary", "")).strip(),
+                    "cover_letter": str(parsed.get("cover_letter", "")).strip(),
+                }
+            except Exception:
+                # If JSON parsing failed, fallback to individual generation
+                h = self.generate_narrative_content("headline", context=context, user_id=user_id, ai_service=ai)
+                s = self.generate_narrative_content("summary", context=context, user_id=user_id, ai_service=ai)
+                c = self.generate_narrative_content("cover_letter", context=context, user_id=user_id, ai_service=ai)
+                return {
+                    "headline": h.get("headline", ""),
+                    "summary": s.get("summary", ""),
+                    "cover_letter": c.get("cover_letter", ""),
+                }
 

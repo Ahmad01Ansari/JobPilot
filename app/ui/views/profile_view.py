@@ -10,7 +10,7 @@ dual View / Edit modes.
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal, QThread
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -36,6 +36,36 @@ from app.ui.views.qna_view import QnAView
 from app.ui.widgets.notification_bar import NotificationBar
 from app.ui.widgets.page_header import PageHeader
 from app.ui.widgets.status_badge import StatusBadge
+
+
+class ProfileNarrativeGenWorker(QThread):
+    """Background worker executing AI narrative generation without blocking GUI."""
+    finished = Signal(bool, str, dict)
+
+    def __init__(
+        self,
+        profile_service: ProfileService,
+        field_type: str = "all",
+        context: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.profile_service = profile_service
+        self.field_type = field_type
+        self.context = context or {}
+        self.user_id = user_id
+
+    def run(self) -> None:
+        try:
+            res = self.profile_service.generate_narrative_content(
+                field_type=self.field_type,
+                context=self.context,
+                user_id=self.user_id,
+            )
+            self.finished.emit(True, "", res)
+        except Exception as exc:
+            self.finished.emit(False, str(exc), {})
 
 
 class DataSheetRow(QWidget):
@@ -143,8 +173,8 @@ class DataSheetCard(QFrame):
         self.card_layout.setSpacing(12)
 
         # Card Header: Icon + Title on left, Action Button on right
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 4)
+        self.header_row = QHBoxLayout()
+        self.header_row.setContentsMargins(0, 0, 0, 4)
 
         icon_str = f"{icon} " if icon else ""
         self.header_lbl = QLabel(f"{icon_str}{title}")
@@ -157,8 +187,8 @@ class DataSheetCard(QFrame):
                 border: none;
             }}
         """)
-        header_row.addWidget(self.header_lbl)
-        header_row.addStretch()
+        self.header_row.addWidget(self.header_lbl)
+        self.header_row.addStretch()
 
         self.btn_card_edit = QPushButton("Edit ✏️")
         self.btn_card_edit.setCursor(Qt.PointingHandCursor)
@@ -179,8 +209,8 @@ class DataSheetCard(QFrame):
             }}
         """)
         self.btn_card_edit.clicked.connect(self._toggle_card_edit)
-        header_row.addWidget(self.btn_card_edit)
-        self.card_layout.addLayout(header_row)
+        self.header_row.addWidget(self.btn_card_edit)
+        self.card_layout.addLayout(self.header_row)
 
         # 2-Column Grid Layout for Left & Right Halves
         self.grid = QGridLayout()
@@ -189,6 +219,10 @@ class DataSheetCard(QFrame):
         self.grid.setColumnStretch(0, 1)
         self.grid.setColumnStretch(1, 1)
         self.card_layout.addLayout(self.grid)
+
+    def add_header_action(self, widget: QWidget) -> None:
+        """Insert an action button or widget before the edit button in card header."""
+        self.header_row.insertWidget(self.header_row.count() - 1, widget)
 
     def add_row(self, row_idx: int, col_idx: int, data_row: DataSheetRow, row_span: int = 1, col_span: int = 1) -> None:
         self.rows.append(data_row)
@@ -248,6 +282,7 @@ class ProfileView(QWidget):
         self.current_user_id: Optional[int] = None
         self.is_global_edit_mode: bool = False
         self.cards: List[DataSheetCard] = []
+        self._gen_worker: Optional[ProfileNarrativeGenWorker] = None
 
         self._setup_ui()
         self.load_profile()
@@ -842,8 +877,39 @@ class ProfileView(QWidget):
 
         # 4. Professional Headline
         self.val_headline = self._view_label("RPA Developer | AI Automation Engineer | Python")
+        hl_container = QWidget()
+        hl_container.setStyleSheet("background: transparent; border: none;")
+        hl_layout = QHBoxLayout(hl_container)
+        hl_layout.setContentsMargins(0, 0, 0, 0)
+        hl_layout.setSpacing(6)
         self.txt_headline = self._line_edit("e.g. RPA Developer | AI Automation Engineer")
-        card.add_row(3, 1, DataSheetRow("Headline", self.val_headline, self.txt_headline))
+        self.btn_ai_headline = QPushButton("✨ AI")
+        self.btn_ai_headline.setToolTip("Generate single-line professional headline with AI")
+        self.btn_ai_headline.setCursor(Qt.PointingHandCursor)
+        self.btn_ai_headline.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary_subtle']};
+                color: {COLORS['primary']};
+                border: 1px solid {COLORS['primary']}40;
+                border-radius: 5px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+                color: #FFFFFF;
+            }}
+            QPushButton:disabled {{
+                background-color: {COLORS['surface_alt']};
+                color: {COLORS['text_muted']};
+                border-color: {COLORS['border']};
+            }}
+        """)
+        self.btn_ai_headline.clicked.connect(lambda: self._on_ai_generate_clicked(field_type="headline"))
+        hl_layout.addWidget(self.txt_headline, 1)
+        hl_layout.addWidget(self.btn_ai_headline)
+        card.add_row(3, 1, DataSheetRow("Headline", self.val_headline, hl_container))
 
         return card
 
@@ -853,6 +919,33 @@ class ProfileView(QWidget):
 
     def _build_skills_card(self) -> DataSheetCard:
         card = DataSheetCard(title="Technical Skills & Professional Bio", icon="🛠️", on_edit_toggle=self._on_card_edit_toggle)
+
+        # AI Generation Button in Card Header
+        self.btn_ai_gen_skills = QPushButton("✨ Auto-Generate with AI")
+        self.btn_ai_gen_skills.setToolTip("Generate Headline, Bio Summary, and Cover Letter from candidate profile facts")
+        self.btn_ai_gen_skills.setCursor(Qt.PointingHandCursor)
+        self.btn_ai_gen_skills.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary_subtle']};
+                color: {COLORS['primary']};
+                border: 1px solid {COLORS['primary']}50;
+                padding: 4px 12px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+                color: #FFFFFF;
+            }}
+            QPushButton:disabled {{
+                background-color: {COLORS['surface_alt']};
+                color: {COLORS['text_muted']};
+                border-color: {COLORS['border']};
+            }}
+        """)
+        self.btn_ai_gen_skills.clicked.connect(lambda: self._on_ai_generate_clicked(field_type="all"))
+        card.add_header_action(self.btn_ai_gen_skills)
 
         # 1. Skills Pills Container
         self.skills_pill_container = QWidget()
@@ -1345,3 +1438,124 @@ class ProfileView(QWidget):
     def refresh(self) -> None:
         """Reloads the candidate profile from database and updates display."""
         self.load_profile()
+
+    def _collect_ai_context(self) -> Dict[str, Any]:
+        """Collects candidate facts from form inputs or database profile for AI prompt generation."""
+        fn = self.txt_first_name.text().strip()
+        ln = self.txt_last_name.text().strip()
+        full_name = f"{fn} {ln}".strip()
+
+        job_title = self.txt_title.text().strip()
+        employer = self.txt_employer.text().strip()
+        years_exp = self.spn_experience.value()
+        skills = self.txt_skills.text().strip()
+
+        city = self.txt_city.text().strip()
+        country = self.txt_country.text().strip()
+        loc = f"{city}, {country}".strip(", ")
+
+        return {
+            "full_name": full_name or None,
+            "target_role": job_title or None,
+            "current_title": job_title or None,
+            "current_employer": employer or None,
+            "years_of_experience": years_exp or None,
+            "technical_skills": skills or None,
+            "location": loc or None,
+        }
+
+    def _on_ai_generate_clicked(self, field_type: str = "all") -> None:
+        """Trigger asynchronous AI narrative generation."""
+        context = self._collect_ai_context()
+
+        # Check basic required fields for quality generation
+        if not context.get("target_role") and not context.get("technical_skills"):
+            self.notification_bar.show_message(
+                "warning",
+                "Please fill in Job Title or Core Skills first so AI has context to generate accurate content.",
+                duration_ms=5000,
+            )
+            return
+
+        # Visual loading feedback
+        if hasattr(self, "btn_ai_gen_skills"):
+            self.btn_ai_gen_skills.setEnabled(False)
+            self.btn_ai_gen_skills.setText("✨ Generating...")
+        if hasattr(self, "btn_ai_headline"):
+            self.btn_ai_headline.setEnabled(False)
+
+        self.notification_bar.show_message("info", "Generating narrative content with AI...", duration_ms=4000)
+
+        # Launch QThread worker
+        self._gen_worker = ProfileNarrativeGenWorker(
+            profile_service=self.service,
+            field_type=field_type,
+            context=context,
+            user_id=self.current_user_id,
+            parent=self,
+        )
+        self._gen_worker.finished.connect(
+            lambda success, err, data, ft=field_type: self._on_ai_generate_finished(success, err, data, ft)
+        )
+        self._gen_worker.start()
+
+    def _on_ai_generate_finished(self, success: bool, err_msg: str, results: Dict[str, str], field_type: str) -> None:
+        """Handle AI generation worker completion."""
+        # Reset button states
+        if hasattr(self, "btn_ai_gen_skills"):
+            self.btn_ai_gen_skills.setEnabled(True)
+            self.btn_ai_gen_skills.setText("✨ Auto-Generate with AI")
+        if hasattr(self, "btn_ai_headline"):
+            self.btn_ai_headline.setEnabled(True)
+            self.btn_ai_headline.setText("✨ AI")
+
+        if not success:
+            self.notification_bar.show_message(
+                "danger",
+                f"AI generation failed: {err_msg}",
+                duration_ms=6000,
+            )
+            return
+
+        # Populate fields
+        populated = []
+        if "headline" in results and results["headline"]:
+            hl = results["headline"]
+            self.txt_headline.setText(hl)
+            self.val_headline.setText(hl)
+            populated.append("Headline")
+            if not self.card_professional.is_editing:
+                self.card_professional.set_edit_mode(True)
+
+        if "summary" in results and results["summary"]:
+            summ = results["summary"]
+            self.txt_summary.setPlainText(summ)
+            self.val_summary.setPlainText(summ)
+            populated.append("Summary")
+            if not self.card_skills.is_editing:
+                self.card_skills.set_edit_mode(True)
+
+        if "cover_letter" in results and results["cover_letter"]:
+            cl = results["cover_letter"]
+            self.txt_cover_letter.setPlainText(cl)
+            self.val_cover_letter.setPlainText(cl)
+            populated.append("Cover Letter")
+            if not self.card_skills.is_editing:
+                self.card_skills.set_edit_mode(True)
+
+        if populated:
+            msg = f"Generated {', '.join(populated)} with AI! Review and click Save Profile."
+            self.notification_bar.show_message("success", msg, duration_ms=6000)
+        else:
+            self.notification_bar.show_message(
+                "warning",
+                "AI did not return any content. Please check AI configuration.",
+                duration_ms=5000,
+            )
+
+    def closeEvent(self, event) -> None:
+        """Cooperative graceful shutdown of background threads."""
+        if hasattr(self, "_gen_worker") and self._gen_worker and self._gen_worker.isRunning():
+            self._gen_worker.quit()
+            self._gen_worker.wait(2000)
+        super().closeEvent(event)
