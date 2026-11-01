@@ -150,12 +150,27 @@ class SearchRotationEngine:
             return
 
         for term in self.config.search_terms:
+            if stop_check and stop_check():
+                break
+
+            # Fast check if browser is still responsive
+            if self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive():
+                print_lg("[NaukriRotator] Browser window is not open or accessible. Halting search rotation.")
+                break
+
             term_evaluated_count = 0
             consecutive_skips = 0
 
             print_lg(f"\n>>>> [NaukriRotator] Starting search for keyword: '{term}' <<<<")
 
             for page in range(1, self.config.max_pages_per_search + 1):
+                if stop_check and stop_check():
+                    break
+
+                if self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive():
+                    print_lg("[NaukriRotator] Browser window closed during search. Halting search rotation.")
+                    return
+
                 if term_evaluated_count >= self.config.max_jobs_evaluated_per_search:
                     print_lg(f"[NaukriRotator] Max jobs limit ({self.config.max_jobs_evaluated_per_search}) reached for '{term}'.")
                     break
@@ -173,6 +188,9 @@ class SearchRotationEngine:
                 )
 
                 if not cards or self.search._is_zero_results():
+                    if self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive():
+                        print_lg(f"[NaukriRotator] Browser disconnected during search for '{term}'. Halting search rotation.")
+                        return
                     print_lg(f"[NaukriRotator] No more results found on page {page} for keyword '{term}'.")
                     break
 

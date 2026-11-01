@@ -161,6 +161,40 @@ class TestNaukriBrowser(unittest.TestCase):
         self.assertIsNone(browser.wait)
         self.assertIsNone(browser.actions)
 
+    def test_is_alive(self):
+        browser = NaukriBrowser()
+        self.assertFalse(browser.is_alive())
+
+        mock_driver = MagicMock()
+        mock_driver.window_handles = ["win1"]
+        browser.driver = mock_driver
+        self.assertTrue(browser.is_alive())
+
+        mock_driver.window_handles = []
+        self.assertFalse(browser.is_alive())
+
+    def test_navigate_recovers_from_closed_window(self):
+        from selenium.common.exceptions import NoSuchWindowException
+        browser = NaukriBrowser()
+        mock_driver = MagicMock()
+        # First get call throws NoSuchWindowException, second succeeds after switch_to
+        call_count = 0
+        def mock_get(url):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise NoSuchWindowException("no such window: target window already closed")
+            return None
+
+        mock_driver.get.side_effect = mock_get
+        mock_driver.window_handles = ["recovered_win"]
+        browser.driver = mock_driver
+
+        success = browser.navigate("https://www.naukri.com/it-jobs")
+        self.assertTrue(success)
+        mock_driver.switch_to.window.assert_called_with("recovered_win")
+        self.assertEqual(call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

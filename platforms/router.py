@@ -641,6 +641,11 @@ class NaukriPlatform(BasePlatformApplier):
             if not run_non_stop:
                 break
 
+            # Fast check if browser session was closed before sleeping
+            if self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive():
+                print_lg("[NaukriPlatform] Browser session is closed or disconnected. Halting non-stop rotation.")
+                break
+
             goal = getattr(self.config, "daily_application_goal", None)
             if isinstance(goal, (int, float)) and accumulated_stats["jobs_applied"] >= goal:
                 print_lg(f"[NaukriPlatform] Daily application goal ({goal}) reached. Halting rotation.")

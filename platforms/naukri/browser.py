@@ -160,6 +160,25 @@ class NaukriBrowser:
                 pass
             return True
         except Exception as e:
+            err_msg = str(e).lower()
+            if "no such window" in err_msg or "target window already closed" in err_msg or "web view not found" in err_msg:
+                print_lg("[NaukriBrowser] Target window lost. Attempting to recover active window handle...")
+                try:
+                    handles = list(getattr(self.driver, "window_handles", []))
+                    if handles:
+                        self.driver.switch_to.window(handles[0])
+                        print_lg(f"[NaukriBrowser] Switched focus to window {handles[0]}. Retrying navigation to {url}...")
+                        self.driver.get(url)
+                        try:
+                            from platforms.naukri.recovery import dismiss_unexpected_popups
+                            dismiss_unexpected_popups(self.driver)
+                        except Exception:
+                            pass
+                        return True
+                    else:
+                        print_lg("[NaukriBrowser] No window handles available. Chrome browser was closed.")
+                except Exception as rec_err:
+                    print_lg(f"[NaukriBrowser] Window recovery failed: {rec_err}")
             print_lg(f"[NaukriBrowser] Navigation error to {url}: {e}")
             return False
 
@@ -419,14 +438,21 @@ class NaukriBrowser:
         return False
 
     def is_alive(self) -> bool:
-        """Checks if browser window is alive and reachable."""
+        """Checks if browser window is alive and reachable with at least one active window handle."""
         if not self.driver:
             return False
         try:
+            handles = getattr(self.driver, "window_handles", None)
+            if not handles or len(handles) == 0:
+                return False
             _ = self.driver.title
             return True
         except Exception:
-            return False
+            try:
+                handles = getattr(self.driver, "window_handles", None)
+                return bool(handles and len(handles) > 0)
+            except Exception:
+                return False
 
     def quit(self) -> None:
         """Alias for close()."""
