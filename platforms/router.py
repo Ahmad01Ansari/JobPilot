@@ -54,15 +54,39 @@ class LinkedInPlatform(BasePlatformApplier):
         if self.browser:
             from platforms.linkedin.applier import LinkedInApplier
             from platforms.linkedin.rotator import LinkedInRotator
-            search_terms = None
-            if self.platform_config and self.platform_config.get("search_terms"):
-                search_terms = self.platform_config.get("search_terms")
+            ln_cfg = self.platform_config or {}
+            search_terms = ln_cfg.get("search_terms")
+            search_location = ln_cfg.get("search_location") or ln_cfg.get("default_location")
+            easy_apply_only = ln_cfg.get("easy_apply_only", True)
+            if "apply_mode" in ln_cfg:
+                easy_apply_only = (ln_cfg.get("apply_mode") == "EASY_APPLY_ONLY")
+            date_posted = ln_cfg.get("date_posted")
+            distance = ln_cfg.get("distance")
+            sort_by = ln_cfg.get("sort_by")
+            experience_level = ln_cfg.get("experience_level")
+            on_site = ln_cfg.get("on_site")
+            max_pages = ln_cfg.get("max_pages_per_search", 5)
+            consecutive_skips = ln_cfg.get("consecutive_skips_limit", 25)
+
             if not search_terms:
                 try:
                     import config.search as sc
                     search_terms = getattr(sc, "search_terms", None)
+                    if not search_location:
+                        search_location = getattr(sc, "search_location", None)
+                    if date_posted is None:
+                        date_posted = getattr(sc, "date_posted", None)
+                    if distance is None:
+                        distance = getattr(sc, "distance", None)
+                    if sort_by is None:
+                        sort_by = getattr(sc, "sort_by", None)
+                    if not experience_level:
+                        experience_level = getattr(sc, "experience_level", None)
+                    if not on_site:
+                        on_site = getattr(sc, "on_site", None)
                 except Exception:
                     pass
+
             self.applier = LinkedInApplier(
                 browser=self.browser,
                 tracker=self.tracker,
@@ -75,6 +99,15 @@ class LinkedInPlatform(BasePlatformApplier):
                 applier=self.applier,
                 automation_bridge=self.automation_bridge,
                 search_terms=search_terms,
+                search_location=search_location,
+                easy_apply_only=easy_apply_only,
+                date_posted=date_posted,
+                distance=distance,
+                sort_by=sort_by,
+                experience_level=experience_level,
+                on_site=on_site,
+                max_pages_per_term=max_pages,
+                consecutive_skips_limit=consecutive_skips,
                 user_id=self.user_id,
             )
 

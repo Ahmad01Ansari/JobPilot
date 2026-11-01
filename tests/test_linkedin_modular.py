@@ -98,6 +98,64 @@ class TestLinkedInModular(unittest.TestCase):
         # Card 1 should NEVER have been clicked because it was pre-filtered
         card1.click.assert_not_called()
 
+    def test_parser_extract_job_id_urn_and_query_param(self):
+        # 4. From URN format (urn:li:fsd_jobPosting:4012345678)
+        card_urn = MagicMock()
+        card_urn.get_attribute.side_effect = lambda attr: "urn:li:fsd_jobPosting:4012345678" if attr == "data-entity-urn" else None
+        job_id = LinkedInJobParser.extract_job_id_from_card(card_urn)
+        self.assertEqual(job_id, "4012345678")
+
+        # 5. From search query param currentJobId=55667788
+        card_param = MagicMock()
+        card_param.get_attribute.return_value = None
+        anchor_mock = MagicMock()
+        anchor_mock.get_attribute.return_value = "https://www.linkedin.com/jobs/search/?currentJobId=55667788&keywords=RPA"
+        card_param.find_elements.return_value = [anchor_mock]
+        job_id = LinkedInJobParser.extract_job_id_from_card(card_param)
+        self.assertEqual(job_id, "55667788")
+
+    def test_rotator_search_url_location_and_hybrid(self):
+        # Hybrid mode (easy_apply_only=False) with location and date_posted
+        rotator = LinkedInRotator(
+            browser=MagicMock(),
+            search_location="India",
+            easy_apply_only=False,
+            date_posted="Past week",
+        )
+        url = rotator.build_search_url("RPA Developer", start=25)
+        self.assertIn("keywords=RPA+Developer", url)
+        self.assertIn("location=India", url)
+        self.assertNotIn("f_AL=true", url)
+        self.assertIn("f_TPR=r604800", url)
+        self.assertIn("start=25", url)
+
+    def test_rotator_relevance_decay_switches_keyword(self):
+        tracker_mock = MagicMock(spec=ApplicationTracker)
+        # All jobs skipped as already handled to trigger relevance decay
+        tracker_mock.is_already_handled.return_value = (True, "Already handled")
+
+        card1 = MagicMock()
+        card1.get_attribute.side_effect = lambda attr: "201" if attr == "data-job-id" else None
+        card2 = MagicMock()
+        card2.get_attribute.side_effect = lambda attr: "202" if attr == "data-job-id" else None
+
+        browser_mock = MagicMock()
+        browser_mock.driver = MagicMock()
+        browser_mock.driver.find_elements.return_value = [card1, card2]
+
+        rotator = LinkedInRotator(
+            browser=browser_mock,
+            tracker=tracker_mock,
+            search_terms=["Term1", "Term2"],
+            consecutive_skips_limit=2,
+            max_pages_per_term=1,
+        )
+
+        stats = rotator.run()
+        # Should have searched both terms because Term1 decayed after 2 skips
+        self.assertEqual(stats["terms_searched"], 2)
+        self.assertEqual(stats["jobs_skipped"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

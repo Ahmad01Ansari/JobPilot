@@ -85,10 +85,29 @@ LOGIN_SUBMIT_SELECTORS = [
 
 # Job Search & Listings
 JOB_RESULTS_CONTAINER = ".jobs-search-results-list"
+JOB_RESULTS_CONTAINERS = [
+    ".jobs-search-results-list",
+    ".scaffold-layout__list",
+    ".jobs-search-results",
+    "div[data-view-name='job-search-results-list']",
+    "div.scaffold-layout__list-detail-inner",
+]
 JOB_CARD_ITEMS = [
     "li[data-occludable-job-id]",
-    ".jobs-search-results__list-item",
+    "li.jobs-search-results__list-item",
+    "ul.scaffold-layout__list-container > li",
     "div.job-card-container",
+    "div[data-job-id]",
+    "div.job-card-job-posting-card-wrapper",
+    "div[data-view-name='job-card']",
+    "div.job-card-list__entity-lockup",
+]
+
+NO_RESULTS_INDICATORS = [
+    "div.jobs-search-no-results-banner",
+    ".jobs-search-two-pane__no-results-banner",
+    "//h1[contains(normalize-space(.), 'No matching jobs')]",
+    "//div[contains(normalize-space(.), 'No matching jobs')]",
 ]
 
 # Job Details & Description

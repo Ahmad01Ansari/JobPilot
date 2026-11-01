@@ -23,19 +23,53 @@ class LinkedInJobParser:
 
     @staticmethod
     def extract_job_id_from_card(card_element: WebElement) -> Optional[str]:
-        """Extracts LinkedIn job ID from card attributes or anchor links."""
-        # 1. Direct attribute on element
-        for attr in ["data-job-id", "data-occludable-job-id"]:
-            val = card_element.get_attribute(attr)
-            if val and val.strip().isdigit():
-                return val.strip()
+        """Extracts LinkedIn job ID from card attributes, child elements, or anchor links."""
+        # 1. Direct attributes on card element
+        for attr in ["data-job-id", "data-occludable-job-id", "data-entity-urn", "id"]:
+            try:
+                val = card_element.get_attribute(attr)
+                if val:
+                    val_str = str(val).strip()
+                    if val_str.isdigit():
+                        return val_str
+                    # Check for URN pattern urn:li:fsd_jobPosting:12345678 or trailing digits
+                    urn_match = re.search(r"(?:jobPosting:|job_id=|_item_)(\d{6,})", val_str)
+                    if urn_match:
+                        return urn_match.group(1)
+                    # Generic long numeric string in attribute
+                    num_match = re.search(r"(\d{6,})", val_str)
+                    if num_match:
+                        return num_match.group(1)
+            except Exception:
+                pass
 
-        # 2. Look for child anchor with /jobs/view/<id>
+        # 2. Look in child elements with job ID attributes
         try:
-            links = card_element.find_elements(By.XPATH, ".//a[contains(@href, '/jobs/view/')]")
+            child_elems = card_element.find_elements(
+                By.XPATH, ".//*[@data-job-id or @data-occludable-job-id or @data-entity-urn]"
+            )
+            for child in child_elems:
+                for attr in ["data-job-id", "data-occludable-job-id", "data-entity-urn"]:
+                    val = child.get_attribute(attr)
+                    if val:
+                        val_str = str(val).strip()
+                        if val_str.isdigit():
+                            return val_str
+                        match = re.search(r"(\d{6,})", val_str)
+                        if match:
+                            return match.group(1)
+        except Exception:
+            pass
+
+        # 3. Look for child anchor with /jobs/view/<id> or currentJobId=<id>
+        try:
+            links = card_element.find_elements(
+                By.XPATH,
+                ".//a[contains(@href, '/jobs/view/') or contains(@href, 'currentJobId=') or contains(@href, 'jobId=')]"
+            )
             for link in links:
                 href = link.get_attribute("href") or ""
-                match = re.search(r"/jobs/view/(\d+)", href)
+                match = re.search(r"(?:/jobs/view/|currentJobId=|jobId=)(\d+)", href)
                 if match:
                     return match.group(1)
         except Exception:
@@ -44,8 +78,8 @@ class LinkedInJobParser:
         return None
 
     @staticmethod
-    def extract_title(driver) -> str:
-        """Extracts job title from current active details pane."""
+    def extract_title(driver, card_element: Optional[WebElement] = None) -> str:
+        """Extracts job title from current active details pane or card fallback."""
         for selector in JOB_TITLE_SELECTORS:
             try:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -55,11 +89,24 @@ class LinkedInJobParser:
                         return text
             except Exception:
                 continue
+
+        # Fallback to card element if details pane did not yield title
+        if card_element:
+            for card_sel in ["a.job-card-list__title", ".job-card-container__link", "a[data-control-id]"]:
+                try:
+                    elems = card_element.find_elements(By.CSS_SELECTOR, card_sel)
+                    for el in elems:
+                        text = el.text.strip()
+                        if text:
+                            return text.split("\n")[0].strip()
+                except Exception:
+                    continue
+
         return "Unknown Title"
 
     @staticmethod
-    def extract_company(driver) -> str:
-        """Extracts company name from current active details pane."""
+    def extract_company(driver, card_element: Optional[WebElement] = None) -> str:
+        """Extracts company name from current active details pane or card fallback."""
         for selector in JOB_COMPANY_SELECTORS:
             try:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -69,11 +116,24 @@ class LinkedInJobParser:
                         return text.split("\n")[0].strip()
             except Exception:
                 continue
+
+        # Fallback to card element if details pane did not yield company
+        if card_element:
+            for card_sel in [".job-card-container__company-name", ".artdeco-entity-lockup__subtitle", ".job-card-container__primary-description"]:
+                try:
+                    elems = card_element.find_elements(By.CSS_SELECTOR, card_sel)
+                    for el in elems:
+                        text = el.text.strip()
+                        if text:
+                            return text.split("\n")[0].strip()
+                except Exception:
+                    continue
+
         return "Unknown Company"
 
     @staticmethod
-    def extract_location(driver) -> str:
-        """Extracts job location from current active details pane."""
+    def extract_location(driver, card_element: Optional[WebElement] = None) -> str:
+        """Extracts job location from current active details pane or card fallback."""
         for selector in JOB_LOCATION_SELECTORS:
             try:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
@@ -83,6 +143,19 @@ class LinkedInJobParser:
                         return text.split("·")[0].strip()
             except Exception:
                 continue
+
+        # Fallback to card element if details pane did not yield location
+        if card_element:
+            for card_sel in [".job-card-container__metadata-item", ".artdeco-entity-lockup__caption"]:
+                try:
+                    elems = card_element.find_elements(By.CSS_SELECTOR, card_sel)
+                    for el in elems:
+                        text = el.text.strip()
+                        if text:
+                            return text.split("·")[0].strip()
+                except Exception:
+                    continue
+
         return "Unknown Location"
 
     @staticmethod
