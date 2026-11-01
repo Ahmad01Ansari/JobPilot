@@ -45,6 +45,12 @@ try:
 except Exception:
     pass
 
+try:
+    from modules.open_chrome import ensure_ssl_certificates
+    ensure_ssl_certificates()
+except Exception:
+    pass
+
 if use_AI:
     from modules.ai.openaiConnections import ai_create_openai_client, ai_extract_skills, ai_answer_question, ai_close_openai_client
     from modules.ai.deepseekConnections import deepseek_create_client, deepseek_extract_skills, deepseek_answer_question

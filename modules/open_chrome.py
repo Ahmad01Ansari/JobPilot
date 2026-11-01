@@ -24,6 +24,27 @@ from modules.stealth import apply_stealth_to_driver
 from selenium.common.exceptions import SessionNotCreatedException
 
 
+def ensure_ssl_certificates() -> None:
+    """Configures trusted CA bundle for Python SSL/TLS without bypassing verification."""
+    import ssl
+    try:
+        verify_paths = ssl.get_default_verify_paths()
+        ca_file_valid = bool(verify_paths.cafile and os.path.exists(verify_paths.cafile))
+        ca_env_valid = bool(os.environ.get("SSL_CERT_FILE") and os.path.exists(os.environ["SSL_CERT_FILE"]))
+        if not ca_file_valid and not ca_env_valid:
+            import certifi
+            ca_path = certifi.where()
+            if os.path.exists(ca_path):
+                os.environ["SSL_CERT_FILE"] = ca_path
+                if not os.environ.get("REQUESTS_CA_BUNDLE"):
+                    os.environ["REQUESTS_CA_BUNDLE"] = ca_path
+    except Exception:
+        pass
+
+
+ensure_ssl_certificates()
+
+
 def find_chrome_executable(allow_fallback_chromium: bool = True) -> Optional[str]:
     """Resolves absolute path to installed Google Chrome or Chromium executable across operating systems.
     

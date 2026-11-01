@@ -36,6 +36,12 @@ from app.ui.main_window import MainWindow
 
 def main() -> int:
     """Initializes and runs the JobPilot Desktop Application."""
+    try:
+        from modules.open_chrome import ensure_ssl_certificates
+        ensure_ssl_certificates()
+    except Exception:
+        pass
+
     # Install centralized log sanitizer and global crash handler
     try:
         from app.services.sanitizer_service import install_root_sanitizer

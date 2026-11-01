@@ -132,6 +132,18 @@ class SecretsService:
             user = self.get_secret("glassdoor_username")
             pwd = self.get_secret("glassdoor_password")
             return user, pwd
+        elif p in ("workday", "universal"):
+            user = self.get_secret("workday_username")
+            pwd = self.get_secret("workday_password")
+            if not user or not pwd:
+                try:
+                    from modules.config_loader import get_platform, get_personal
+                    plat = get_platform("workday")
+                    pwd = pwd or plat.get("password")
+                    user = user or plat.get("username") or get_personal().get("email")
+                except Exception:
+                    pass
+            return user, pwd
         return None, None
 
     def get_ai_secret(self, provider_id: str, default: Optional[str] = None) -> Optional[str]:

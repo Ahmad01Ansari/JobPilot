@@ -7,7 +7,7 @@
 
 ## 1. Core Principles
 
-1. **Commit Often, Tag Sparingly:** Regular bug fixes, UI tweaks, and incremental refinements must be committed directly to `main` without generating release tags.
+1. **Explicit Permission Mandatory for Commits & Pushes:** Code changes, bug fixes, and documentation must remain strictly uncommitted in the local working tree. AI agents are FORBIDDEN from running `git commit` or `git push` unless the user explicitly commands or gives permission to do so.
 2. **Release Tags Are Expensive Milestones:** Pushing a release tag (`v*`) triggers cross-platform compilation matrix runners on GitHub Actions (Windows + Linux). Never tag a release for single-line changes or unverified fixes.
 3. **Zero Untested Releases:** No release tag may ever be created or pushed without first executing the three mandatory verification gates (compilation, unit tests, and headless GUI self-test).
 
@@ -17,19 +17,14 @@
 
 ```
 DEVELOPMENT CYCLE:
-Fix Bug / Feature ──► Verify Locally ──► Commit to `main` ──► Push to `origin/main`
-                                                                (NO Release Tag Created)
-                                                                (Zero Actions Minutes Wasted)
-
-RELEASE CYCLE (Explicit User Request / Milestone Batch):
-Batch Verified ──► Bump app/version.py ──► Update CHANGELOG.md ──► Pass All Gates ──► Create Tag ──► Push Tag
+Fix Bug / Feature ──► Verify Locally ──► Present to User ──► Await Explicit Permission ──► Commit / Push (Only If Authorized)
 ```
 
-### Rule A: When to Push Normal Commits
-- User asks to fix a UI bug, style issue, or background automation bug.
-- Agent verifies the fix locally.
-- Agent stages files, commits with clean descriptive message, and pushes to `origin/main`.
-- **Do NOT bump version. Do NOT create git tags.**
+### Rule A: When to Commit or Push Code
+- All changes must remain uncommitted in the working tree for the user to review.
+- An AI agent must **NEVER** run `git commit` or `git push` automatically.
+- Only run `git commit` or `git push` when the user explicitly grants permission (e.g. "commit the changes", "push the code").
+- **Do NOT bump version. Do NOT create git tags without explicit instruction.**
 
 ### Rule B: When to Create a Release Tag (`vX.Y.Z-beta.N`)
 - **ONLY** when the user explicitly requests a new build or release ("push build", "release new version", "tag release").

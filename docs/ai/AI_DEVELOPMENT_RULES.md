@@ -142,7 +142,7 @@ apply-and-pray/
 
 ## 5. Coding & Style Conventions
 
-1. **Python Runtime:** Python 3.11.x inside `.venv` (`/home/ahmad10raza/anaconda3/envs/apply-and-pray`).
+1. **Python Runtime:** Python 3.11.x inside local dedicated `.venv` (`.venv/bin/python`).
 2. **Type Annotations:** All new functions, methods, and classes must include Python type hints (`from typing import Optional, List, Dict, Any, Tuple, Callable`).
 3. **No Duplicate Services/Helpers:** Never create `NewService2`, `HelperUtils`, or parallel managers. Always search and extend existing services.
 4. **Change Minimization:** Prefer the smallest safe change. Do not refactor unrelated files when implementing a specific feature or bug fix.
@@ -285,6 +285,7 @@ Before declaring any coding task finished, the AI agent must verify every item:
 - [ ] **Targeted Tests Passed:** Specific unit/integration tests pass.
 - [ ] **Regression Suite Passed:** Full test suite passes without breaking existing features.
 - [ ] **Desktop Preflight Verified:** `run_desktop.py --offscreen --test-run` succeeds.
+- [ ] **No Unprompted Commits/Pushes:** Code remains uncommitted in working tree unless explicit user permission to commit or push was granted.
 - [ ] **Documentation Updated:** Relevant documentation reflects new/changed behavior.
 - [ ] **Report Provided:** Final output adheres strictly to the Agent Response Format.
 

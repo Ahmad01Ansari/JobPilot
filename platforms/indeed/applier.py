@@ -100,43 +100,124 @@ def _get_elem_text(el: Any) -> str:
     return ""
 
 
-def extract_external_portal_url(driver: Any, apply_elem: Optional[Any], job_id: str) -> Optional[str]:
-    """Extracts external company application portal URL from apply element or Indeed redirect."""
-    url = None
-    if apply_elem:
+def extract_external_portal_url(
+    driver: Any,
+    apply_elem: Optional[Any],
+    job_id: str,
+    main_window: Optional[str] = None,
+) -> Optional[str]:
+    """Extracts the direct external company application portal URL from an Indeed 'Apply on company site' button.
+
+    Attempts multi-phase resolution:
+    1. Static attribute & JSON extraction (href, data-href, data-url, onclick regex, inner/outer anchors).
+    2. URL unwrapping (decodes embedded destination query params like ?url=, ?dest=, ?target=).
+    3. Dynamic tab resolution: If URL still points to internal Indeed redirector (e.g. /rc/clk, /applystart),
+       safely clicks the button (or opens the redirect URL in a new tab) to capture the final resolved company
+       portal URL, closes the spawned tab, and restores window focus.
+    4. Safe fallback: If resolution fails, falls back to the cleanest available redirect link.
+    """
+    from urllib.parse import urlparse, parse_qs, unquote
+
+    def _is_clean_external_url(target_url: Optional[str]) -> bool:
+        if not target_url or not isinstance(target_url, str):
+            return False
+        u = target_url.strip()
+        if not (u.startswith("http://") or u.startswith("https://")):
+            return False
+        low = u.lower()
+        if "about:blank" in low or "javascript:" in low:
+            return False
+        # Reject Indeed internal domains
+        if any(dom in low for dom in ["indeed.com", "indeed.co.in", "indeed.co.uk", "indeed.fr", "indeed.de"]):
+            return False
+        return True
+
+    def _unwrap_redirect_url(target_url: Optional[str]) -> Optional[str]:
+        if not target_url or not isinstance(target_url, str):
+            return None
+        u = target_url.strip()
         try:
-            val = apply_elem.get_attribute("href")
-            if isinstance(val, str) and val.strip():
-                url = val.strip()
-            if not url:
-                parent = apply_elem.find_element(By.XPATH, "..")
-                if getattr(parent, "tag_name", "") == "a":
-                    pval = parent.get_attribute("href")
-                    if isinstance(pval, str) and pval.strip():
-                        url = pval.strip()
-            if not url:
-                dval = apply_elem.get_attribute("data-href") or apply_elem.get_attribute("data-url")
-                if isinstance(dval, str) and dval.strip():
-                    url = dval.strip()
-            if not url:
-                try:
-                    inner_a = apply_elem.find_element(By.TAG_NAME, "a")
-                    ival = inner_a.get_attribute("href")
-                    if isinstance(ival, str) and ival.strip():
-                        url = ival.strip()
-                except Exception:
-                    pass
+            parsed = urlparse(u)
+            qs = parse_qs(parsed.query)
+            for key in [
+                "url", "dest", "destination", "redirect", "redirect_url",
+                "target", "target_url", "link", "outbound", "external_url",
+                "job_url", "apply_url", "from"
+            ]:
+                if key in qs and qs[key]:
+                    candidate = unquote(qs[key][0]).strip()
+                    if _is_clean_external_url(candidate):
+                        return candidate
+        except Exception:
+            pass
+        return u if _is_clean_external_url(u) else None
+
+    # Step 1: Static attribute inspection
+    candidate_urls: List[str] = []
+
+    if apply_elem:
+        for attr in [
+            "href", "data-href", "data-url", "data-target-url",
+            "data-apply-url", "data-session-redirect-url", "data-outbound-url",
+            "data-indeed-apply-url", "data-job-url", "data-emp-url"
+        ]:
+            try:
+                val = apply_elem.get_attribute(attr)
+                if isinstance(val, str) and val.strip():
+                    clean_cand = val.strip()
+                    unwrapped = _unwrap_redirect_url(clean_cand)
+                    if unwrapped and _is_clean_external_url(unwrapped):
+                        print_lg(f"[IndeedApplier] Statically resolved external company portal URL from attribute '{attr}': {unwrapped}")
+                        return unwrapped
+                    candidate_urls.append(clean_cand)
+            except Exception:
+                pass
+
+        try:
+            anchors = apply_elem.find_elements(By.XPATH, "./ancestor-or-self::a")
+            for a in anchors:
+                href = a.get_attribute("href")
+                if isinstance(href, str) and href.strip():
+                    unwrapped = _unwrap_redirect_url(href.strip())
+                    if unwrapped and _is_clean_external_url(unwrapped):
+                        print_lg(f"[IndeedApplier] Statically resolved external company portal URL from anchor: {unwrapped}")
+                        return unwrapped
+                    candidate_urls.append(href.strip())
         except Exception:
             pass
 
-    if not url:
         try:
-            res = driver.execute_script('''
-                var btns = document.querySelectorAll("a, button, div[role='button']");
+            inner_anchors = apply_elem.find_elements(By.TAG_NAME, "a")
+            for ia in inner_anchors:
+                ihref = ia.get_attribute("href")
+                if isinstance(ihref, str) and ihref.strip():
+                    unwrapped = _unwrap_redirect_url(ihref.strip())
+                    if unwrapped and _is_clean_external_url(unwrapped):
+                        print_lg(f"[IndeedApplier] Statically resolved external company portal URL from inner anchor: {unwrapped}")
+                        return unwrapped
+                    candidate_urls.append(ihref.strip())
+        except Exception:
+            pass
+
+        try:
+            onclick_val = apply_elem.get_attribute("onclick") or ""
+            match = re.search(r"https?://[^\s'\"<>\)]+", onclick_val)
+            if match:
+                unwrapped = _unwrap_redirect_url(match.group(0))
+                if unwrapped and _is_clean_external_url(unwrapped):
+                    print_lg(f"[IndeedApplier] Statically resolved external company portal URL from onclick: {unwrapped}")
+                    return unwrapped
+        except Exception:
+            pass
+
+    if driver:
+        try:
+            js_res = driver.execute_script('''
+                var btns = document.querySelectorAll("a, button, div[role='button'], span[role='button']");
                 for (var b of btns) {
                     var t = (b.innerText || b.textContent || '').trim().toLowerCase();
                     if (t.includes('apply on company site')) {
-                        var h = b.getAttribute('href') || b.getAttribute('data-href');
+                        var h = b.getAttribute('href') || b.getAttribute('data-href') || b.getAttribute('data-url');
                         if (h) return h;
                         var a = b.querySelector('a');
                         if (a && a.getAttribute('href')) return a.getAttribute('href');
@@ -146,18 +227,131 @@ def extract_external_portal_url(driver: Any, apply_elem: Optional[Any], job_id: 
                 }
                 return null;
             ''')
-            if isinstance(res, str) and res.strip():
-                url = res.strip()
+            if isinstance(js_res, str) and js_res.strip():
+                unwrapped = _unwrap_redirect_url(js_res.strip())
+                if unwrapped and _is_clean_external_url(unwrapped):
+                    print_lg(f"[IndeedApplier] Resolved external company portal URL via DOM query: {unwrapped}")
+                    return unwrapped
+                candidate_urls.append(js_res.strip())
         except Exception:
             pass
 
-    if url and isinstance(url, str):
-        if url.startswith("/"):
-            url = "https://in.indeed.com" + url
-    elif job_id:
-        url = f"https://in.indeed.com/applystart?jk={job_id}"
+    indeed_redirect_url: Optional[str] = None
+    for cand in candidate_urls:
+        if cand.startswith("/"):
+            indeed_redirect_url = "https://in.indeed.com" + cand
+            break
+        elif cand.startswith("http"):
+            indeed_redirect_url = cand
+            break
 
-    return url
+    if not indeed_redirect_url and job_id:
+        indeed_redirect_url = f"https://in.indeed.com/applystart?jk={job_id}"
+
+    # Step 2: Dynamic Tab Resolution
+    if driver and hasattr(driver, "window_handles") and (apply_elem or indeed_redirect_url):
+        print_lg(f"[IndeedApplier] Resolving external portal destination via dynamic click/tab...")
+        handles_before = list(getattr(driver, "window_handles", []))
+        active_handle = main_window
+        if not active_handle:
+            try:
+                active_handle = driver.current_window_handle
+            except Exception:
+                active_handle = handles_before[0] if handles_before else None
+
+        resolved_ext_url: Optional[str] = None
+        new_tab_opened = False
+
+        try:
+            if apply_elem:
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", apply_elem)
+                    time.sleep(0.3)
+                    apply_elem.click()
+                except Exception:
+                    try:
+                        driver.execute_script("arguments[0].click();", apply_elem)
+                    except Exception:
+                        pass
+
+            # Poll up to 3.5s for newly spawned tab
+            poll_start = time.time()
+            while time.time() - poll_start < 3.5:
+                current_handles = list(getattr(driver, "window_handles", []))
+                if len(current_handles) > len(handles_before):
+                    new_tab = [h for h in current_handles if h not in handles_before][-1]
+                    new_tab_opened = True
+                    driver.switch_to.window(new_tab)
+                    break
+                time.sleep(0.2)
+
+            if not new_tab_opened and indeed_redirect_url:
+                try:
+                    driver.execute_script("window.open(arguments[0], '_blank');", indeed_redirect_url)
+                    time.sleep(0.5)
+                    current_handles = list(getattr(driver, "window_handles", []))
+                    if len(current_handles) > len(handles_before):
+                        new_tab = [h for h in current_handles if h not in handles_before][-1]
+                        new_tab_opened = True
+                        driver.switch_to.window(new_tab)
+                except Exception:
+                    pass
+
+            if new_tab_opened:
+                wait_redirect = time.time()
+                while time.time() - wait_redirect < 4.0:
+                    curr_url = getattr(driver, "current_url", "") or ""
+                    if curr_url and curr_url.startswith("http") and "about:blank" not in curr_url:
+                        unwrapped = _unwrap_redirect_url(curr_url)
+                        if unwrapped and _is_clean_external_url(unwrapped):
+                            resolved_ext_url = unwrapped
+                            break
+                        elif _is_clean_external_url(curr_url):
+                            resolved_ext_url = curr_url
+                            break
+                    time.sleep(0.3)
+            else:
+                curr_url = getattr(driver, "current_url", "") or ""
+                if _is_clean_external_url(curr_url):
+                    resolved_ext_url = curr_url
+                    try:
+                        driver.back()
+                        time.sleep(1.0)
+                    except Exception:
+                        pass
+        except Exception as ex:
+            print_lg(f"[IndeedApplier] Notice resolving external tab: {ex}")
+        finally:
+            if new_tab_opened:
+                try:
+                    driver.close()
+                except Exception:
+                    pass
+            if active_handle:
+                try:
+                    driver.switch_to.window(active_handle)
+                except Exception:
+                    rem = list(getattr(driver, "window_handles", []))
+                    if rem:
+                        try:
+                            driver.switch_to.window(rem[0])
+                        except Exception:
+                            pass
+
+        if resolved_ext_url and _is_clean_external_url(resolved_ext_url):
+            print_lg(f"[IndeedApplier] Successfully captured resolved external company portal URL: {resolved_ext_url}")
+            return resolved_ext_url
+
+    for cand in candidate_urls:
+        unwrapped = _unwrap_redirect_url(cand)
+        if unwrapped and _is_clean_external_url(unwrapped):
+            return unwrapped
+
+    if indeed_redirect_url:
+        print_lg(f"[IndeedApplier] Notice: Could not resolve final company website. Using redirect link: {indeed_redirect_url}")
+        return indeed_redirect_url
+
+    return None
 
 
 def is_valid_job_description(desc: Optional[str], min_chars: int = 250) -> bool:
@@ -859,7 +1053,7 @@ class IndeedApplier:
             return (False, "Already applied.")
 
         if flow_type == "EXTERNAL":
-            ext_url = extract_external_portal_url(self.driver, apply_elem, job.job_id)
+            ext_url = extract_external_portal_url(self.driver, apply_elem, job.job_id, main_window=main_window)
             job.application_url = ext_url
             job.is_easy_apply = False
             print_lg(f"[IndeedApplier] Job '{job.job_id}' requires EXTERNAL company site apply. Captured portal link: {ext_url}")

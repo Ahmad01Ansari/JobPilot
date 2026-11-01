@@ -83,7 +83,15 @@ class CredentialDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(12)
 
-        self.txt_username = QLineEdit(self.current_username)
+        initial_user = self.current_username
+        if not initial_user:
+            try:
+                from modules.config_loader import get_personal
+                initial_user = get_personal().get("email", "")
+            except Exception:
+                pass
+
+        self.txt_username = QLineEdit(initial_user)
         self.txt_username.setPlaceholderText("Email or username")
         form.addRow("<b>Username / Email:</b>", self.txt_username)
 
@@ -93,9 +101,11 @@ class CredentialDialog(QDialog):
         pwd_layout.setContentsMargins(0, 0, 0, 0)
         pwd_layout.setSpacing(8)
 
-        self.txt_password = QLineEdit()
+        # Pre-load existing credentials
+        _, existing_pwd = self.secrets_service.get_platform_credentials(self.platform_key)
+        self.txt_password = QLineEdit(existing_pwd or "")
         self.txt_password.setEchoMode(QLineEdit.Password)
-        self.txt_password.setPlaceholderText("Enter password (leave empty to keep current)")
+        self.txt_password.setPlaceholderText("Enter password" if not existing_pwd else "Password stored securely (type to change)")
         pwd_layout.addWidget(self.txt_password, 1)
 
         self.btn_toggle_pwd = QPushButton("👁")

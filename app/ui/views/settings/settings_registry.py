@@ -112,6 +112,11 @@ SETTINGS_REGISTRY: Dict[str, Dict[str, Any]] = {
         "title": "Naukri.com Account",
         "keywords": ["naukri", "account", "username", "password", "login", "credentials"],
     },
+    "workday_credentials": {
+        "section": "credentials",
+        "title": "Workday / Universal ATS Account",
+        "keywords": ["workday", "universal", "ats", "account", "username", "password", "login", "credentials"],
+    },
     "recruiter_email": {
         "section": "credentials",
         "title": "Recruiter Outreach Email (SMTP / IMAP)",

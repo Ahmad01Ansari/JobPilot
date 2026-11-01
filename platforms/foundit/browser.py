@@ -80,6 +80,9 @@ class FounditBrowser:
         if self.driver:
             return self.driver
 
+        from modules.open_chrome import ensure_ssl_certificates
+        ensure_ssl_certificates()
+
         os.makedirs(self.profile_dir, exist_ok=True)
         _cleanup_stale_profile_locks(self.profile_dir)
 
@@ -144,6 +147,36 @@ class FounditBrowser:
             except Exception:
                 pass
 
+    def _recover_from_access_denied(self) -> bool:
+        """Clears stale network cache and cookies if Akamai serves Access Denied on home page."""
+        if not self.profile_dir or not os.path.isdir(self.profile_dir):
+            return False
+        default_dir = os.path.join(self.profile_dir, "Default")
+        if not os.path.isdir(default_dir):
+            return False
+
+        print_lg("[FounditBrowser] Access Denied detected. Clearing stale session state and reloading...")
+        import glob
+        patterns = [
+            os.path.join(default_dir, "Cookies*"),
+            os.path.join(default_dir, "Network*"),
+            os.path.join(default_dir, ".com.google.Chrome.Network*"),
+            os.path.join(default_dir, "Storage"),
+            os.path.join(default_dir, "Session Storage"),
+            os.path.join(default_dir, "Local Storage"),
+        ]
+        for pat in patterns:
+            for item in glob.glob(pat):
+                try:
+                    if os.path.isdir(item):
+                        import shutil
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        os.unlink(item)
+                except Exception:
+                    pass
+        return True
+
     def navigate(self, url: str, timeout: int = 30) -> bool:
         """Navigates to URL with eager page-load strategy and timeout handling."""
         if not self.driver:
@@ -157,6 +190,11 @@ class FounditBrowser:
             self.driver.set_page_load_timeout(timeout)
             self.driver.get(url)
             self.dismiss_unexpected_popups()
+            if self.is_access_denied():
+                if self._recover_from_access_denied():
+                    time.sleep(1)
+                    self.driver.get(url)
+                    self.dismiss_unexpected_popups()
             return True
         except TimeoutException:
             try:
@@ -164,6 +202,11 @@ class FounditBrowser:
             except Exception:
                 pass
             self.dismiss_unexpected_popups()
+            if self.is_access_denied():
+                if self._recover_from_access_denied():
+                    time.sleep(1)
+                    self.driver.get(url)
+                    self.dismiss_unexpected_popups()
             return True
         except Exception as e:
             print_lg(f"[FounditBrowser] Navigation error to {url}: {e}")
@@ -271,6 +314,39 @@ class FounditBrowser:
     def is_logged_in(self) -> bool:
         """Returns True if the current session is verified as authenticated."""
         return self.check_session_state() == "LOGGED_IN"
+
+    def ensure_authenticated(self, max_wait_seconds: int = 180) -> bool:
+        """Verifies session. If login is required or CAPTCHA appears, triggers manual intervention wait.
+        Never attempts automated bypass of security checkpoints.
+        """
+        if self.is_logged_in():
+            print_lg("[FounditBrowser] Existing session is active (LOGGED_IN).")
+            return True
+
+        state = self.check_session_state()
+        if state in ["CAPTCHA", "OTP_REQUIRED"]:
+            print_lg(f"[FounditBrowser] MANUAL_REQUIRED: Encountered {state}. Please resolve manually in browser.")
+        else:
+            print_lg("[FounditBrowser] MANUAL_REQUIRED: Please complete login/OTP in the open Chrome browser.")
+
+        return self._wait_for_manual_resolution(max_wait_seconds)
+
+    def _wait_for_manual_resolution(self, max_wait_seconds: int = 180) -> bool:
+        """Waits for human user to complete login or CAPTCHA in browser window."""
+        print_lg(f"[FounditBrowser] Waiting up to {max_wait_seconds}s for authentication completion in browser...")
+        start_time = time.time()
+        last_logged = 0
+        while time.time() - start_time < max_wait_seconds:
+            time.sleep(2)
+            if self.is_logged_in():
+                print_lg("[FounditBrowser] Authentication confirmed! Session saved to profile.")
+                return True
+            elapsed = int(time.time() - start_time)
+            if elapsed // 15 > last_logged:
+                last_logged = elapsed // 15
+                remaining = max_wait_seconds - elapsed
+                print_lg(f"[FounditBrowser] Awaiting authentication... {remaining}s remaining.")
+        return False
 
     def close(self) -> None:
         """Closes browser session cleanly."""

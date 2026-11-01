@@ -38,6 +38,7 @@ from app.services.automation.universal_agent.popup_manager import PopupManager, 
 from app.services.automation.universal_agent.recovery_manager import RecoveryManager, FailureCategory
 from app.services.automation.universal_agent.timeline import AgentRunTimeline
 from app.services.automation.universal_agent.validation_resolver import ValidationResolver
+from app.services.workday_account_service import WorkdayAccountService
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,20 @@ class UniversalApplicationOrchestrator:
         self.browser_agent = browser_agent or StagehandBrowserAgent(session_manager=self.session_manager)
         self.page_analyzer = page_analyzer or PageAnalyzer()
         self.candidate_context = candidate_context or {}
+        if not self.candidate_context.get("work_experience") or not self.candidate_context.get("education"):
+            try:
+                from app.services.profile_service import ProfileService
+                ps = ProfileService()
+                _, _, p_pro = ps.get_primary_user_profile()
+                if p_pro:
+                    if p_pro.work_experiences and not self.candidate_context.get("work_experience"):
+                        self.candidate_context["work_experience"] = p_pro.work_experiences
+                    if p_pro.education_history and not self.candidate_context.get("education"):
+                        self.candidate_context["education"] = p_pro.education_history
+                    if p_pro.skills and not self.candidate_context.get("skills"):
+                        self.candidate_context["skills"] = p_pro.skills
+            except Exception:
+                pass
         self.field_mapper = field_mapper or SemanticFieldMapper(candidate_context=self.candidate_context)
         self.file_uploader = file_uploader or FileUploader()
         self.form_filler = form_filler or FormFiller(file_uploader=self.file_uploader)
@@ -98,6 +113,7 @@ class UniversalApplicationOrchestrator:
         self.on_review_requested = on_review_requested
         self.recovery_manager = recovery_manager or RecoveryManager()
         self.checkpoint_manager = checkpoint_manager or CheckpointManager()
+        self.workday_account_service = WorkdayAccountService()
 
         self._last_analysis: Optional[FormAnalysisResult] = None
         self._last_fill_result: Optional[FormFillResult] = None
@@ -341,6 +357,7 @@ class UniversalApplicationOrchestrator:
             # 3. Step Loop (Single page application or multi-step wizard)
             for step_idx in range(start_step, max_wizard_steps + 1):
                 current_url = await self.browser_agent.get_url()
+                logger.info("=== WIZARD STEP %d / %d === (URL: %s)", step_idx, max_wizard_steps, current_url)
 
                 # Save execution checkpoint (Section 24)
                 self.checkpoint_manager.save_checkpoint(
@@ -405,6 +422,12 @@ class UniversalApplicationOrchestrator:
                     await self._handle_otp_resolution(res)
                     continue
 
+                # Dismiss any overlay or cookie banner before analysis
+                try:
+                    await PopupManager.scan_and_dismiss_popups(self.browser_agent)
+                except Exception:
+                    pass
+
                 # A. ANALYZING PAGE
                 self.state_machine.transition_to(
                     AgentExecutionState.ANALYZING_PAGE,
@@ -413,12 +436,25 @@ class UniversalApplicationOrchestrator:
                 )
                 analysis = await self.page_analyzer.analyze(self.browser_agent)
                 self._last_analysis = analysis
+                logger.info(
+                    "Step %d Analysis: %d fields, has_next=%s, has_submit=%s, next_btns=%s, submit_btns=%s, apply_btns=%s",
+                    step_idx,
+                    len(analysis.fields),
+                    bool(analysis.next_buttons),
+                    bool(analysis.submit_buttons),
+                    [(b.get("text"), b.get("selector")) for b in analysis.next_buttons],
+                    [(b.get("text"), b.get("selector")) for b in analysis.submit_buttons],
+                    [(b.get("text"), b.get("selector")) for b in analysis.apply_now_buttons],
+                )
 
                 # Check for security challenges / login gates / OTP
                 if analysis.challenge_detected:
                     if analysis.challenge_detected == "CAPTCHA_CHALLENGE":
                         reason = InterventionReason.CAPTCHA_CHALLENGE
                         msg = "Security gate detected: CAPTCHA_CHALLENGE"
+                    elif analysis.challenge_detected == "EMAIL_VERIFICATION_REQUIRED":
+                        reason = InterventionReason.EMAIL_VERIFICATION_REQUIRED
+                        msg = "A verification link has been sent to your email to confirm your candidate account. Please open your inbox, click the activation link, and then click 'I've Solved It / Continue' to proceed."
                     elif analysis.challenge_detected == "TWO_FACTOR_AUTH":
                         reason = InterventionReason.TWO_FACTOR_AUTH
                         msg = "One-time verification code (OTP) required. Please check your email or phone, enter the code in the browser window, then click 'I've Solved It / Continue'."
@@ -490,6 +526,73 @@ class UniversalApplicationOrchestrator:
                     if is_wizard_final_step and not analysis.submit_buttons and analysis.apply_now_buttons:
                         analysis.submit_buttons = analysis.apply_now_buttons
 
+                    # Workday "Start Your Application" modal check (Auto-select "Apply Manually")
+                    # MUST run before iframe resolution so third-party gadgets (e.g. applyWithLinkedIn) do not hijack navigation.
+                    js_check_entry_modal = """(() => {
+                        const modal = document.querySelector(
+                            '[data-automation-id="wd-popup-frame"], [data-automation-id="wd-popup-content"], ' +
+                            '[role="dialog"], .workday-popup, .modal, [data-automation-id*="modal" i], ' +
+                            'div[class*="modal" i], div[class*="popup" i]'
+                        );
+                        const bodyTxt = (document.body ? document.body.innerText : '').toLowerCase();
+                        const isEntryModal = (modal && /start\s*your\s*application|choose\s*how\s*you\s*would\s*like|autofill\s*with\s*resume/i.test(modal.innerText || '')) ||
+                                             /start\s*your\s*application/i.test(bodyTxt);
+                        if (!isEntryModal) return false;
+
+                        const applyManuallyBtn = document.querySelector(
+                            '[data-automation-id="applyManually"], [data-automation-id="authOption-applyManually"], ' +
+                            'a[href*="/apply/applyManually"], a[href*="applyManually"], ' +
+                            'button[data-automation-id*="applyManually" i], a[data-automation-id*="applyManually" i]'
+                        ) || Array.from(document.querySelectorAll('a, button, [role="button"], div[role="button"]')).find(b => {
+                            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                            return t === 'apply manually' || t.startsWith('apply manually');
+                        });
+
+                        if (applyManuallyBtn) {
+                            try { applyManuallyBtn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                            try { applyManuallyBtn.focus(); } catch(e) {}
+                            const opts = { bubbles: true, cancelable: true, view: window };
+                            applyManuallyBtn.dispatchEvent(new PointerEvent('pointerdown', opts));
+                            applyManuallyBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+                            applyManuallyBtn.dispatchEvent(new PointerEvent('pointerup', opts));
+                            applyManuallyBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+                            applyManuallyBtn.click();
+                            return true;
+                        }
+                        return false;
+                    })()"""
+                    try:
+                        modal_clicked_res = self.browser_agent.evaluate(js_check_entry_modal)
+                        modal_clicked = bool(await modal_clicked_res if asyncio.iscoroutine(modal_clicked_res) else modal_clicked_res)
+                        if modal_clicked:
+                            logger.info("Workday 'Start Your Application' modal detected. Clicked 'Apply Manually' option.")
+                            self.state_machine.transition_to(
+                                AgentExecutionState.NAVIGATING,
+                                message="Workday entry modal detected. Selected 'Apply Manually'.",
+                            )
+                            # Wait for Workday SPA route transition and input mounting
+                            for _ in range(16):
+                                await asyncio.sleep(0.5)
+                                new_u = await self.browser_agent.get_url()
+                                if "applymanually" in new_u.lower() or "apply" in new_u.lower():
+                                    current_url = new_u
+                                    try:
+                                        mounted_count = await self.browser_agent.evaluate("document.querySelectorAll('input:not([type=\"hidden\"]), select, textarea').length")
+                                        if mounted_count >= 2:
+                                            break
+                                    except Exception:
+                                        pass
+                            if hasattr(self.browser_agent, "sync_active_page"):
+                                sync_r_m = self.browser_agent.sync_active_page()
+                                if asyncio.iscoroutine(sync_r_m):
+                                    await sync_r_m
+                            current_url = await self.browser_agent.get_url()
+                            analysis = await self.page_analyzer.analyze(self.browser_agent)
+                            self._last_analysis = analysis
+                            continue
+                    except Exception as e:
+                        logger.debug("Workday entry modal probe error: %s", e)
+
                     # BUG-08: Check if application form is embedded inside an iframe (e.g. Greenhouse/Jobvite widget)
                     if len(analysis.fields) == 0 and not is_wizard_final_step:
                         try:
@@ -505,7 +608,63 @@ class UniversalApplicationOrchestrator:
                         except Exception as frame_err:
                             logger.debug("Frame resolution probe error: %s", frame_err)
 
-                    needs_entry_click = (len(analysis.fields) == 0 and not is_wizard_final_step) or (latest_fill_result is None and bool(analysis.apply_now_buttons))
+                    # Workday / Dynamic SPA application flow input mounting wait
+                    is_in_apply_flow = any(p in current_url.lower() for p in ["/apply", "applymanually", "job-apply", "/application"])
+                    if is_in_apply_flow and len(analysis.fields) == 0:
+                        logger.info("Application flow URL detected (%s). Waiting for dynamic form inputs to mount...", current_url)
+                        for _ in range(16):
+                            await asyncio.sleep(0.5)
+                            try:
+                                # Check if Workday / ATS encountered a temporary glitch or error banner
+                                err_detected = await self.browser_agent.evaluate("""(() => {
+                                    const bodyText = (document.body.innerText || '').toLowerCase();
+                                    return bodyText.includes('something went wrong') && bodyText.includes('please refresh');
+                                })()""")
+                                if err_detected:
+                                    logger.warning("Workday 'Something went wrong' page error detected. Triggering page refresh recovery...")
+                                    try:
+                                        if hasattr(self.browser_agent, "page") and self.browser_agent.page:
+                                            await self.browser_agent.page.reload()
+                                            await asyncio.sleep(3.0)
+                                            break
+                                    except Exception:
+                                        pass
+
+                                inps = await self.browser_agent.evaluate("document.querySelectorAll('input:not([type=\"hidden\"]), select, textarea').length")
+                                if inps >= 2:
+                                    logger.info("Dynamic form inputs mounted (%d inputs). Re-analyzing page...", inps)
+                                    analysis = await self.page_analyzer.analyze(self.browser_agent)
+                                    self._last_analysis = analysis
+                                    break
+                            except Exception:
+                                pass
+
+                    # Workday / Dynamic SPA hydration settling wait on job overview pages
+                    if not is_in_apply_flow and any(spa in current_url.lower() for spa in ["myworkdayjobs.com", "oraclecloud.com", "candidateexperience"]) and not analysis.apply_now_buttons and len(analysis.fields) == 0:
+                        js_probe_spa_apply = """(() => {
+                            const btn = document.querySelector(
+                                'button[data-automation-id="adventureButton"], a[data-automation-id="adventureButton"], ' +
+                                'button[data-automation-id="applyButton"], a[data-automation-id="applyButton"], ' +
+                                'button[data-automation-id="jobPostingApplyButton"], a[data-automation-id="jobPostingApplyButton"]'
+                            ) || Array.from(document.querySelectorAll('button, a, [role="button"]')).find(b => {
+                                const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                return t === 'apply' || t === 'apply now';
+                            });
+                            return !!btn;
+                        })()"""
+                        for _ in range(8):
+                            try:
+                                btn_found = bool(await self.browser_agent.evaluate(js_probe_spa_apply))
+                                if btn_found:
+                                    logger.info("SPA Apply button detected after hydration settling.")
+                                    analysis = await self.page_analyzer.analyze(self.browser_agent)
+                                    self._last_analysis = analysis
+                                    break
+                            except Exception:
+                                pass
+                            await asyncio.sleep(0.5)
+
+                    needs_entry_click = (len(analysis.fields) == 0 and not is_wizard_final_step and not is_in_apply_flow) or (latest_fill_result is None and bool(analysis.apply_now_buttons) and not is_in_apply_flow)
 
                     if needs_entry_click:
                         entry_candidate = None
@@ -644,6 +803,53 @@ class UniversalApplicationOrchestrator:
                                 return self._build_result(current_url, job_title, company)
                             continue
 
+                # Workday Proactive Sign In vs Create Account Branching
+                # Strictly isolated to Workday ATS portals to prevent mixing up with Greenhouse, Lever, etc.
+                is_workday = WorkdayAccountService.is_workday_portal(current_url)
+                if is_workday and len(analysis.fields) > 0:
+                    has_acct = self.workday_account_service.has_account(current_url, company_name=company)
+                    has_verify_pwd = any(f.name == "verifyPassword" or "verify" in (f.field_id or "").lower() or (f.label and "verify" in f.label.lower()) for f in analysis.fields)
+                    has_sign_in_btn = any("signinsubmit" in b.get("selector", "").lower() or b.get("text", "").lower() == "sign in" for b in analysis.next_buttons + analysis.submit_buttons)
+
+                    if has_acct and has_verify_pwd:
+                        logger.info("Workday tenant detected with existing account in DB (%s). Proactively switching to 'Sign In' tab.", current_url)
+                        js_switch_signin = """(() => {
+                            const btn = document.querySelector('[data-automation-id="signInLink"], [data-automation-id="tab-signIn"]') ||
+                                        Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => (el.innerText || '').trim().toLowerCase() === 'sign in');
+                            if (btn) {
+                                btn.click();
+                                return true;
+                            }
+                            return false;
+                        })()"""
+                        try:
+                            switched = bool(await self.browser_agent.evaluate(js_switch_signin))
+                            if switched:
+                                await asyncio.sleep(1.5)
+                                analysis = await self.page_analyzer.analyze(self.browser_agent)
+                                self._last_analysis = analysis
+                        except Exception as e:
+                            logger.debug("Workday switch to Sign In error: %s", e)
+                    elif not has_acct and has_sign_in_btn and not has_verify_pwd:
+                        logger.info("Workday tenant detected with NO existing account in DB (%s). Proactively switching to 'Create Account' tab.", current_url)
+                        js_switch_create = """(() => {
+                            const btn = document.querySelector('[data-automation-id="createAccountLink"], [data-automation-id="tab-createAccount"]') ||
+                                        Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => (el.innerText || '').trim().toLowerCase() === 'create account');
+                            if (btn) {
+                                btn.click();
+                                return true;
+                            }
+                            return false;
+                        })()"""
+                        try:
+                            switched = bool(await self.browser_agent.evaluate(js_switch_create))
+                            if switched:
+                                await asyncio.sleep(1.5)
+                                analysis = await self.page_analyzer.analyze(self.browser_agent)
+                                self._last_analysis = analysis
+                        except Exception as e:
+                            logger.debug("Workday switch to Create Account error: %s", e)
+
                 # B. MAPPING FIELDS
                 self.state_machine.transition_to(
                     AgentExecutionState.MAPPING_FIELDS,
@@ -684,6 +890,16 @@ class UniversalApplicationOrchestrator:
                         # Persist user-resolved answers into QnA bank so future forms never prompt again
                         for q_key, ans_val in res.resolution_data.items():
                             if ans_val and str(ans_val).strip():
+                                # Security invariant: Passwords MUST be encrypted via SecretsService, NEVER saved in plaintext QnA bank
+                                if re.search(r"\b(password|passwd|pwd)\b", str(q_key), re.I):
+                                    try:
+                                        from app.services.secrets_service import SecretsService
+                                        SecretsService().set_secret("workday_password", str(ans_val).strip())
+                                        logger.info("Persisted user-supplied password securely to SecretsService.")
+                                    except Exception as sec_e:
+                                        logger.warning("Failed to persist password to SecretsService: %s", sec_e)
+                                    continue
+
                                 try:
                                     if hasattr(self.field_mapper, "qna_engine") and self.field_mapper.qna_engine:
                                         self.field_mapper.qna_engine.save_learned_answer(
@@ -709,6 +925,15 @@ class UniversalApplicationOrchestrator:
                     AgentExecutionState.FILLING_FORM,
                     message="Populating form fields with verified candidate facts.",
                 )
+                if any(spa in current_url.lower() for spa in ["myworkdayjobs.com", "myworkday"]):
+                    step_key = f"_workday_repeaters_filled_{step_idx}"
+                    if not getattr(self, step_key, False):
+                        setattr(self, step_key, True)
+                        try:
+                            await self.form_filler.fill_workday_repeaters(self.browser_agent, self.candidate_context)
+                        except Exception as rep_err:
+                            logger.warning("Workday repeater auto-fill notice: %s", rep_err)
+
                 fill_res = await self.form_filler.fill_form(self.browser_agent, mapping_result)
                 self._last_fill_result = fill_res
                 latest_fill_result = fill_res
@@ -742,6 +967,48 @@ class UniversalApplicationOrchestrator:
 
                 if (analysis.is_multi_step or has_next) and has_next and not has_submit:
                     # Intermediate Wizard Progression
+                    # Workday repeaters: populate Work Experience, Education, and Skills if on Workday
+                    if any(spa in current_url.lower() for spa in ["myworkdayjobs.com", "myworkday"]):
+                        step_key = f"_workday_repeaters_filled_{step_idx}"
+                        if not getattr(self, step_key, False):
+                            setattr(self, step_key, True)
+                            try:
+                                await self.form_filler.fill_workday_repeaters(self.browser_agent, self.candidate_context)
+                            except Exception as rep_err:
+                                logger.warning("Workday repeater auto-fill notice: %s", rep_err)
+
+                    # Ensure any file/resume inputs on this step are uploaded BEFORE attempting to click Next
+                    cv_file_fields = [
+                        f for f in analysis.fields 
+                        if f.input_type == "file" and (
+                            f.required 
+                            or bool(re.search(r"cv|resume|curriculum|résumé|upload\s*a\s*file", f.label or "", re.I))
+                            or bool(re.search(r"cv|resume|curriculum|résumé|file", f.name or "", re.I))
+                        )
+                    ]
+                    # Also look for any direct file inputs on the page if not in analysis.fields
+                    has_dom_file_input = await self.browser_agent.evaluate("!!document.querySelector('input[type=\"file\"]')")
+                    if cv_file_fields or has_dom_file_input:
+                        resume_path = (
+                            self.candidate_context.get("resume.file_path") or
+                            (self.candidate_context.get("resume", {}) if isinstance(self.candidate_context.get("resume"), dict) else {}).get("resume.file_path") or
+                            self.candidate_context.get("resume_path") or
+                            (self.candidate_context.get("resume", {}) if isinstance(self.candidate_context.get("resume"), dict) else {}).get("file_path")
+                        )
+                        if not resume_path:
+                            try:
+                                from modules.config_loader import get_resume
+                                resume_path = get_resume()
+                            except Exception:
+                                pass
+                        if resume_path and os.path.exists(str(resume_path)):
+                            for cv_field in (cv_file_fields or [type('Field', (), {'label': 'Resume', 'selector': 'input[type="file"]'})]):
+                                is_att = await self.file_uploader.verify_upload(self.browser_agent, getattr(cv_field, "selector", 'input[type="file"]'))
+                                if not is_att:
+                                    logger.info("Auto-attaching resume before step progression for '%s'...", getattr(cv_field, "label", "Resume"))
+                                    await self.file_uploader.upload_file(self.browser_agent, getattr(cv_field, "selector", 'input[type="file"]'), str(resume_path))
+                                    await asyncio.sleep(1.0)
+
                     next_sel = analysis.next_buttons[0].get("selector", "button[type='submit']")
                     next_txt = analysis.next_buttons[0].get("text", "Next")
                     self.state_machine.transition_to(
@@ -754,29 +1021,126 @@ class UniversalApplicationOrchestrator:
                     except Exception:
                         pass
                     click_ok = await self._click_button_resilient(next_sel, button_text_hint=next_txt)
-                    logger.info("Clicked next step button '%s' (%s, ok=%s). Settling 2.5s for step transition...", next_txt, next_sel, click_ok)
-                    await asyncio.sleep(2.5)
+                    logger.info("Clicked next step button '%s' (%s, ok=%s). Settling for step transition...", next_txt, next_sel, click_ok)
+                    await asyncio.sleep(2.0)
+
+                    # Dynamic SPA hydration wait loop: wait for DOM mutation & new step fields to mount
+                    for _ in range(16):
+                        try:
+                            m_cnt_raw = await self.browser_agent.evaluate("""(() => {
+                                const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea, [data-automation-id="pageFooterNextButton"]');
+                                return JSON.stringify(inputs.length);
+                            })()""")
+                            m_cnt = json.loads(m_cnt_raw) if isinstance(m_cnt_raw, str) else (m_cnt_raw or 0)
+                            if m_cnt and m_cnt > 0:
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.5)
 
                     if hasattr(self.browser_agent, "sync_active_page"):
                         sync_r = self.browser_agent.sync_active_page()
                         if asyncio.iscoroutine(sync_r):
                             await sync_r
 
+                    # Workday account persistence: Record company registration on successful submit
+                    if is_workday and click_ok and any(k in (next_sel + ' ' + next_txt).lower() for k in ["createaccount", "create account", "signin", "sign in"]):
+                        cand_email = (
+                            self.candidate_context.get("profile", {}).get("user.email")
+                            or self.candidate_context.get("profile", {}).get("workday_username")
+                            or ""
+                        )
+                        try:
+                            self.workday_account_service.record_account(
+                                url=current_url,
+                                company_name=company,
+                                username=cand_email,
+                            )
+                        except Exception as rec_err:
+                            logger.debug("Failed to record Workday company account: %s", rec_err)
+
+                        # Wait for Workday post-authentication routing and step 2 inputs to mount
+                        logger.info("Awaiting Workday post-authentication step transition...")
+                        for _ in range(20):
+                            await asyncio.sleep(0.5)
+                            try:
+                                inps_cnt = await self.browser_agent.evaluate(
+                                    "document.querySelectorAll('input:not([type=\"hidden\"]), select, textarea, button[data-automation-id*=\"dropdown\" i]').length"
+                                )
+                                has_signin_modal = await self.browser_agent.evaluate("!!document.querySelector('[data-automation-id=\"signInSubmitButton\"]')")
+                                if inps_cnt >= 3 and not has_signin_modal:
+                                    logger.info("Workday next step mounted (%d controls). Proceeding...", inps_cnt)
+                                    break
+                            except Exception:
+                                pass
+
+                    # Check for Workday "Account already exists" error banner -> auto-switch to Sign In
+                    js_check_existing_acct = """(() => {
+                        const bodyTxt = (document.body ? document.body.innerText : '').toLowerCase();
+                        if (bodyTxt.includes('already exists') || (bodyTxt.includes('already registered') && bodyTxt.includes('sign in'))) {
+                            const signInTab = document.querySelector(
+                                '[data-automation-id="signInLink"], [data-automation-id="tab-signIn"], ' +
+                                'button[data-automation-id*="signIn" i], a[data-automation-id*="signIn" i]'
+                            ) || Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => {
+                                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                return t === 'sign in' || t.startsWith('sign in');
+                            });
+                            if (signInTab) {
+                                signInTab.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    })()"""
+                    try:
+                        switched = bool(await self.browser_agent.evaluate(js_check_existing_acct))
+                        if switched:
+                            logger.info("Workday existing account detected. Switched to 'Sign In' mode.")
+                            if is_workday:
+                                cand_email = (
+                                    self.candidate_context.get("profile", {}).get("user.email")
+                                    or self.candidate_context.get("profile", {}).get("workday_username")
+                                    or ""
+                                )
+                                try:
+                                    self.workday_account_service.record_account(
+                                        url=current_url,
+                                        company_name=company,
+                                        username=cand_email,
+                                    )
+                                except Exception:
+                                    pass
+                            await asyncio.sleep(2.0)
+                            continue
+                    except Exception:
+                        pass
+
                     # Check for form validation errors after advancing (Section 14)
                     val_report = await ValidationResolver.inspect_validation_errors(self.browser_agent)
                     if val_report.has_errors:
-                        # GAP-05: Attempt auto-remedy for invalid/unchecked fields
-                        remedied = await ValidationResolver.attempt_auto_remedy(self.browser_agent, val_report)
-                        if remedied > 0:
-                            logger.info("Auto-remedied %d validation error inputs. Re-attempting step advance...", remedied)
-                            await self._click_button_resilient(next_sel, button_text_hint=next_txt)
-                            await asyncio.sleep(2.0)
-                            val_report = await ValidationResolver.inspect_validation_errors(self.browser_agent)
-
+                        # GAP-05: Attempt auto-remedy in a loop (up to 3 passes) for cascading validation errors
+                        for remedy_pass in range(3):
+                            cand_facts = self.field_mapper._gather_candidate_facts()
+                            remedied = await ValidationResolver.attempt_auto_remedy(self.browser_agent, val_report, candidate_facts=cand_facts)
+                            if remedied > 0:
+                                logger.info("Auto-remedied %d validation error inputs (pass %d). Re-attempting step advance...", remedied, remedy_pass + 1)
+                                await self._click_button_resilient(next_sel, button_text_hint=next_txt)
+                                await asyncio.sleep(2.5)
+                                val_report = await ValidationResolver.inspect_validation_errors(self.browser_agent)
+                                if not val_report.has_errors:
+                                    logger.info("Validation errors fully resolved after remedy pass %d.", remedy_pass + 1)
+                                    break
+                            else:
+                                break
                         if val_report.has_errors:
                             error_texts = [e.error_text for e in val_report.field_errors]
                             if error_texts or val_report.summary_banners:
-                                logger.warning("Active validation errors detected after clicking next: %s", error_texts)
+                                logger.warning(
+                                    "Active validation errors detected after clicking next: %s (fields: %s, banners: %s)",
+                                    error_texts,
+                                    [(e.field_identifier, e.selector, e.error_text, e.input_type) for e in val_report.field_errors],
+                                    val_report.summary_banners,
+                                )
                                 # BUG-05: Trigger intervention instead of silently continuing
                                 self.intervention_manager.trigger_intervention(
                                     self.state_machine,
@@ -784,13 +1148,13 @@ class UniversalApplicationOrchestrator:
                                     message=f"Validation errors after step navigation: {'; '.join((error_texts + val_report.summary_banners)[:5])}. Please resolve in browser.",
                                     details={"field_errors": error_texts, "summary_banners": val_report.summary_banners},
                                 )
-                                res = await self.intervention_manager.wait_for_resolution()
+                                res = await self.intervention_manager.wait_for_resolution(timeout_seconds=90.0)
                                 if res.resolution_action != "RESUME":
                                     return self._build_result(current_url, job_title, company, fill_result=latest_fill_result)
                     continue
 
                 else:
-                    # Guardrail: If 0 fields were populated on a non-multi-step page and an Apply button exists, we are still on the overview page!
+                    # Guardrail 1: If 0 fields were populated on a non-multi-step page and an Apply button exists, we are still on the overview page!
                     if fill_res.filled_fields == 0 and not analysis.is_multi_step and analysis.apply_now_buttons:
                         entry_candidate = analysis.apply_now_buttons[0]
                         entry_sel = entry_candidate.get("selector", "a.btn")
@@ -807,6 +1171,21 @@ class UniversalApplicationOrchestrator:
                             sync_r = self.browser_agent.sync_active_page()
                             if asyncio.iscoroutine(sync_r):
                                 await sync_r
+                        continue
+
+                    # Guardrail 2: If we are in an application flow (/apply, applymanually) and 0 fields were detected or populated,
+                    # this is an intermediate step still hydrating, UNLESS it's the final Review screen with a Submit button!
+                    is_review_page = await self.browser_agent.evaluate("""(() => {
+                        const hasSubmitBtn = !!document.querySelector('button[data-automation-id="pageFooterNextButton"], button[type="submit"]');
+                        const bodyTxt = (document.body ? document.body.innerText : '').toLowerCase();
+                        return (hasSubmitBtn && (bodyTxt.includes('review') || document.querySelector('[data-automation-id="reviewStep"], [data-automation-id="progressBarActiveStep"]'))) ||
+                               Array.from(document.querySelectorAll('button, a')).some(b => (b.innerText || '').trim().toLowerCase() === 'submit');
+                    })()""")
+
+                    is_in_apply_route = any(p in current_url.lower() for p in ["/apply", "applymanually", "job-apply", "/application"])
+                    if is_in_apply_route and fill_res.filled_fields == 0 and not is_review_page:
+                        logger.info("Intermediate application route (%s) with 0 filled fields. Waiting for fields to mount rather than triggering review gate...", current_url)
+                        await asyncio.sleep(2.0)
                         continue
 
                     # Invariant: Bot must answer all screening questions and required fields before review

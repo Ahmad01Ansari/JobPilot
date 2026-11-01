@@ -52,6 +52,24 @@ class ProfileService:
 
             profile = repo.get_profile(user.id)
             pro_profile = repo.get_professional_profile(user.id)
+
+            if pro_profile:
+                needs_update = False
+                if not pro_profile.work_experiences or not pro_profile.education_history:
+                    try:
+                        from modules.config_loader import get_professional
+                        pcfg = get_professional() or {}
+                        if not pro_profile.work_experiences and pcfg.get("work_experiences"):
+                            pro_profile.work_experiences = pcfg.get("work_experiences")
+                            needs_update = True
+                        if not pro_profile.education_history and pcfg.get("education"):
+                            pro_profile.education_history = pcfg.get("education")
+                            needs_update = True
+                    except Exception:
+                        pass
+                if needs_update:
+                    session.commit()
+
             return user, profile, pro_profile
 
     def get_profile_by_user_id(
@@ -168,6 +186,9 @@ class ProfileService:
                 )
                 repo.save_profile(user_id, profile_dto)
 
+                work_exp = professional_data.get("work_experiences")
+                edu_hist = professional_data.get("education_history")
+
                 # Update Professional Profile
                 prof_dto = ProfessionalProfileUpdateDTO(
                     current_title=title,
@@ -183,6 +204,8 @@ class ProfileService:
                     headline=professional_data.get("headline"),
                     summary=professional_data.get("summary"),
                     cover_letter=professional_data.get("cover_letter"),
+                    work_experiences=work_exp,
+                    education_history=edu_hist,
                 )
                 repo.save_professional_profile(user_id, prof_dto)
                 session.commit()
@@ -281,6 +304,15 @@ class ProfileService:
                 data["professional"]["summary"] = professional_data["summary"] or ""
             if "cover_letter" in professional_data:
                 data["professional"]["cover_letter"] = professional_data["cover_letter"] or ""
+            if "skills" in professional_data:
+                skills_val = professional_data["skills"]
+                if isinstance(skills_val, str):
+                    skills_val = [s.strip() for s in skills_val.split(",") if s.strip()]
+                data["professional"]["skills"] = skills_val
+            if "work_experiences" in professional_data and professional_data["work_experiences"] is not None:
+                data["professional"]["work_experiences"] = professional_data["work_experiences"]
+            if "education_history" in professional_data and professional_data["education_history"] is not None:
+                data["professional"]["education"] = professional_data["education_history"]
 
             with open(profile_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

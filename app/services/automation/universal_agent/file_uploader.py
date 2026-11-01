@@ -105,7 +105,7 @@ class FileUploader:
 
             // 3. Check for tag removal buttons / success badges / Webflow upload success
             const successTag = document.querySelector(
-                '.bp3-tag-remove, button[aria-label="Remove"], [aria-label*="Remove" i], [aria-label*="Delete" i], .bp3-intent-success, [class*="uploaded"], [class*="success-tag"], .file-field__filename, [class*="attached"], .w-file-upload-success:not(.w-hidden), .w-file-remove-link, .w-file-upload-file-name'
+                '.bp3-tag-remove, button[aria-label="Remove"], [aria-label*="Remove" i], [aria-label*="Delete" i], .bp3-intent-success, [class*="uploaded"], [class*="success-tag"], .file-field__filename, [class*="attached"], .w-file-upload-success:not(.w-hidden), .w-file-remove-link, .w-file-upload-file-name, [data-automation-id="file-upload-item"], [data-automation-id="delete-file"], [data-automation-id*="file" i][data-automation-id*="delete" i], [data-automation-id="uploadedFile"], [data-automation-id="attachment-row"]'
             );
             if (successTag && window.getComputedStyle(successTag).display !== 'none') {{
                 return 'COMPLETE';
@@ -211,7 +211,7 @@ class FileUploader:
             if (el.files && el.files.length > 0) {{
                 return true;
             }}
-            const tag = document.querySelector('.bp3-tag-remove, button[aria-label="Remove"], [aria-label*="Remove" i], [aria-label*="Delete" i], .bp3-intent-success, .file-field__filename, .w-file-upload-success:not(.w-hidden), .w-file-remove-link, .w-file-upload-file-name');
+            const tag = document.querySelector('.bp3-tag-remove, button[aria-label="Remove"], [aria-label*="Remove" i], [aria-label*="Delete" i], .bp3-intent-success, .file-field__filename, .w-file-upload-success:not(.w-hidden), .w-file-remove-link, .w-file-upload-file-name, [data-automation-id="file-upload-item"], [data-automation-id="delete-file"], [data-automation-id*="file" i][data-automation-id*="delete" i], [data-automation-id="uploadedFile"], [data-automation-id="attachment-row"]');
             return !!tag;
         }})()"""
         try:

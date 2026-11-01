@@ -80,6 +80,9 @@ class ProfessionalProfile(Base, TimestampMixin):
     primary_skills: Mapped[Optional[List[str]]] = mapped_column(JsonType, nullable=True)
     secondary_skills: Mapped[Optional[List[str]]] = mapped_column(JsonType, nullable=True)
 
+    work_experiences: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JsonType, nullable=True)
+    education_history: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JsonType, nullable=True)
+
     linkedin_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     portfolio_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)

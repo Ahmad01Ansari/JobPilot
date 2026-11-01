@@ -96,6 +96,16 @@ def ensure_sqlite_schema(eng: Engine) -> None:
                     conn.execute(text("ALTER TABLE resumes ADD COLUMN parsed_metadata TEXT"))
                     conn.commit()
 
+            if "professional_profiles" in tables:
+                res = conn.execute(text("PRAGMA table_info(professional_profiles)")).fetchall()
+                cols = [r[1] for r in res]
+                if "work_experiences" not in cols:
+                    conn.execute(text("ALTER TABLE professional_profiles ADD COLUMN work_experiences TEXT"))
+                    conn.commit()
+                if "education_history" not in cols:
+                    conn.execute(text("ALTER TABLE professional_profiles ADD COLUMN education_history TEXT"))
+                    conn.commit()
+
             # Outreach Center: Email Templates Table
             if "email_templates" not in tables:
                 conn.execute(text("""

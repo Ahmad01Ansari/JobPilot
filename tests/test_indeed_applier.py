@@ -114,14 +114,43 @@ class TestIndeedApplier(unittest.TestCase):
     def test_external_flow_extracts_portal_url(self):
         from platforms.indeed.applier import extract_external_portal_url
 
-        # Direct external link on apply button
+        # 1. Direct external link on apply button
         mock_apply_el = MagicMock()
         mock_apply_el.get_attribute.side_effect = lambda a: "https://flex.wd1.myworkdayjobs.com/careers/job123" if a == "href" else None
         url = extract_external_portal_url(self.mock_driver, mock_apply_el, "d47945a0c03d6ea5")
         self.assertEqual(url, "https://flex.wd1.myworkdayjobs.com/careers/job123")
 
-        # Fallback to applystart redirect
-        url_fallback = extract_external_portal_url(self.mock_driver, None, "d47945a0c03d6ea5")
+        # 2. URL unwrapping from embedded redirect query parameter
+        mock_redirect_el = MagicMock()
+        mock_redirect_el.get_attribute.side_effect = lambda a: "https://in.indeed.com/rc/clk?jk=123&dest=https%3A%2F%2Fjobs.lever.co%2Frpa%2F456" if a == "href" else None
+        url_unwrapped = extract_external_portal_url(self.mock_driver, mock_redirect_el, "123")
+        self.assertEqual(url_unwrapped, "https://jobs.lever.co/rpa/456")
+
+        # 3. Dynamic tab resolution from Indeed /rc/clk redirect
+        mock_clk_el = MagicMock()
+        mock_clk_el.get_attribute.side_effect = lambda a: "/rc/clk?jk=789&from=vj" if a == "href" else None
+
+        driver_with_tabs = MagicMock()
+        tab_list = [["win_main"]]
+        type(driver_with_tabs).window_handles = property(lambda self: tab_list[-1])
+        def on_click(*args, **kwargs):
+            tab_list.append(["win_main", "win_new_tab"])
+        mock_clk_el.click.side_effect = on_click
+        driver_with_tabs.current_window_handle = "win_main"
+        driver_with_tabs.current_url = "https://careers.infosys.com/job/rpa-developer-789"
+
+        url_dynamic = extract_external_portal_url(driver_with_tabs, mock_clk_el, "789", main_window="win_main")
+        self.assertEqual(url_dynamic, "https://careers.infosys.com/job/rpa-developer-789")
+        driver_with_tabs.switch_to.window.assert_any_call("win_new_tab")
+        driver_with_tabs.close.assert_called_once()
+        driver_with_tabs.switch_to.window.assert_called_with("win_main")
+
+        # 4. Fallback to applystart redirect when offline or no dynamic resolution
+        fallback_driver = MagicMock()
+        fallback_driver.window_handles = ["win_main"]
+        fallback_driver.current_window_handle = "win_main"
+        fallback_driver.execute_script.return_value = None
+        url_fallback = extract_external_portal_url(fallback_driver, None, "d47945a0c03d6ea5")
         self.assertEqual(url_fallback, "https://in.indeed.com/applystart?jk=d47945a0c03d6ea5")
 
     def test_extract_job_details_via_full_job_description_heading(self):

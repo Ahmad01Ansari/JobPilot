@@ -61,7 +61,7 @@ class ConfigurationHealthBar(QFrame):
         layout.addWidget(self.chip_email)
 
         # 4. Credentials Count
-        self.chip_credentials = StatusChip("credentials", "Credentials 0/2", "neutral")
+        self.chip_credentials = StatusChip("credentials", "Credentials 0/3", "neutral")
         self.chip_credentials.clicked.connect(self.section_navigated.emit)
         layout.addWidget(self.chip_credentials)
 
@@ -95,7 +95,7 @@ class ConfigurationHealthBar(QFrame):
         else:
             self.chip_email.update_status("info", "Email Configured")
 
-    def update_credentials_count(self, configured_count: int, total_count: int = 2) -> None:
+    def update_credentials_count(self, configured_count: int, total_count: int = 3) -> None:
         label = f"Credentials {configured_count}/{total_count}"
         if configured_count == total_count:
             self.chip_credentials.update_status("success", label)

@@ -932,11 +932,21 @@ class FounditPlatform(BasePlatformApplier):
         from platforms.foundit.auth import FounditAuth
         auth = FounditAuth(self.browser)
         success, msg = auth.login()
-        if success:
+        if success and self.browser.is_logged_in():
             print_lg(f"[FounditPlatform] {msg}")
             return True
 
+        if self.browser.is_logged_in():
+            print_lg("[FounditPlatform] Active authenticated session confirmed.")
+            return True
+
         print_lg(f"[FounditPlatform] Authentication notice: {msg}")
+        print_lg("[FounditPlatform] Awaiting manual login/OTP/CAPTCHA in the open Chrome browser window...")
+        if self.browser.ensure_authenticated(max_wait_seconds=180):
+            print_lg("[FounditPlatform] Authentication confirmed! Proceeding with session.")
+            return True
+
+        print_lg("[FounditPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
         return False
 
     def search_and_apply(
@@ -1234,6 +1244,17 @@ class UniversalPlatform(BasePlatformApplier):
                         orch.confirm_submission("Confirmed by candidate via CLI.")
                 else:
                     orch.confirm_submission("Auto-confirmed by CLI non-interactive execution.")
+
+            if not self.candidate_context.get("workday_password"):
+                try:
+                    from modules.config_loader import get_workday_credentials
+                    wd = get_workday_credentials()
+                    if wd.get("username"):
+                        self.candidate_context.setdefault("workday_username", wd["username"])
+                    if wd.get("password"):
+                        self.candidate_context.setdefault("workday_password", wd["password"])
+                except Exception:
+                    pass
 
             orch = self.orchestrator or UniversalApplicationOrchestrator(
                 candidate_context=self.candidate_context,

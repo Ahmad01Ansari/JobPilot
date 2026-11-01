@@ -388,6 +388,24 @@ class SemanticFieldMapper:
                         elif short_k == "cover_letter":
                             facts["cover_letter"] = (v, prov)
 
+        # 5. Workday / Universal ATS credentials (dynamic from Settings/SecretsService/profile.json)
+        try:
+            from modules.config_loader import get_workday_credentials
+            wd_creds = get_workday_credentials()
+            wd_user = wd_creds.get("username")
+            wd_pwd = wd_creds.get("password")
+            if wd_user and "workday_username" not in facts:
+                prov_user = FieldProvenance(source_domain="credentials", source_key="workday_username", confidence=1.0)
+                facts["workday_username"] = (wd_user, prov_user)
+            if wd_pwd and "workday_password" not in facts:
+                prov_pwd = FieldProvenance(source_domain="credentials", source_key="workday_password", confidence=1.0)
+                facts["workday_password"] = (wd_pwd, prov_pwd)
+                facts["password"] = (wd_pwd, prov_pwd)
+                facts["verify_password"] = (wd_pwd, prov_pwd)
+                facts["confirm_password"] = (wd_pwd, prov_pwd)
+        except Exception:
+            pass
+
         return facts
 
     def _resolve_single_field(
@@ -396,7 +414,7 @@ class SemanticFieldMapper:
         facts: Dict[str, Tuple[Any, FieldProvenance]],
     ) -> FieldMapping:
         """Determines the semantic match, value, and provenance for an individual form field."""
-        search_str = f"{f_info.field_id} {f_info.name} {f_info.label} {f_info.placeholder or ''} {f_info.aria_label or ''}".lower()
+        search_str = f"{f_info.field_id} {f_info.name} {f_info.label} {f_info.placeholder or ''} {f_info.aria_label or ''} {f_info.selector or ''}".lower()
         clean_label = re.sub(r"[\*\:\?]", "", f_info.label or f_info.placeholder or "").strip()
 
         # 0. Math Question / Arithmetic CAPTCHA resolution
@@ -477,12 +495,43 @@ class SemanticFieldMapper:
 
         # 4. Email
         if f_info.input_type == "email" or re.search(r"\b(e[\s_-]*mail|email[\s_-]*address)\b", search_str):
-            if "user.email" in facts:
-                val, prov = facts["user.email"]
-                return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
+            for k in ["workday_username", "user.email", "email"]:
+                if k in facts and facts[k][0]:
+                    val, prov = facts[k]
+                    return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
-        # 5. Phone
-        if f_info.input_type == "tel" or re.search(r"\b(phone|phone[\s_-]*number|telephone|mobile|contact[\s_-]*number|cell|phone[\s_-]*secondary|secondary[\s_-]*phone|alt[\s_-]*phone)\b", search_str) or f_info.name in ["phone", "mobile", "phone_number", "telephone", "phone-secondary"]:
+        # 4a. Password & Verify Password (e.g. Workday Account Creation / Sign In)
+        if f_info.input_type == "password" or re.search(r"\b(password|passwd|pwd)\b", search_str):
+            is_verify = bool(re.search(r"\b(verify|confirm|re-enter|repeat|retype)\b", search_str))
+            pwd_key = "verify_password" if is_verify else "workday_password"
+            for k in [pwd_key, "workday_password", "password"]:
+                if k in facts and facts[k][0]:
+                    val, prov = facts[k]
+                    return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
+            # CRITICAL SECURITY INVARIANT: NEVER fall through to QnA or LLM guessing for passwords!
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=None,
+                selected_option_value=None,
+                provenance=None,
+                is_resolved=False,
+                notes="Workday/Account password not configured in Settings. Mandatory user credential required.",
+            )
+
+        # 4b. Terms of Service / Privacy Policy / Agreement Checkbox
+        if f_info.input_type == "checkbox" and (
+            re.search(r"\b(agree|agreement|terms|privacy|consent|conditions|certify|acknowledge)\b", search_str)
+            or "agreement" in f_info.selector.lower()
+        ):
+            prov = FieldProvenance(source_domain="policy", source_key="terms_agreement", confidence=1.0)
+            return FieldMapping(field_info=f_info, resolved_value="true", provenance=prov, is_resolved=True)
+
+        # 5. Phone (Number only - exclude device type and extension)
+        is_phone_num = (
+            (f_info.input_type == "tel" or re.search(r"\b(phone|phone[\s_-]*number|telephone|mobile|contact[\s_-]*number|cell|phone[\s_-]*secondary|secondary[\s_-]*phone|alt[\s_-]*phone)\b", search_str) or f_info.name in ["phone", "mobile", "phone_number", "telephone", "phone-secondary"])
+            and not re.search(r"\b(device|device[\s_-]*type|phonedevice|extension|ext)\b", search_str)
+        )
+        if is_phone_num:
             for k in ["profile.phone_number", "phone_number", "phone"]:
                 if k in facts:
                     val, prov = facts[k]
@@ -495,8 +544,27 @@ class SemanticFieldMapper:
                     clean_phone = digits if len(digits) == 10 else phone_str
                     return FieldMapping(field_info=f_info, resolved_value=clean_phone, provenance=prov, is_resolved=True)
 
-        # 5a. Address / Street
-        if re.search(r"\b(address|street|address[\s_-]*line|residence|residential[\s_-]*address)\b", search_str) or f_info.name in ["address", "street", "address1", "addr"]:
+        # 5-ext. Phone Extension (Optional / empty unless explicit fact provided)
+        if re.search(r"\b(extension|ext|phone[\s_-]*extension)\b", search_str):
+            ext_val = facts.get("phone_extension", (None, None))[0] or ""
+            prov = FieldProvenance("profile", "phone_extension", confidence=1.0)
+            return FieldMapping(field_info=f_info, resolved_value=str(ext_val), provenance=prov, is_resolved=True)
+
+        # 5a. Address / Street (Exclude sub-address fields: city, state, postal code, country)
+        is_sub_address = bool(
+            re.search(r"\b(city|town|municipality|state|province|region|countryregion|country|zip|postal|pincode|pin)\b", search_str)
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["city", "countryregion", "postalcode", "statedropdown", "countrydropdown"]))
+            or (f_info.name and any(k in f_info.name.lower() for k in ["city", "countryregion", "postalcode", "statedropdown", "countrydropdown"]))
+        )
+        if not is_sub_address and (
+            re.search(r"\b(address|street|address[\s_-]*line|residence|residential[\s_-]*address)\b", search_str)
+            or f_info.name in ["address", "street", "address1", "addr"]
+        ):
+            is_addr_2 = bool(re.search(r"\b(line[\s_-]*2|address[\s_-]*2|addr[\s_-]*2|secondary[\s_-]*address|addressline2)\b", search_str))
+            if is_addr_2:
+                val = facts.get("profile.address2", (None,))[0] or facts.get("address2", (None,))[0] or ""
+                prov = FieldProvenance("profile", "address2", confidence=1.0)
+                return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
             if "profile.address" in facts:
                 val, prov = facts["profile.address"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
@@ -505,7 +573,7 @@ class SemanticFieldMapper:
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
         # 5b. City
-        if re.search(r"\b(city|town|municipality)\b", search_str) or f_info.name in ["city", "town"]:
+        if re.search(r"\b(city|town|municipality)\b", search_str) or f_info.name in ["city", "town"] or (f_info.field_id and "city" in f_info.field_id.lower()):
             if "profile.current_city" in facts:
                 val, prov = facts["profile.current_city"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
@@ -514,7 +582,11 @@ class SemanticFieldMapper:
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
         # 5c. State / Province / Region
-        if re.search(r"\b(state|province|region)\b", search_str) or f_info.name in ["state", "province", "region"]:
+        if (
+            re.search(r"\b(state|province|region|countryregion)\b", search_str)
+            or (f_info.name and f_info.name.lower() in ["state", "province", "region", "countryregion"])
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["countryregion", "statedropdown"]))
+        ):
             if "profile.state" in facts:
                 val, prov = facts["profile.state"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
@@ -523,7 +595,11 @@ class SemanticFieldMapper:
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
         # 5d. Zip Code / Postal Code
-        if re.search(r"\b(zip|zip[\s_-]*code|postal|postal[\s_-]*code|pincode|pin[\s_-]*code|pin)\b", search_str) or f_info.name in ["zip", "zipcode", "postalcode", "postal_code", "pin", "pincode"]:
+        if (
+            re.search(r"\b(zip|zip[\s_-]*code|postal|postal[\s_-]*code|pincode|pin[\s_-]*code|pin)\b", search_str)
+            or f_info.name in ["zip", "zipcode", "postalcode", "postal_code", "pin", "pincode"]
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["postalcode", "zipcode"]))
+        ):
             if "profile.zipcode" in facts:
                 val, prov = facts["profile.zipcode"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
@@ -531,10 +607,34 @@ class SemanticFieldMapper:
                 val, prov = facts["zipcode"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
+        # 5e. How Did You Hear About Us / Referral Source (Workday / ATS standard)
+        if (
+            re.search(r"\b(how\s+did\s+you\s+hear|where\s+did\s+you\s+hear|hear\s+about\s+us|referral\s+source|source\s*prompt|source\s*dropdown|responsive\s*moniker)\b", search_str)
+            or (f_info.name and any(k in f_info.name.lower() for k in ["source", "sourcedropdown", "sourceprompt", "responsivemonikerprompt"]))
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["source--source", "source", "sourcedropdown", "sourceprompt", "sourcesection", "responsivemonikerprompt"]))
+        ):
+            source_val = facts.get("source", (None, None))[0] or facts.get("profile.source", (None, None))[0] or "LinkedIn"
+            prov = FieldProvenance("rule", "job_board_source", confidence=1.0)
+            return FieldMapping(field_info=f_info, resolved_value=str(source_val), provenance=prov, is_resolved=True)
 
+        # 5f. Phone Device Type (Workday / ATS standard)
+        if (
+            re.search(r"\b(phone\s*device\s*type|device\s*type|phonedevice)\b", search_str)
+            or (f_info.name and "device" in f_info.name.lower())
+            or (f_info.field_id and "device" in f_info.field_id.lower())
+        ):
+            device_val = facts.get("phone_device_type", (None, None))[0] or facts.get("device_type", (None, None))[0] or "Mobile"
+            prov = FieldProvenance("rule", "default_mobile_device", confidence=1.0)
+            return FieldMapping(field_info=f_info, resolved_value=str(device_val), provenance=prov, is_resolved=True)
+
+        # 5g. Previous Employment at Company (e.g. "Have you ever been employed by [Company]...?")
+        if re.search(r"\b(ever\s+been\s+employed|previously\s+employed|employed\s+by\s+[a-z]+|worked\s+at\s+[a-z]+|former\s+employee|affiliated\s+companies)\b", search_str):
+            prev_val = str(facts.get("previously_employed", (None, None))[0] or "No")
+            prov = FieldProvenance("rule", "previous_employment", confidence=1.0)
+            return FieldMapping(field_info=f_info, resolved_value=prev_val, provenance=prov, is_resolved=True)
 
         # 6. LinkedIn URL
-        if "linkedin" in search_str:
+        if "linkedin" in search_str and not any(k in search_str for k in ["how did you hear", "source", "hear about", "sourcedropdown", "sourceprompt"]):
             if "profile.linkedin_url" in facts:
                 val, prov = facts["profile.linkedin_url"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
@@ -902,7 +1002,12 @@ class SemanticFieldMapper:
             except Exception as e:
                 logger.debug("Failed to initialize QnAEngine: %s", e)
 
-        if self.qna_engine and clean_label and f_info.input_type != "file":
+        if (
+            self.qna_engine
+            and clean_label
+            and f_info.input_type not in ("file", "password")
+            and not re.search(r"\b(password|passwd|pwd)\b", clean_label, re.I)
+        ):
             try:
                 options_list = [
                     str(opt.get("label", "") or opt.get("text", "") or opt.get("value", "")).strip()

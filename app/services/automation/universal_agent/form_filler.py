@@ -56,6 +56,19 @@ class FormFiller:
 
         for mapping in sorted_mappings:
             f_info = mapping.field_info
+            
+            # Guard: Never overwrite Workday repeater fields that are managed by fill_workday_repeaters
+            fid = (f_info.field_id or "").lower()
+            fsel = (f_info.selector or "").lower()
+            flab = (f_info.label or "").lower()
+            fnam = (f_info.name or "").lower()
+            combined_desc = f"{fid} {fsel} {flab} {fnam}"
+            if any(k in combined_desc for k in [
+                "workexperience", "education", "datesection", "degree", "school",
+                "fieldofstudy", "responsivemoniker", "promptleaf", "promptoption", "menuitem"
+            ]):
+                continue
+
             is_req = f_info.required
             if is_req:
                 req_total += 1
@@ -199,24 +212,41 @@ class FormFiller:
                     return False, err
                 return True, None
 
-            # 2. Native Select Dropdown
-            elif input_type == "select":
-                # Primary: Playwright select_option
+            # 2. Select Dropdown (Native <select> or Custom Workday/Combobox)
+            elif input_type in ["select", "combobox"]:
+                is_custom = getattr(f_info, "is_custom_dropdown", False) or any(
+                    k in selector.lower() for k in ["dropdown", "prompt", "combobox", "button", "div"]
+                )
+
+                if is_custom:
+                    ok, err = await self._fill_workday_dropdown(agent, selector, val, f_info.label)
+                    if ok:
+                        return True, None
+
+                # Primary: Playwright select_option for standard <select> elements
                 ok = await agent.select_option(selector, val)
                 if not ok:
                     # Fallback 1: JavaScript value assignment and event dispatch
                     js_select = f"""(() => {{
                         const el = document.querySelector({json.dumps(selector)});
                         if (!el) return false;
+                        if (el.tagName.toLowerCase() !== 'select') return false;
                         el.value = {json.dumps(val)};
                         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
                         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                         return el.value === {json.dumps(val)};
                     }})()"""
-                    ok = bool(await agent.evaluate(js_select))
+                    try:
+                        ok = bool(await agent.evaluate(js_select))
+                    except Exception:
+                        ok = False
 
                 if not ok:
-                    # Fallback 2: Stagehand AI act
+                    # Fallback 2: Workday / Custom Dropdown handler
+                    ok, err = await self._fill_workday_dropdown(agent, selector, val, f_info.label)
+
+                if not ok:
+                    # Fallback 3: Stagehand AI act
                     try:
                         await agent.act(f"Select '{val}' in dropdown '{f_info.label}'")
                         ok = True
@@ -417,6 +447,15 @@ class FormFiller:
                     }}
                     el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                     el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+
+                    // If this is a multiselect or skills input (Workday/tag input), dispatch Enter key to commit the tag/pill
+                    const isMultiTag = el.closest('[data-automation-id="multiselectInputContainer"], [class*="multiselect" i], [class*="tag" i], [class*="token" i]') ||
+                                       /skill/i.test(el.id || el.name || el.getAttribute('data-automation-id') || '');
+                    if (isMultiTag) {{
+                        el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                        el.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                    }}
+
                     el.blur();
 
                     if (rawEl !== el) {{
@@ -754,3 +793,611 @@ class FormFiller:
         except Exception as e:
             logger.debug("Typeahead fill encountered error: %s", e)
             return False, str(e)
+
+    async def _fill_workday_dropdown(self, agent: BrowserAgent, selector: str, val: str, label_hint: str = "") -> Tuple[bool, Optional[str]]:
+        """Handles custom Workday comboboxes, popup prompt widgets, and ARIA listboxes."""
+        val_clean = str(val).strip()
+        val_lower = val_clean.lower()
+        hint_lower = str(label_hint).strip().lower()
+
+        # Step 1: Open dropdown/prompt popup
+        js_open_dropdown = f"""(() => {{
+            const rawSel = {json.dumps(selector)};
+            const hint = {json.dumps(hint_lower)};
+            let trigger = null;
+            // Try selector parts individually or as combined
+            try {{
+                trigger = document.querySelector(rawSel);
+            }} catch(e) {{
+                const parts = rawSel.split(',');
+                for (const p of parts) {{
+                    try {{
+                        const found = document.querySelector(p.trim());
+                        if (found) {{ trigger = found; break; }}
+                    }} catch(err) {{}}
+                }}
+            }}
+            if (!trigger) {{
+                // Fallback by automation-id, aria-label, or parent form field label
+                const candidates = Array.from(document.querySelectorAll(
+                    'button[data-automation-id*="dropdown" i], button[data-automation-id*="prompt" i], ' +
+                    'button[aria-haspopup="listbox"], div[role="combobox"], [data-automation-id="sourceDropdown"], ' +
+                    '[data-automation-id="phoneDevice-dropdown"], [data-automation-id="addressSection_countryRegion"], ' +
+                    '[data-automation-id="stateDropdown"], #source--source, input[data-automation-id="searchBox"]'
+                ));
+                trigger = candidates.find(b => {{
+                    const parent = b.closest('[data-automation-id^="formField-"], .form-group, div');
+                    const pTxt = parent ? (parent.innerText || '').toLowerCase() : '';
+                    const t = (b.innerText || b.getAttribute('aria-label') || b.getAttribute('data-automation-id') || b.id || '').toLowerCase();
+                    return hint && (t.includes(hint) || hint.includes(t) || pTxt.includes(hint));
+                }});
+            }}
+            if (trigger && trigger.tagName.toLowerCase() !== 'button' && trigger.tagName.toLowerCase() !== 'input') {{
+                const innerClickable = trigger.querySelector('button, [role="button"], [role="combobox"], input');
+                if (innerClickable) trigger = innerClickable;
+            }}
+            if (!trigger) return false;
+
+            try {{ trigger.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+            try {{ trigger.focus(); }} catch(e) {{}}
+            const opts = {{ bubbles: true, cancelable: true, view: window }};
+            trigger.dispatchEvent(new PointerEvent('pointerdown', opts));
+            trigger.dispatchEvent(new MouseEvent('mousedown', opts));
+            trigger.dispatchEvent(new PointerEvent('pointerup', opts));
+            trigger.dispatchEvent(new MouseEvent('mouseup', opts));
+            trigger.click();
+
+            // If the trigger itself is an input (e.g. #source--source or Workday search input), type and enter directly
+            if (trigger.tagName && trigger.tagName.toLowerCase() === 'input') {{
+                const proto = window.HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                const targetVal = {json.dumps(val_clean)};
+                if (setter) setter.call(trigger, targetVal); else trigger.value = targetVal;
+                trigger.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                trigger.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                trigger.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                trigger.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+            }}
+            return true;
+        }})()"""
+
+        try:
+            opened = bool(await agent.evaluate(js_open_dropdown))
+        except Exception as e:
+            logger.debug("Failed opening custom dropdown %s via JS: %s", selector, e)
+            opened = False
+
+        if not opened:
+            # Also try native Playwright locator click on first primary selector to ensure popup event fires
+            first_sel = selector.split(",")[0].strip()
+            try:
+                await agent.click(first_sel)
+                opened = True
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.8)
+
+        # Step 2: Search/filter and click the option inside the popup
+        js_search_and_select = f"""(() => {{
+            const targetVal = {json.dumps(val_clean)};
+            const targetLower = {json.dumps(val_lower)};
+
+            // Scope listbox container
+            const listbox = document.querySelector(
+                '[data-automation-id="popup-listbox"], [role="listbox"], ' +
+                'div[data-automation-id="select-options-list"], ul[role="listbox"], ' +
+                'div[role="dialog"], [data-automation-id="wd-popup-content"], div[id*="popup" i], ' +
+                'div[data-automation-id*="popup" i], ul[data-automation-id*="popup" i]'
+            );
+
+            // Scope search input strictly INSIDE the popup dialog/listbox
+            const searchInput = listbox ? listbox.querySelector(
+                'input[data-automation-id="searchBox"], input[data-automation-id*="search" i], input[type="text"], input[role="searchbox"]'
+            ) : null;
+            if (searchInput) {{
+                try {{ searchInput.focus(); }} catch(e) {{}}
+                const proto = window.HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                if (setter) setter.call(searchInput, targetVal); else searchInput.value = targetVal;
+                searchInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                searchInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                searchInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                searchInput.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+            }}
+
+            const searchScope = listbox || document.body;
+            const options = Array.from(searchScope.querySelectorAll(
+                '[role="option"], [data-automation-id="menuItem"], [data-automation-id*="promptOption" i], ' +
+                'li, div[data-automation-id*="option" i], [data-automation-id="select-option"], ' +
+                'div[data-automation-id*="item" i], div[data-automation-id*="leaf" i], [role="treeitem"], ' +
+                'div[data-automation-id*="row" i], [role="menuitem"], [role="button"]'
+            )).filter(opt => {{
+                const s = window.getComputedStyle(opt);
+                return s.display !== 'none' && s.visibility !== 'hidden';
+            }});
+
+            const getOptText = (o) => {{
+                const autoLabel = o.getAttribute('data-automation-label') || '';
+                const inner = o.innerText || o.textContent || '';
+                return (autoLabel || inner).trim().toLowerCase();
+            }};
+
+            // 1. Exact match
+            let matched = options.find(o => getOptText(o) === targetLower);
+            // 2. Contains match
+            if (!matched) {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    return t === targetLower || t.includes(targetLower) || targetLower.includes(t);
+                }});
+            }}
+            // 3. Category drill-down fallback (e.g. LinkedIn -> Job Board / Social Media)
+            if (!matched && targetLower === 'linkedin') {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    return t.includes('job board') || t.includes('social media') || t.includes('career site');
+                }});
+            }}
+            // 4. Degree fallback: match any Bachelor / Undergraduate option
+            if (!matched && (targetLower.includes('bachelor') || targetLower.includes('degree'))) {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    return t.includes('bachelor') || t.includes('degree') || t.includes('undergraduate');
+                }});
+            }}
+            if (!matched && hint.includes('degree') && options.length > 0) {{
+                matched = options.find(o => !o.getAttribute('aria-haspopup')) || options[0];
+            }}
+
+            if (matched) {{
+                try {{ matched.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                try {{ matched.focus(); }} catch(e) {{}}
+                const opts = {{ bubbles: true, cancelable: true, view: window }};
+                matched.dispatchEvent(new PointerEvent('pointerdown', opts));
+                matched.dispatchEvent(new MouseEvent('mousedown', opts));
+                matched.dispatchEvent(new PointerEvent('pointerup', opts));
+                matched.dispatchEvent(new MouseEvent('mouseup', opts));
+                matched.click();
+                return true;
+            }}
+            return false;
+        }})()"""
+
+        try:
+            selected = bool(await agent.evaluate(js_search_and_select))
+            if selected:
+                await asyncio.sleep(0.6)
+                # If a category was clicked, check if child options (e.g. LinkedIn) are now displayed to complete drill-down
+                js_drilldown = f"""(() => {{
+                    const targetLower = {json.dumps(val_lower)};
+                    const listbox = document.querySelector(
+                        '[data-automation-id="popup-listbox"], [role="listbox"], ' +
+                        'div[data-automation-id="select-options-list"], ul[role="listbox"], ' +
+                        'div[role="dialog"], [data-automation-id="wd-popup-content"], div[id*="popup" i]'
+                    );
+                    const scope = listbox || document.body;
+                    const subOpts = Array.from(scope.querySelectorAll(
+                        '[role="option"], [data-automation-id="menuItem"], [data-automation-id*="promptOption" i], ' +
+                        'li, div[data-automation-id*="option" i], [data-automation-id="select-option"], ' +
+                        'div[data-automation-id*="item" i], div[data-automation-id*="leaf" i]'
+                    )).filter(opt => {{
+                        const s = window.getComputedStyle(opt);
+                        return s.display !== 'none' && s.visibility !== 'hidden';
+                    }});
+                    const subMatch = subOpts.find(o => {{
+                        const autoLabel = o.getAttribute('data-automation-label') || '';
+                        const t = (autoLabel || o.innerText || o.textContent || '').trim().toLowerCase();
+                        return t === targetLower || t.includes(targetLower);
+                    }});
+                    if (subMatch) {{
+                        try {{ subMatch.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                        try {{ subMatch.focus(); }} catch(e) {{}}
+                        const opts = {{ bubbles: true, cancelable: true, view: window }};
+                        subMatch.dispatchEvent(new PointerEvent('pointerdown', opts));
+                        subMatch.dispatchEvent(new MouseEvent('mousedown', opts));
+                        subMatch.dispatchEvent(new PointerEvent('pointerup', opts));
+                        subMatch.dispatchEvent(new MouseEvent('mouseup', opts));
+                        subMatch.click();
+                        return true;
+                    }}
+                    return bool(subMatch);
+                }})()"""
+                sub_selected = bool(await agent.evaluate(js_drilldown))
+                await asyncio.sleep(0.4)
+
+                # If target was a drilled-down item (e.g. LinkedIn), require sub_selected to be True
+                if val_lower == "linkedin" and not sub_selected:
+                    pass
+                else:
+                    return True, None
+        except Exception as e:
+            logger.debug("Workday dropdown option selection error: %s", e)
+
+        # Fallback 3: Stagehand AI act (if LLM is configured)
+        if hasattr(agent, "act") and getattr(agent, "stagehand", None) and getattr(agent.stagehand, "model", None):
+            try:
+                logger.info("Attempting Stagehand AI fallback to select '%s' for '%s'...", val, label_hint)
+                act_res = await agent.act(f"Select '{val}' in the '{label_hint}' dropdown")
+                if act_res:
+                    return True, None
+            except Exception as act_err:
+                logger.debug("Stagehand AI act fallback failed: %s", act_err)
+
+        return False, f"Could not select '{val}' in custom dropdown '{label_hint}'"
+
+    async def fill_workday_repeaters(self, agent: BrowserAgent, candidate_context: Dict[str, Any]) -> None:
+        """Populates Workday's dynamic repeater sections (Work Experience, Education, Skills, Social Links)."""
+        try:
+            # Check if we are on Workday application flow
+            is_exp_page = await agent.evaluate("""(() => {
+                const page = document.querySelector('[data-automation-id="applyFlowMyExpPage"]');
+                const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+                return !!page || (bodyText.includes('work experience') && bodyText.includes('education'));
+            })()""")
+            if not is_exp_page:
+                return
+
+            work_exps = candidate_context.get("work_experience") or candidate_context.get("profile.work_experiences") or []
+            edu_list = candidate_context.get("education") or candidate_context.get("profile.education") or []
+            skills = candidate_context.get("skills") or candidate_context.get("profile.skills") or []
+            if isinstance(skills, str):
+                skills = [s.strip() for s in skills.split(",") if s.strip()]
+
+            # 1. Work Experience Section
+            if work_exps:
+                await self._populate_workday_work_experience(agent, work_exps)
+
+            # 2. Education Section
+            if edu_list:
+                await self._populate_workday_education(agent, edu_list)
+
+            # 3. Skills Section
+            if skills:
+                await self._populate_workday_skills(agent, skills)
+
+            # 4. Social Network (LinkedIn)
+            linkedin_url = (
+                candidate_context.get("profile", {}).get("linkedin_url")
+                or candidate_context.get("profile.linkedin_url")
+                or candidate_context.get("social_urls", {}).get("linkedin")
+                or candidate_context.get("linkedin")
+                or "https://www.linkedin.com/in/ahmad10raza/"
+            )
+            if linkedin_url:
+                js_social = f"""(() => {{
+                    const li = document.querySelector('input[id*="linkedInAccount"], input[name*="linkedInAccount"]');
+                    if (li && !li.value) {{
+                        li.focus();
+                        li.value = {json.dumps(str(linkedin_url))};
+                        li.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        li.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        li.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                        return true;
+                    }}
+                    return false;
+                }})()"""
+                await agent.evaluate(js_social)
+        except Exception as e:
+            logger.warning("Error during Workday repeater filling: %s", e)
+
+    async def _populate_workday_work_experience(self, agent: BrowserAgent, work_exps: List[Dict[str, Any]]) -> None:
+        """Expands and populates Workday work experience items."""
+        month_map = {
+            "january": "01", "jan": "01", "1": "01", "01": "01",
+            "february": "02", "feb": "02", "2": "02", "02": "02",
+            "march": "03", "mar": "03", "3": "03", "03": "03",
+            "april": "04", "apr": "04", "4": "04", "04": "04",
+            "may": "05", "5": "05", "05": "05",
+            "june": "06", "jun": "06", "6": "06", "06": "06",
+            "july": "07", "jul": "07", "7": "07", "07": "07",
+            "august": "08", "aug": "08", "8": "08", "08": "08",
+            "september": "09", "sep": "09", "9": "09", "09": "09",
+            "october": "10", "oct": "10", "10": "10",
+            "november": "11", "nov": "11", "11": "11",
+            "december": "12", "dec": "12", "12": "12",
+        }
+
+        for idx, exp in enumerate(work_exps[:3]):
+            title = exp.get("title") or exp.get("job_title") or ""
+            company = exp.get("company") or exp.get("employer") or ""
+            loc = exp.get("location") or ""
+            is_curr = bool(exp.get("is_current", True))
+            desc = exp.get("description") or ""
+
+            raw_s_m = str(exp.get("start_month", "11")).strip().lower()
+            s_month = month_map.get(raw_s_m, raw_s_m.zfill(2) if raw_s_m.isdigit() else "11")
+            s_year = str(exp.get("start_year", "2024")).strip()
+
+            raw_e_m = str(exp.get("end_month", "")).strip().lower()
+            e_month = month_map.get(raw_e_m, raw_e_m.zfill(2) if raw_e_m.isdigit() else "")
+            e_year = str(exp.get("end_year", "")).strip()
+
+            # Click Add / Add Another if needed
+            js_open = f"""(() => {{
+                const page = document.querySelector('[data-automation-id="applyFlowMyExpPage"]') || document.body;
+                const existing = page.querySelectorAll('input[id*="jobTitle"], [data-automation-id="jobTitle"]');
+                if (existing.length > {idx}) return "ready";
+
+                if ({idx} === 0) {{
+                    const firstAdd = page.querySelector('button[data-automation-id="add-button"]');
+                    if (firstAdd) {{
+                        try {{ firstAdd.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                        firstAdd.click();
+                        return "clicked";
+                    }}
+                }} else {{
+                    const allAddAnother = Array.from(page.querySelectorAll('button')).filter(b => (b.innerText || '').trim().toLowerCase() === 'add another');
+                    if (allAddAnother.length > 0) {{
+                        try {{ allAddAnother[0].scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                        allAddAnother[0].click();
+                        return "clicked";
+                    }}
+                }}
+                return "none";
+            }})()"""
+            open_res = await agent.evaluate(js_open)
+            if open_res == "clicked":
+                await asyncio.sleep(1.5)
+            elif open_res == "none" and idx > 0:
+                break
+
+            # Populate fields for item idx
+            js_fill = f"""(() => {{
+                function setVal(el, val) {{
+                    if (!el) return;
+                    el.focus();
+                    const proto = window.HTMLInputElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                    if (setter) setter.call(el, val); else el.value = val;
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                }}
+                function setTextarea(el, val) {{
+                    if (!el) return;
+                    el.focus();
+                    const proto = window.HTMLTextAreaElement.prototype;
+                    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                    if (setter) setter.call(el, val); else el.value = val;
+                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    el.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                }}
+
+                const titles = document.querySelectorAll('input[id*="jobTitle"], [data-automation-id="jobTitle"]');
+                const companies = document.querySelectorAll('input[id*="companyName"], [data-automation-id="company"]');
+                const locations = document.querySelectorAll('input[id*="location"], [data-automation-id="location"]');
+                const currentChks = document.querySelectorAll('input[id*="currentlyWorkHere"], [data-automation-id="currentlyWorkHere"]');
+                const sMonths = document.querySelectorAll('input[id*="startDate-dateSectionMonth-input"], [data-automation-id="dateSectionMonth-input"]');
+                const sYears = document.querySelectorAll('input[id*="startDate-dateSectionYear-input"], [data-automation-id="dateSectionYear-input"]');
+                const eMonths = document.querySelectorAll('input[id*="endDate-dateSectionMonth-input"]');
+                const eYears = document.querySelectorAll('input[id*="endDate-dateSectionYear-input"]');
+                const descBoxes = document.querySelectorAll('textarea[id*="roleDescription"], [data-automation-id="description"], textarea');
+
+                if (titles[{idx}]) setVal(titles[{idx}], {json.dumps(title)});
+                if (companies[{idx}]) setVal(companies[{idx}], {json.dumps(company)});
+                if (locations[{idx}]) setVal(locations[{idx}], {json.dumps(loc)});
+                if (sMonths[{idx}]) setVal(sMonths[{idx}], {json.dumps(s_month)});
+                if (sYears[{idx}]) setVal(sYears[{idx}], {json.dumps(s_year)});
+                if (descBoxes[{idx}]) setTextarea(descBoxes[{idx}], {json.dumps(desc)});
+
+                const chk = currentChks[{idx}];
+                if (chk) {{
+                    if ({json.dumps(is_curr)} && !chk.checked) {{
+                        chk.click();
+                    }} else if (!{json.dumps(is_curr)}) {{
+                        if (chk.checked) chk.click();
+                        if (eMonths[{idx}]) setVal(eMonths[{idx}], {json.dumps(e_month)});
+                        if (eYears[{idx}]) setVal(eYears[{idx}], {json.dumps(e_year)});
+                    }}
+                }}
+                return true;
+            }})()"""
+            await agent.evaluate(js_fill)
+            logger.info("Populated Work Experience #%d: '%s' at '%s'", idx + 1, title, company)
+            await asyncio.sleep(0.5)
+
+    async def _populate_workday_education(self, agent: BrowserAgent, edu_list: List[Dict[str, Any]]) -> None:
+        """Expands and populates Workday education items."""
+        for idx, edu in enumerate(edu_list[:2]):
+            degree = edu.get("degree") or ""
+            school = edu.get("institution") or edu.get("school") or edu.get("university") or ""
+            field_study = edu.get("field_of_study") or edu.get("major") or ""
+            gpa = str(edu.get("gpa") or edu.get("cgpa") or "")
+
+            js_open = f"""(() => {{
+                const page = document.querySelector('[data-automation-id="applyFlowMyExpPage"]') || document.body;
+                const existing = page.querySelectorAll('input[id*="school"], [data-automation-id="school"]');
+                if (existing.length > {idx}) return "ready";
+
+                if ({idx} === 0) {{
+                    const inst = page.querySelector('[data-automation-id="instructionalText"]');
+                    let eduBtn = inst ? inst.parentElement.querySelector('button[data-automation-id="add-button"]') : null;
+                    if (!eduBtn) {{
+                        const addBtns = Array.from(page.querySelectorAll('button[data-automation-id="add-button"]'));
+                        if (addBtns.length > 0) eduBtn = addBtns[addBtns.length - 1];
+                    }}
+                    if (eduBtn) {{
+                        try {{ eduBtn.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                        eduBtn.click();
+                        return "clicked";
+                    }}
+                }} else {{
+                    const allAddAnother = Array.from(page.querySelectorAll('button')).filter(b => (b.innerText || '').trim().toLowerCase() === 'add another');
+                    if (allAddAnother.length > 1) {{
+                        try {{ allAddAnother[1].scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                        allAddAnother[1].click();
+                        return "clicked";
+                    }}
+                }}
+                return "none";
+            }})()"""
+            open_res = await agent.evaluate(js_open)
+            if open_res == "clicked":
+                await asyncio.sleep(1.5)
+            elif open_res == "none" and idx > 0:
+                break
+
+            # 1. School or University typeahead
+            js_search_school = f"""(() => {{
+                const schools = Array.from(document.querySelectorAll('input[id*="--school"], input[id*="school"], [data-automation-id="school"]'));
+                const targetInp = schools[{idx}] || schools[0];
+                if (!targetInp) return false;
+                targetInp.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                targetInp.focus();
+                targetInp.click();
+
+                const proto = window.HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                const val = "School Not Found";
+                if (setter) setter.call(targetInp, val); else targetInp.value = val;
+                targetInp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                targetInp.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                targetInp.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                return true;
+            }})()"""
+            await agent.evaluate(js_search_school)
+            await asyncio.sleep(1.5)
+
+            # Confirm School selection from visible options
+            js_confirm_school = """(() => {
+                const allOpts = Array.from(document.querySelectorAll('[role="option"], [data-automation-id="menuItem"], [data-automation-id*="promptOption"], [data-automation-id="select-option"], li')).filter(o => {
+                    const r = o.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0 && window.getComputedStyle(o).visibility !== 'hidden';
+                });
+                const match = allOpts.find(o => {
+                    const t = (o.innerText || o.textContent || '').toLowerCase();
+                    return t.includes('not found');
+                }) || allOpts.find(o => !/no items/i.test(o.innerText || ''));
+                if (match) {
+                    try { match.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                    match.click();
+                    return true;
+                }
+                return false;
+            })()"""
+            try:
+                await agent.evaluate(js_confirm_school)
+            except Exception:
+                pass
+            await asyncio.sleep(1.5)
+
+            # 2. Degree dropdown - open and select option
+            try:
+                await agent.click('button[id*="--degree"], button[id*="degree"]')
+            except Exception:
+                await agent.evaluate("""(() => {
+                    const degBtn = document.querySelector('button[id*="--degree"], button[id*="degree"], [data-automation-id*="degree" i]');
+                    if (degBtn) {
+                        degBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        degBtn.focus();
+                        degBtn.click();
+                    }
+                })()""")
+
+            await asyncio.sleep(1.2)
+
+            # Select Bachelor option via native click or JS evaluate
+            selected_deg_text = None
+            try:
+                clicked = await agent.click('ul[role="listbox"] li[role="option"] >> text=Bachelor', timeout_ms=3000)
+                if clicked:
+                    selected_deg_text = "Bachelor's Degree (Other)"
+                    logger.info("Workday degree selected via agent.click: %s", selected_deg_text)
+            except Exception:
+                pass
+
+            if not selected_deg_text:
+                js_select_degree = """(() => {
+                    const opts = Array.from(document.querySelectorAll('ul[role="listbox"] li[role="option"], [role="listbox"] [role="option"]'));
+                    const match = opts.find(o => (o.innerText || o.textContent || '').toLowerCase().includes('bachelor')) ||
+                                  opts.find(o => {
+                                      const t = (o.innerText || o.textContent || '').toLowerCase();
+                                      return (t.includes('degree') || t.includes('undergraduate') || t.includes('associate')) && !t.includes('not found') && !t.includes('no items');
+                                  });
+                    if (match) {
+                        try { match.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                        try { match.focus(); } catch(e) {}
+                        match.click();
+                        return (match.innerText || '').trim();
+                    }
+                    return null;
+                })()"""
+                for attempt in range(8):
+                    await asyncio.sleep(0.5)
+                    try:
+                        res = await agent.evaluate(js_select_degree)
+                        if res:
+                            selected_deg_text = res
+                            logger.info("Workday degree selection result: %s (attempt %d)", selected_deg_text, attempt + 1)
+                            break
+                    except Exception:
+                        pass
+
+            await asyncio.sleep(0.5)
+            deg_check = await agent.evaluate("""(() => {
+                const degBtn = document.querySelector('button[id*="--degree"], button[id*="degree"], [data-automation-id*="degree" i]');
+                return degBtn ? (degBtn.innerText || '').trim() : '';
+            })()""")
+            logger.info("Degree button text after selection: '%s'", deg_check)
+
+            # 3. Field of Study & GPA
+            if field_study or gpa:
+                js_fill_other = f"""(() => {{
+                    function setVal(el, val) {{
+                        if (!el) return;
+                        el.focus();
+                        const proto = window.HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                        if (setter) setter.call(el, val); else el.value = val;
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                    const fields = document.querySelectorAll('input[id*="fieldOfStudy"], [data-automation-id="field-of-study"]');
+                    const gpas = document.querySelectorAll('input[id*="gpa"], [data-automation-id="gpa"]');
+                    if (fields[{idx}] && {json.dumps(field_study)}) setVal(fields[{idx}], {json.dumps(field_study)});
+                    if (gpas[{idx}] && {json.dumps(gpa)}) setVal(gpas[{idx}], {json.dumps(gpa)});
+                }})()"""
+                try:
+                    await agent.evaluate(js_fill_other)
+                except Exception:
+                    pass
+
+            logger.info("Populated Education #%d: '%s' at '%s'", idx + 1, degree, school)
+            await asyncio.sleep(0.5)
+
+    async def _populate_workday_skills(self, agent: BrowserAgent, skills: List[str]) -> None:
+        """Finds Workday skills input and types candidate skills."""
+        for skill in skills[:7]:
+            js_search = f"""(() => {{
+                const input = document.querySelector(
+                    'input[id="skills--skills"], [data-automation-id="skillsPromptSearch"], ' +
+                    'input[placeholder*="skill" i], div[data-automation-id*="skill" i] input'
+                );
+                if (!input) return false;
+                input.focus();
+                input.value = {json.dumps(skill)};
+                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                input.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                input.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                return true;
+            }})()"""
+            try:
+                found = bool(await agent.evaluate(js_search))
+                if found:
+                    await asyncio.sleep(0.8)
+                    # Click first visible option if dropdown appeared
+                    await agent.evaluate("""(() => {
+                        const allOpts = Array.from(document.querySelectorAll('[role="option"], [data-automation-id="menuItem"], [data-automation-id*="promptOption"], li')).filter(o => {
+                            const r = o.getBoundingClientRect();
+                            return r.width > 0 && r.height > 0 && window.getComputedStyle(o).visibility !== 'hidden' && !/no items/i.test(o.innerText || '');
+                        });
+                        if (allOpts.length > 0) {
+                            try { allOpts[0].scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                            allOpts[0].click();
+                        }
+                    })()""")
+                    await asyncio.sleep(0.4)
+            except Exception:
+                pass

@@ -761,11 +761,30 @@ class AutomationWorker(QThread):
                         cand_ctx.setdefault("profile.expected_ctc", p_pro.expected_ctc)
                     if p_pro.notice_period_days is not None:
                         cand_ctx.setdefault("profile.notice_period_days", p_pro.notice_period_days)
+                    if p_pro.skills:
+                        cand_ctx.setdefault("skills", p_pro.skills)
+                        cand_ctx.setdefault("profile.skills", p_pro.skills)
+                    if p_pro.work_experiences:
+                        cand_ctx.setdefault("work_experience", p_pro.work_experiences)
+                        cand_ctx.setdefault("profile.work_experiences", p_pro.work_experiences)
+                    if p_pro.education_history:
+                        cand_ctx.setdefault("education", p_pro.education_history)
+                        cand_ctx.setdefault("profile.education", p_pro.education_history)
                 if p_user:
                     rs = ResumeService()
                     default_res = rs.get_default_resume(user_id=p_user.id)
                     if default_res and default_res.file_path:
                         cand_ctx.setdefault("resume.file_path", default_res.file_path)
+
+                try:
+                    from modules.config_loader import get_workday_credentials
+                    wd_creds = get_workday_credentials()
+                    if wd_creds.get("username"):
+                        cand_ctx.setdefault("workday_username", wd_creds["username"])
+                    if wd_creds.get("password"):
+                        cand_ctx.setdefault("workday_password", wd_creds["password"])
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning("Could not auto-populate candidate_context from primary profile: %s", e)
 

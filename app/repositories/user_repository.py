@@ -146,6 +146,8 @@ class UserRepository(BaseRepository):
             prof.headline = dto.headline.strip() if dto.headline else None
             prof.summary = dto.summary
             prof.cover_letter = dto.cover_letter
+            prof.work_experiences = dto.work_experiences
+            prof.education_history = dto.education_history
         else:
             prof = ProfessionalProfile(
                 user_id=user_id,
@@ -164,6 +166,8 @@ class UserRepository(BaseRepository):
                 headline=dto.headline.strip() if dto.headline else None,
                 summary=dto.summary,
                 cover_letter=dto.cover_letter,
+                work_experiences=dto.work_experiences,
+                education_history=dto.education_history,
             )
             self.session.add(prof)
 

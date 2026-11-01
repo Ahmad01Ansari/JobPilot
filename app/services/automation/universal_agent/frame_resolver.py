@@ -12,6 +12,13 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+EXCLUDED_FRAME_PATTERNS = {
+    "linkedin", "applywithlinkedin", "myworkdaygadgets", "facebook", "google",
+    "twitter", "recaptcha", "turnstile", "hcaptcha", "chat", "drift",
+    "intercom", "cookie", "onetrust", "analytics", "gtm", "doubleclick",
+}
+
+
 @dataclass
 class FrameInfo:
     frame_index: int
@@ -71,6 +78,14 @@ class FrameResolver:
 
         results = []
         for d in frames_data:
+            src_lower = (d.get("src") or "").lower()
+            name_lower = (d.get("name") or "").lower()
+            id_lower = (d.get("frame_id") or "").lower()
+
+            # Ignore social sign-in gadgets, tracking pixels, and security captchas
+            if any(ex in src_lower or ex in name_lower or ex in id_lower for ex in EXCLUDED_FRAME_PATTERNS):
+                continue
+
             results.append(
                 FrameInfo(
                     frame_index=d.get("frame_index", 0),
@@ -92,16 +107,20 @@ class FrameResolver:
         if not frames:
             return None
 
-        # Prioritize frame with highest input count
+        # Prioritize frame with highest accessible input count
         form_frames = [f for f in frames if f.input_count >= 2]
         if form_frames:
             form_frames.sort(key=lambda f: f.input_count, reverse=True)
             return form_frames[0]
 
-        # Prioritize ATS-branded iframes
-        ats_keywords = ["greenhouse", "lever", "workday", "jobvite", "catsone", "smartrecruiters", "apply"]
+        # Prioritize true embedded ATS application forms (e.g. Greenhouse, Lever, Jobvite embed widgets)
+        ats_embed_indicators = [
+            "greenhouse.io/embed", "jobs.lever.co", "app.jobvite.com",
+            "catsone.com", "smartrecruiters.com"
+        ]
         for f in frames:
-            if any(k in f.src.lower() for k in ats_keywords) or any(k in f.name.lower() for k in ats_keywords):
+            src_l = f.src.lower()
+            if any(indicator in src_l for indicator in ats_embed_indicators):
                 return f
 
         return None

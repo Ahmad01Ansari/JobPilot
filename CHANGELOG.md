@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.5-beta] — 2026-11-02
+
+### Workday Automation, Profile Repeaters, and Foundit Engine Stabilization
+
+This release brings end-to-end Workday ATS automation, dynamic experience and education repeaters to the desktop GUI, and runtime stabilization for Foundit job search automation.
+
+#### Added
+- **Workday Multi-Step Application Pipeline**: Complete end-to-end automation for Workday portals (Candidate contact info, Work Experience repeaters, Education with School Not Found & Degree selection, Skills tags pills, Resume PDF upload, Social URLs, and Disclosures) with a mandatory human Pre-Submission Review gate.
+- **Desktop Dynamic Repeater Cards**: Added `ExperienceItemWidget`, `EducationItemWidget`, and `RepeaterCard` to `ProfileView`, allowing full CRUD for work experiences, education history, and skills synchronized with SQLite and `config/profile.json`.
+- **Workday Account Management**: Added dedicated credentials and status management dialog for Workday portals in desktop Settings.
+- **SSL Certificate Auto-Configuration**: Added `ensure_ssl_certificates()` configuring trusted CA certificates from `certifi` without bypassing TLS verification, resolving ChromeDriver patcher `SSLCertVerificationError` on Linux.
+- **Foundit Manual Resolution Gate**: Added `ensure_authenticated()` and `_recover_from_access_denied()` in `FounditBrowser` to recover from poisoned Akamai cookies and provide an interactive 180s window for candidate OTP/CAPTCHA completion.
+- **HTML-Escaped Activity Log Stream**: Escaped log messages in `LiveActivityStream` so errors containing angle brackets (e.g. `<urlopen error ...>`) render legibly without being swallowed by Qt rich text formatting.
+
+---
+
 ## [0.1.0-beta.4] — 2026-10-30
 
 ### Cross-Platform Reliability, High-DPI Scaling & Process Safety Release (Windows & Linux)

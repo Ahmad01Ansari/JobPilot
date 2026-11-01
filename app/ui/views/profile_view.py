@@ -273,6 +273,550 @@ class DataSheetCard(QFrame):
             r.set_edit_mode(is_edit)
 
 
+class ExperienceItemWidget(QFrame):
+    """An individual work experience entry supporting View and Edit representations."""
+
+    remove_requested = Signal(object)
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("ExperienceItemWidget")
+        self.setStyleSheet(f"""
+            QFrame#ExperienceItemWidget {{
+                background-color: {COLORS['surface_alt']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+            }}
+        """)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(14, 12, 14, 12)
+        self.main_layout.setSpacing(6)
+
+        # 1. View Widget
+        self.view_widget = QWidget()
+        v_layout = QVBoxLayout(self.view_widget)
+        v_layout.setContentsMargins(0, 0, 0, 0)
+        v_layout.setSpacing(4)
+
+        top_view_row = QHBoxLayout()
+        self.lbl_view_title = QLabel()
+        self.lbl_view_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLORS['text']}; border: none; background: transparent;")
+        self.lbl_view_dates = QLabel()
+        self.lbl_view_dates.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {COLORS['primary']}; border: none; background: transparent;")
+        top_view_row.addWidget(self.lbl_view_title)
+        top_view_row.addStretch()
+        top_view_row.addWidget(self.lbl_view_dates)
+        v_layout.addLayout(top_view_row)
+
+        self.lbl_view_meta = QLabel()
+        self.lbl_view_meta.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; border: none; background: transparent;")
+        v_layout.addWidget(self.lbl_view_meta)
+
+        self.lbl_view_desc = QLabel()
+        self.lbl_view_desc.setWordWrap(True)
+        self.lbl_view_desc.setStyleSheet(f"font-size: 12px; color: {COLORS['text']}; margin-top: 4px; border: none; background: transparent; line-height: 1.4;")
+        v_layout.addWidget(self.lbl_view_desc)
+
+        # 2. Edit Widget
+        self.edit_widget = QWidget()
+        e_layout = QVBoxLayout(self.edit_widget)
+        e_layout.setContentsMargins(0, 0, 0, 0)
+        e_layout.setSpacing(8)
+
+        # Row 1: Title & Company
+        row1 = QHBoxLayout()
+        self.txt_title = QLineEdit()
+        self.txt_title.setPlaceholderText("Job Title / Designation * (e.g. RPA Developer)")
+        self.txt_company = QLineEdit()
+        self.txt_company.setPlaceholderText("Company Name * (e.g. AventIQ AI)")
+        row1.addWidget(self.txt_title, 1)
+        row1.addWidget(self.txt_company, 1)
+        e_layout.addLayout(row1)
+
+        # Row 2: Location, Start Date, End Date, Currently Work Here
+        row2 = QHBoxLayout()
+        self.txt_location = QLineEdit()
+        self.txt_location.setPlaceholderText("Location (e.g. Delhi, India)")
+        self.txt_start_date = QLineEdit()
+        self.txt_start_date.setPlaceholderText("Start Date (e.g. Nov 2024)")
+        self.txt_end_date = QLineEdit()
+        self.txt_end_date.setPlaceholderText("End Date (e.g. Present)")
+        self.chk_current = QCheckBox("Current Job")
+        self.chk_current.setStyleSheet(f"color: {COLORS['text']}; font-size: 12px;")
+        self.chk_current.toggled.connect(lambda chk: self.txt_end_date.setEnabled(not chk))
+        row2.addWidget(self.txt_location, 1)
+        row2.addWidget(self.txt_start_date, 1)
+        row2.addWidget(self.txt_end_date, 1)
+        row2.addWidget(self.chk_current)
+        e_layout.addLayout(row2)
+
+        # Row 3: Description & Remove Button
+        row3 = QHBoxLayout()
+        self.txt_desc = QTextEdit()
+        self.txt_desc.setPlaceholderText("Core responsibilities, achievements, impact, technologies used...")
+        self.txt_desc.setMaximumHeight(70)
+        self.btn_remove = QPushButton("🗑️ Remove")
+        self.btn_remove.setCursor(Qt.PointingHandCursor)
+        self.btn_remove.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger_subtle']};
+                color: {COLORS['danger']};
+                border: 1px solid {COLORS['danger']}40;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['danger']};
+                color: #FFFFFF;
+            }}
+        """)
+        self.btn_remove.clicked.connect(lambda: self.remove_requested.emit(self))
+        row3.addWidget(self.txt_desc, 1)
+        row3.addWidget(self.btn_remove)
+        e_layout.addLayout(row3)
+
+        self._style_line_edits([self.txt_title, self.txt_company, self.txt_location, self.txt_start_date, self.txt_end_date])
+        self.txt_desc.setStyleSheet(f"""
+            QTextEdit {{
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                padding: 6px;
+                font-size: 12px;
+            }}
+            QTextEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+
+        # Stacked layout for seamless toggle
+        self.stacked = QStackedWidget()
+        self.stacked.addWidget(self.view_widget)  # 0: view
+        self.stacked.addWidget(self.edit_widget)  # 1: edit
+        self.main_layout.addWidget(self.stacked)
+
+        if data:
+            self.set_data(data)
+
+    def _style_line_edits(self, line_edits: List[QLineEdit]) -> None:
+        for le in line_edits:
+            le.setMinimumHeight(32)
+            le.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                }}
+                QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+            """)
+
+    def set_data(self, data: Dict[str, Any]) -> None:
+        title = data.get("title") or data.get("job_title") or ""
+        company = data.get("company") or data.get("employer") or ""
+        loc = data.get("location") or ""
+        s_date = data.get("start_date") or f"{data.get('start_month', '')} {data.get('start_year', '')}".strip()
+        e_date = data.get("end_date") or f"{data.get('end_month', '')} {data.get('end_year', '')}".strip()
+        is_curr = bool(data.get("is_current", False) or not e_date or str(e_date).lower() in ["present", "current", "none"])
+        desc = data.get("description") or ""
+
+        self.txt_title.setText(title)
+        self.txt_company.setText(company)
+        self.txt_location.setText(loc)
+        self.txt_start_date.setText(s_date)
+        self.chk_current.setChecked(is_curr)
+        self.txt_end_date.setText("" if is_curr else e_date)
+        self.txt_desc.setPlainText(desc)
+
+        # Update view labels
+        title_disp = f"{title} at {company}" if (title and company) else (title or company or "Experience Record")
+        dates_disp = f"{s_date} – {'Present' if is_curr else (e_date or 'Present')}".strip(" –")
+        self.lbl_view_title.setText(title_disp)
+        self.lbl_view_dates.setText(dates_disp)
+        self.lbl_view_meta.setText(loc or "-")
+        self.lbl_view_desc.setText(desc or "No description provided.")
+
+    def get_data(self) -> Dict[str, Any]:
+        s_date = self.txt_start_date.text().strip()
+        e_date = "" if self.chk_current.isChecked() else self.txt_end_date.text().strip()
+        is_curr = self.chk_current.isChecked()
+
+        # Parse months/years if formatted e.g. "Nov 2024" or "November 2024"
+        s_parts = s_date.split()
+        s_month = s_parts[0] if len(s_parts) > 1 else ""
+        s_year = s_parts[1] if len(s_parts) > 1 else (s_parts[0] if s_parts else "")
+
+        e_parts = e_date.split()
+        e_month = e_parts[0] if len(e_parts) > 1 else ""
+        e_year = e_parts[1] if len(e_parts) > 1 else (e_parts[0] if e_parts else "")
+
+        return {
+            "title": self.txt_title.text().strip(),
+            "company": self.txt_company.text().strip(),
+            "location": self.txt_location.text().strip(),
+            "start_date": s_date,
+            "end_date": e_date if not is_curr else "Present",
+            "start_month": s_month,
+            "start_year": s_year,
+            "end_month": e_month,
+            "end_year": e_year,
+            "is_current": is_curr,
+            "description": self.txt_desc.toPlainText().strip(),
+        }
+
+    def set_edit_mode(self, is_edit: bool) -> None:
+        if not is_edit:
+            # Refresh view labels from edit inputs when leaving edit mode
+            self.set_data(self.get_data())
+        self.stacked.setCurrentIndex(1 if is_edit else 0)
+
+
+class EducationItemWidget(QFrame):
+    """An individual education entry supporting View and Edit representations."""
+
+    remove_requested = Signal(object)
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setObjectName("EducationItemWidget")
+        self.setStyleSheet(f"""
+            QFrame#EducationItemWidget {{
+                background-color: {COLORS['surface_alt']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+            }}
+        """)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(14, 12, 14, 12)
+        self.main_layout.setSpacing(6)
+
+        # 1. View Widget
+        self.view_widget = QWidget()
+        v_layout = QVBoxLayout(self.view_widget)
+        v_layout.setContentsMargins(0, 0, 0, 0)
+        v_layout.setSpacing(4)
+
+        top_view_row = QHBoxLayout()
+        self.lbl_view_title = QLabel()
+        self.lbl_view_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLORS['text']}; border: none; background: transparent;")
+        self.lbl_view_dates = QLabel()
+        self.lbl_view_dates.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {COLORS['primary']}; border: none; background: transparent;")
+        top_view_row.addWidget(self.lbl_view_title)
+        top_view_row.addStretch()
+        top_view_row.addWidget(self.lbl_view_dates)
+        v_layout.addLayout(top_view_row)
+
+        self.lbl_view_meta = QLabel()
+        self.lbl_view_meta.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; border: none; background: transparent;")
+        v_layout.addWidget(self.lbl_view_meta)
+
+        # 2. Edit Widget
+        self.edit_widget = QWidget()
+        e_layout = QVBoxLayout(self.edit_widget)
+        e_layout.setContentsMargins(0, 0, 0, 0)
+        e_layout.setSpacing(8)
+
+        # Row 1: Degree & Institution
+        row1 = QHBoxLayout()
+        self.txt_degree = QLineEdit()
+        self.txt_degree.setPlaceholderText("Degree * (e.g. Bachelor of Technology)")
+        self.txt_institution = QLineEdit()
+        self.txt_institution.setPlaceholderText("School / University * (e.g. AKTU)")
+        row1.addWidget(self.txt_degree, 1)
+        row1.addWidget(self.txt_institution, 1)
+        e_layout.addLayout(row1)
+
+        # Row 2: Field of Study, Years, GPA, Remove Button
+        row2 = QHBoxLayout()
+        self.txt_field = QLineEdit()
+        self.txt_field.setPlaceholderText("Field of Study (e.g. Computer Science)")
+        self.txt_start_year = QLineEdit()
+        self.txt_start_year.setPlaceholderText("Start Year (e.g. 2021)")
+        self.txt_end_year = QLineEdit()
+        self.txt_end_year.setPlaceholderText("End Year (e.g. 2025)")
+        self.txt_gpa = QLineEdit()
+        self.txt_gpa.setPlaceholderText("GPA / Score (e.g. 8.0/10)")
+        self.btn_remove = QPushButton("🗑️ Remove")
+        self.btn_remove.setCursor(Qt.PointingHandCursor)
+        self.btn_remove.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['danger_subtle']};
+                color: {COLORS['danger']};
+                border: 1px solid {COLORS['danger']}40;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['danger']};
+                color: #FFFFFF;
+            }}
+        """)
+        self.btn_remove.clicked.connect(lambda: self.remove_requested.emit(self))
+        row2.addWidget(self.txt_field, 2)
+        row2.addWidget(self.txt_start_year, 1)
+        row2.addWidget(self.txt_end_year, 1)
+        row2.addWidget(self.txt_gpa, 1)
+        row2.addWidget(self.btn_remove)
+        e_layout.addLayout(row2)
+
+        self._style_line_edits([self.txt_degree, self.txt_institution, self.txt_field, self.txt_start_year, self.txt_end_year, self.txt_gpa])
+
+        # Stacked layout for seamless toggle
+        self.stacked = QStackedWidget()
+        self.stacked.addWidget(self.view_widget)  # 0: view
+        self.stacked.addWidget(self.edit_widget)  # 1: edit
+        self.main_layout.addWidget(self.stacked)
+
+        if data:
+            self.set_data(data)
+
+    def _style_line_edits(self, line_edits: List[QLineEdit]) -> None:
+        for le in line_edits:
+            le.setMinimumHeight(32)
+            le.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {COLORS['surface']};
+                    color: {COLORS['text']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                }}
+                QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+            """)
+
+    def set_data(self, data: Dict[str, Any]) -> None:
+        deg = data.get("degree") or ""
+        field = data.get("field_of_study") or data.get("major") or ""
+        inst = data.get("institution") or data.get("school") or data.get("university") or ""
+        s_yr = str(data.get("start_year") or "")
+        e_yr = str(data.get("end_year") or data.get("graduation_year") or "")
+        gpa = str(data.get("gpa") or data.get("cgpa") or "")
+
+        self.txt_degree.setText(deg)
+        self.txt_institution.setText(inst)
+        self.txt_field.setText(field)
+        self.txt_start_year.setText(s_yr)
+        self.txt_end_year.setText(e_yr)
+        self.txt_gpa.setText(gpa)
+
+        # Update view labels
+        title_disp = f"{deg} in {field}" if (deg and field) else (deg or field or "Education Record")
+        dates_disp = f"{s_yr} – {e_yr}".strip(" –")
+        gpa_disp = f"  •  GPA: {gpa}" if gpa else ""
+        self.lbl_view_title.setText(title_disp)
+        self.lbl_view_dates.setText(dates_disp)
+        self.lbl_view_meta.setText(f"{inst}{gpa_disp}" if inst else "-")
+
+    def get_data(self) -> Dict[str, Any]:
+        return {
+            "degree": self.txt_degree.text().strip(),
+            "institution": self.txt_institution.text().strip(),
+            "field_of_study": self.txt_field.text().strip(),
+            "start_year": self.txt_start_year.text().strip(),
+            "end_year": self.txt_end_year.text().strip(),
+            "gpa": self.txt_gpa.text().strip(),
+        }
+
+    def set_edit_mode(self, is_edit: bool) -> None:
+        if not is_edit:
+            self.set_data(self.get_data())
+        self.stacked.setCurrentIndex(1 if is_edit else 0)
+
+
+class RepeaterCard(QFrame):
+    """A card containing dynamic repeater items (e.g. Work Experiences or Educations)."""
+
+    def __init__(
+        self,
+        title: str,
+        icon: str = "",
+        item_cls: Any = None,
+        add_label: str = "+ Add Item",
+        empty_text: str = "No records configured yet.",
+        on_edit_toggle=None,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.title_text = title
+        self.icon_text = icon
+        self.item_cls = item_cls
+        self.add_label = add_label
+        self.empty_text = empty_text
+        self.is_editing = False
+        self.on_edit_toggle = on_edit_toggle
+        self.items: List[Any] = []
+
+        self.setObjectName("RepeaterCard")
+        self.setStyleSheet(f"""
+            QFrame#RepeaterCard {{
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 10px;
+            }}
+        """)
+
+        self.card_layout = QVBoxLayout(self)
+        self.card_layout.setContentsMargins(20, 16, 20, 16)
+        self.card_layout.setSpacing(12)
+
+        # Header row
+        self.header_row = QHBoxLayout()
+        self.header_row.setContentsMargins(0, 0, 0, 4)
+
+        icon_str = f"{icon} " if icon else ""
+        self.header_lbl = QLabel(f"{icon_str}{title}")
+        self.header_lbl.setStyleSheet(f"""
+            QLabel {{
+                font-size: 14px;
+                font-weight: 700;
+                color: {COLORS['text']};
+                background: transparent;
+                border: none;
+            }}
+        """)
+        self.header_row.addWidget(self.header_lbl)
+        self.header_row.addStretch()
+
+        # Add button
+        self.btn_add = QPushButton(add_label)
+        self.btn_add.setCursor(Qt.PointingHandCursor)
+        self.btn_add.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary_subtle']};
+                color: {COLORS['primary']};
+                border: 1px solid {COLORS['primary']}40;
+                padding: 4px 12px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['primary']};
+                color: #FFFFFF;
+            }}
+        """)
+        self.btn_add.clicked.connect(lambda: self.add_item())
+        self.header_row.addWidget(self.btn_add)
+
+        # Edit button
+        self.btn_card_edit = QPushButton("Edit ✏️")
+        self.btn_card_edit.setCursor(Qt.PointingHandCursor)
+        self.btn_card_edit.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface_alt']};
+                color: {COLORS['text_muted']};
+                border: 1px solid {COLORS['border']};
+                padding: 4px 12px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['surface_hover']};
+                color: {COLORS['text']};
+                border-color: {COLORS['accent']};
+            }}
+        """)
+        self.btn_card_edit.clicked.connect(self._toggle_card_edit)
+        self.header_row.addWidget(self.btn_card_edit)
+        self.card_layout.addLayout(self.header_row)
+
+        # Empty state label
+        self.lbl_empty = QLabel(empty_text)
+        self.lbl_empty.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px; padding: 12px 0;")
+        self.card_layout.addWidget(self.lbl_empty)
+
+        # Container for items
+        self.items_layout = QVBoxLayout()
+        self.items_layout.setContentsMargins(0, 0, 0, 0)
+        self.items_layout.setSpacing(10)
+        self.card_layout.addLayout(self.items_layout)
+
+    def add_item(self, data: Optional[Dict[str, Any]] = None) -> Any:
+        if not self.item_cls:
+            return None
+        item_widget = self.item_cls(data=data, parent=self)
+        item_widget.remove_requested.connect(self._on_item_remove)
+        item_widget.set_edit_mode(self.is_editing)
+        self.items.append(item_widget)
+        self.items_layout.addWidget(item_widget)
+        self._update_empty_state()
+        return item_widget
+
+    def _on_item_remove(self, item_widget: Any) -> None:
+        if item_widget in self.items:
+            self.items.remove(item_widget)
+            self.items_layout.removeWidget(item_widget)
+            item_widget.deleteLater()
+            self._update_empty_state()
+
+    def _update_empty_state(self) -> None:
+        self.lbl_empty.setVisible(len(self.items) == 0)
+
+    def get_items_data(self) -> List[Dict[str, Any]]:
+        return [item.get_data() for item in self.items if hasattr(item, "get_data")]
+
+    def set_items_data(self, items_data: List[Dict[str, Any]]) -> None:
+        # Clear existing items
+        while self.items:
+            it = self.items.pop()
+            self.items_layout.removeWidget(it)
+            it.deleteLater()
+
+        for d in (items_data or []):
+            if d and isinstance(d, dict):
+                self.add_item(d)
+        self._update_empty_state()
+
+    def _toggle_card_edit(self) -> None:
+        was_editing = self.is_editing
+        self.set_edit_mode(not self.is_editing)
+        if self.on_edit_toggle:
+            self.on_edit_toggle(self.is_editing, was_editing)
+
+    def set_edit_mode(self, is_edit: bool) -> None:
+        self.is_editing = is_edit
+        self.btn_card_edit.setText("Done ✓" if is_edit else "Edit ✏️")
+        if is_edit:
+            self.btn_card_edit.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['accent']}20;
+                    color: {COLORS['accent']};
+                    border: 1px solid {COLORS['accent']};
+                    padding: 4px 12px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 700;
+                }}
+            """)
+        else:
+            self.btn_card_edit.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface_alt']};
+                    color: {COLORS['text_muted']};
+                    border: 1px solid {COLORS['border']};
+                    padding: 4px 12px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['surface_hover']};
+                    color: {COLORS['text']};
+                    border-color: {COLORS['accent']};
+                }}
+            """)
+
+        for item in self.items:
+            item.set_edit_mode(is_edit)
+
+
 class ProfileView(QWidget):
     """Interactive Candidate Profile management and readiness diagnostic view."""
 
@@ -411,12 +955,22 @@ class ProfileView(QWidget):
         self.cards.append(self.card_professional)
         form_layout.addWidget(self.card_professional)
 
-        # Card C: Technical Skills & Summary
+        # Card C: Work Experience History (Multi-entry repeater)
+        self.card_experience = self._build_experience_card()
+        self.cards.append(self.card_experience)
+        form_layout.addWidget(self.card_experience)
+
+        # Card D: Education & Academic Background (Multi-entry repeater)
+        self.card_education = self._build_education_card()
+        self.cards.append(self.card_education)
+        form_layout.addWidget(self.card_education)
+
+        # Card E: Technical Skills & Summary
         self.card_skills = self._build_skills_card()
         self.cards.append(self.card_skills)
         form_layout.addWidget(self.card_skills)
 
-        # Card D: Online Profiles & Links
+        # Card F: Online Profiles & Links
         self.card_links = self._build_links_card()
         self.cards.append(self.card_links)
         form_layout.addWidget(self.card_links)
@@ -914,7 +1468,33 @@ class ProfileView(QWidget):
         return card
 
     # ----------------------------------------------------------------------
-    # Card 3: Technical Skills & Summary
+    # Card C & D: Work Experience & Education History
+    # ----------------------------------------------------------------------
+
+    def _build_experience_card(self) -> RepeaterCard:
+        card = RepeaterCard(
+            title="Work Experience History",
+            icon="🏢",
+            item_cls=ExperienceItemWidget,
+            add_label="+ Add Experience",
+            empty_text="No work experience records configured. Click '+ Add Experience' to add your roles.",
+            on_edit_toggle=self._on_card_edit_toggle,
+        )
+        return card
+
+    def _build_education_card(self) -> RepeaterCard:
+        card = RepeaterCard(
+            title="Education & Academic Background",
+            icon="🎓",
+            item_cls=EducationItemWidget,
+            add_label="+ Add Education",
+            empty_text="No education records configured. Click '+ Add Education' to add degrees.",
+            on_edit_toggle=self._on_card_edit_toggle,
+        )
+        return card
+
+    # ----------------------------------------------------------------------
+    # Card E: Technical Skills & Summary
     # ----------------------------------------------------------------------
 
     def _build_skills_card(self) -> DataSheetCard:
@@ -1332,6 +1912,13 @@ class ProfileView(QWidget):
         self._update_link_widget(self.lbl_val_github, self.btn_open_github, github)
         self._update_link_widget(self.lbl_val_portfolio, self.btn_open_portfolio, portfolio)
         self._update_ctc_helpers()
+
+        # 3. Work Experience & Education History
+        work_exp = (getattr(pro, "work_experiences", None) or []) if pro else []
+        edu_hist = (getattr(pro, "education_history", None) or []) if pro else []
+        self.card_experience.set_items_data(work_exp)
+        self.card_education.set_items_data(edu_hist)
+
         self._refresh_readiness_indicator()
 
     def _refresh_readiness_indicator(self) -> None:
@@ -1387,6 +1974,8 @@ class ProfileView(QWidget):
             "linkedin_url": self.txt_linkedin.text().strip() or None,
             "github_url": self.txt_github.text().strip() or None,
             "portfolio_url": self.txt_portfolio.text().strip() or None,
+            "work_experiences": self.card_experience.get_items_data(),
+            "education_history": self.card_education.get_items_data(),
         }
 
         success, err = self.service.save_profile(

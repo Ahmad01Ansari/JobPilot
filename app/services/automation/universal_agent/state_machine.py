@@ -37,6 +37,7 @@ class InterventionReason(str, Enum):
     PRE_SUBMISSION_REVIEW = "PRE_SUBMISSION_REVIEW"
     POST_SUBMIT_VALIDATION_ERROR = "POST_SUBMIT_VALIDATION_ERROR"
     MANUAL_ACTION_REQUIRED = "MANUAL_ACTION_REQUIRED"
+    EMAIL_VERIFICATION_REQUIRED = "EMAIL_VERIFICATION_REQUIRED"
     NAVIGATION_OR_NETWORK_STALL = "NAVIGATION_OR_NETWORK_STALL"
     SUBMISSION_UNCERTAIN = "SUBMISSION_UNCERTAIN"
 
@@ -93,6 +94,7 @@ class UniversalApplicationStateMachine:
             AgentExecutionState.COMPLETED,
         },
         AgentExecutionState.FILLING_FORM: {
+            AgentExecutionState.ANALYZING_PAGE,
             AgentExecutionState.UPLOADING_RESUME,
             AgentExecutionState.NAVIGATING,
             AgentExecutionState.NAVIGATING_NEXT_STEP,
