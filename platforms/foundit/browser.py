@@ -169,10 +169,31 @@ class FounditBrowser:
             print_lg(f"[FounditBrowser] Navigation error to {url}: {e}")
             return False
 
+    def is_access_denied(self) -> bool:
+        """Detects if Akamai / EdgeSuite served an Access Denied blocking page."""
+        if not self.driver:
+            return False
+        try:
+            title = (self.driver.title or "").strip().lower()
+            if "access denied" in title:
+                return True
+            body_elems = self.driver.find_elements(By.TAG_NAME, "body")
+            if body_elems:
+                body_text = (body_elems[0].text or "").lower()
+                if "you don't have permission to access" in body_text or "edgesuite.net" in body_text:
+                    return True
+        except Exception:
+            pass
+        return False
+
     def check_session_state(self) -> Literal["LOGGED_IN", "LOGIN_REQUIRED", "CAPTCHA", "OTP_REQUIRED", "UNKNOWN"]:
         """Inspects DOM to determine authentication and anti-bot state."""
         if not self.driver:
             return "UNKNOWN"
+
+        # 0. Check Access Denied / EdgeSuite anti-bot block
+        if self.is_access_denied():
+            return "CAPTCHA"
 
         # 1. Check CAPTCHA / Anti-bot Challenge first
         detector = CaptchaDetector(platform="foundit")

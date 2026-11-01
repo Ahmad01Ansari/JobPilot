@@ -318,14 +318,14 @@ class TestFounditParser(unittest.TestCase):
         self.assertEqual(ext_job.application_method, "COMPANY_PORTAL")
         self.assertEqual(ext_job.apply_type, "EXTERNAL")
 
-    def test_search_canonical_url_and_sidebar_filters(self):
-        """Verifies that search() navigates to canonical SEO search URL and applies filters via sidebar."""
+    def test_search_ui_automation_and_sidebar_filters(self):
+        """Verifies that search() uses pure UI automation (search_via_ui) and never navigates to constructed URLs."""
         from platforms.foundit.search import FounditSearch
         mock_browser = MagicMock()
         mock_driver = MagicMock()
         mock_browser.driver = mock_driver
         search_engine = FounditSearch(mock_browser)
-        search_engine.apply_sidebar_experience_filter = MagicMock(return_value=True)
+        search_engine.search_via_ui = MagicMock(return_value=True)
 
         dummy_card = MagicMock()
         dummy_card.is_displayed.return_value = True
@@ -343,16 +343,49 @@ class TestFounditParser(unittest.TestCase):
             page=1,
         )
         self.assertEqual(len(cards), 1)
-        mock_browser.navigate.assert_called_once()
-        nav_url = mock_browser.navigate.call_args[0][0]
-        # Must use canonical search route, avoiding /srp/results split-pane mode
-        self.assertIn("https://www.foundit.in/search/rpa-developer-jobs-in-india", nav_url)
-        self.assertIn("query=rpa-developer", nav_url)
-        self.assertIn("location=India", nav_url)
-        # Filters are applied through the UI sidebar, not jammed into the URL query
-        self.assertNotIn("experienceRanges=", nav_url)
-        self.assertNotIn("jobAge=", nav_url)
-        search_engine.apply_sidebar_experience_filter.assert_called_once_with(3)
+        # Never navigates directly to constructed/manipulated URLs
+        mock_browser.navigate.assert_not_called()
+        search_engine.search_via_ui.assert_called_once_with(
+            keyword="rpa-developer",
+            location="India",
+            experience_years=3,
+            freshness_days=7,
+            quick_apply=False,
+        )
+
+    def test_search_recovers_from_access_denied(self):
+        """Verifies that search() detects Access Denied and recovers to clean home page."""
+        from platforms.foundit.search import FounditSearch, HOME_URL
+        mock_browser = MagicMock()
+        mock_driver = MagicMock()
+        mock_browser.driver = mock_driver
+        search_engine = FounditSearch(mock_browser)
+        # Mock access denied returning True initially, then False after recovery
+        search_engine.is_access_denied = MagicMock(side_effect=[True, False, False])
+        search_engine.search_via_ui = MagicMock(return_value=True)
+        search_engine.find_job_cards = MagicMock(return_value=[MagicMock()])
+
+        cards = search_engine.search(keyword="Python", page=1)
+        mock_browser.navigate.assert_called_with(HOME_URL)
+        search_engine.search_via_ui.assert_called_once()
+        self.assertEqual(len(cards), 1)
+
+    def test_search_pagination_via_ui(self):
+        """Verifies that page > 1 advances strictly via UI pagination without navigating to constructed URLs."""
+        from platforms.foundit.search import FounditSearch
+        mock_browser = MagicMock()
+        mock_driver = MagicMock()
+        mock_driver.current_url = "https://www.foundit.in/search/rpa-developer"
+        mock_browser.driver = mock_driver
+        search_engine = FounditSearch(mock_browser)
+        mock_next_btn = MagicMock()
+        search_engine.get_next_page_element = MagicMock(return_value=mock_next_btn)
+        search_engine.find_job_cards = MagicMock(return_value=[MagicMock()])
+
+        cards = search_engine.search(keyword="rpa-developer", page=2)
+        mock_browser.navigate.assert_not_called()
+        mock_next_btn.click.assert_called_once()
+        self.assertEqual(len(cards), 1)
 
 
 if __name__ == "__main__":

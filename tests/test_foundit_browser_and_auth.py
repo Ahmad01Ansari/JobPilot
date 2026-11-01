@@ -80,6 +80,18 @@ class TestFounditBrowserAndAuth(unittest.TestCase):
         state = browser.check_session_state()
         self.assertEqual(state, "CAPTCHA")
 
+    def test_check_session_state_access_denied(self):
+        browser = FounditBrowser()
+        mock_driver = MagicMock()
+        mock_driver.title = "Access Denied"
+        mock_body = MagicMock()
+        mock_body.text = "You don't have permission to access on this server. Reference #18.foo.bar"
+        mock_driver.find_elements.side_effect = lambda by, value: [mock_body] if value == "body" else []
+        browser.driver = mock_driver
+
+        self.assertTrue(browser.is_access_denied())
+        self.assertEqual(browser.check_session_state(), "CAPTCHA")
+
     def test_auth_already_logged_in(self):
         browser = MagicMock()
         browser.check_session_state.return_value = "LOGGED_IN"

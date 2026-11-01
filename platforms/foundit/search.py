@@ -9,6 +9,7 @@ import random
 from urllib.parse import urlencode
 from typing import Optional, List, Dict, Any
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
@@ -154,6 +155,35 @@ class FounditSearch:
     def driver(self):
         return getattr(self.browser, "driver", None)
 
+    def is_access_denied(self) -> bool:
+        """Detects if Akamai / EdgeSuite served an Access Denied blocking page."""
+        if not self.driver:
+            return False
+        try:
+            title = (self.driver.title or "").strip().lower()
+            if "access denied" in title:
+                return True
+            body_text = (self.driver.find_element(By.TAG_NAME, "body").text or "").lower()
+            if "you don't have permission to access" in body_text or "edgesuite.net" in body_text:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _find_visible_element(self, selectors: List[str]) -> Optional[WebElement]:
+        """Finds first visible element matching a list of CSS or XPath selectors."""
+        if not self.driver:
+            return None
+        for sel in selectors:
+            try:
+                elems = self.driver.find_elements(By.XPATH if sel.startswith("//") else By.CSS_SELECTOR, sel)
+                for el in elems:
+                    if el.is_displayed():
+                        return el
+            except Exception:
+                continue
+        return None
+
     def close_open_modals(self) -> None:
         """Closes any transient popups, dropdowns, or location modals."""
         if not self.driver:
@@ -193,38 +223,36 @@ class FounditSearch:
         if not self.driver:
             return False
 
+        # If on Access Denied page, immediately recover to clean home page
+        if self.is_access_denied():
+            print_lg("[FounditSearch] Access Denied / EdgeSuite block detected on current page. Returning to home page...")
+            self.browser.navigate(HOME_URL)
+            time.sleep(3)
+
         current_url = (self.driver.current_url or "").lower()
         if "foundit.in" not in current_url:
             self.browser.navigate(HOME_URL)
             time.sleep(2)
 
         # 1. Locate Skills input (Home or SRP)
-        skills_input = None
-        for sel in [
+        skills_input = self._find_visible_element([
             HOME_SKILLS_INPUT,
             SRP_SKILLS_INPUT,
             "input#heroSectionDesktop-skillsAutoComplete--input",
-            "input[placeholder*='Skills']",
             "input[placeholder*='Search by Skills']",
-        ]:
-            try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                    if el.is_displayed():
-                        skills_input = el
-                        break
-                if skills_input:
-                    break
-            except Exception:
-                continue
+            "input[placeholder*='Skills']",
+        ])
 
         if not skills_input:
             # If not on home or SRP with inputs, navigate to home
+            print_lg("[FounditSearch] Navigating to Foundit home page to access search bar...")
             self.browser.navigate(HOME_URL)
-            time.sleep(2)
-            try:
-                skills_input = self.driver.find_element(By.ID, "heroSectionDesktop-skillsAutoComplete--input")
-            except Exception:
-                pass
+            time.sleep(2.5)
+            skills_input = self._find_visible_element([
+                HOME_SKILLS_INPUT,
+                "input#heroSectionDesktop-skillsAutoComplete--input",
+                "input[placeholder*='Skills']",
+            ])
 
         if not skills_input:
             print_lg("[FounditSearch] Notice: Skills input not found for UI search.")
@@ -234,9 +262,11 @@ class FounditSearch:
         try:
             skills_input.click()
             time.sleep(0.3)
+            skills_input.send_keys(Keys.CONTROL + "a")
+            skills_input.send_keys(Keys.BACKSPACE)
             skills_input.clear()
             skills_input.send_keys(keyword)
-            time.sleep(1)
+            time.sleep(1.0)
 
             # Check for autocomplete suggestion dropdown
             try:
@@ -244,8 +274,19 @@ class FounditSearch:
                     By.CSS_SELECTOR,
                     "div.autocomplete-results li, div[class*='suggestion'] div, div[id*='react-autowhatever'] li"
                 )
-                if suggestions:
+                clicked_sugg = False
+                for s in suggestions:
+                    if s.is_displayed():
+                        txt = (s.text or "").strip().lower()
+                        if keyword.lower() in txt or txt in keyword.lower():
+                            self.driver.execute_script("arguments[0].click();", s)
+                            clicked_sugg = True
+                            break
+                if not clicked_sugg and suggestions and suggestions[0].is_displayed():
                     self.driver.execute_script("arguments[0].click();", suggestions[0])
+                    clicked_sugg = True
+                if not clicked_sugg:
+                    skills_input.send_keys(Keys.ESCAPE)
             except Exception:
                 pass
         except Exception as e:
@@ -279,22 +320,12 @@ class FounditSearch:
             if location_already_applied:
                 print_lg(f"[FounditSearch] Location '{location}' is already applied in search box. Skipping.")
             else:
-                loc_input = None
-                for sel in [
+                loc_input = self._find_visible_element([
                     HOME_LOCATION_INPUT,
                     SRP_LOCATION_INPUT,
                     "input#heroSectionDesktop-locationAutoComplete--input",
                     "input[placeholder*='Location']",
-                ]:
-                    try:
-                        for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                            if el.is_displayed():
-                                loc_input = el
-                                break
-                        if loc_input:
-                            break
-                    except Exception:
-                        continue
+                ])
 
                 if loc_input:
                     try:
@@ -308,8 +339,11 @@ class FounditSearch:
                         if (location.lower() in current_val) or (location.lower() in parent_text):
                             print_lg(f"[FounditSearch] Location '{location}' is already in input. Skipping.")
                         else:
+                            print_lg(f"[FounditSearch] Entering location in UI: '{location}'...")
                             loc_input.click()
                             time.sleep(0.2)
+                            loc_input.send_keys(Keys.CONTROL + "a")
+                            loc_input.send_keys(Keys.BACKSPACE)
                             loc_input.clear()
                             loc_input.send_keys(location)
                             time.sleep(0.8)
@@ -317,8 +351,10 @@ class FounditSearch:
                                 By.CSS_SELECTOR,
                                 "div.autocomplete-results li, div[class*='suggestion'] div"
                             )
-                            if suggestions:
-                                self.driver.execute_script("arguments[0].click();", suggestions[0])
+                            for s in suggestions:
+                                if s.is_displayed() and location.lower() in (s.text or "").lower():
+                                    self.driver.execute_script("arguments[0].click();", s)
+                                    break
                     except Exception as e:
                         print_lg(f"[FounditSearch] Notice setting location: {e}")
 
@@ -327,22 +363,12 @@ class FounditSearch:
 
         # 3. Select Experience in UI
         if experience_years is not None:
-            exp_input = None
-            for sel in [
+            exp_input = self._find_visible_element([
                 HOME_EXPERIENCE_INPUT,
                 SRP_EXPERIENCE_INPUT,
                 "input#heroSectionDesktop-expAutoComplete--input",
                 "input[placeholder*='Experience']",
-            ]:
-                try:
-                    for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                        if el.is_displayed():
-                            exp_input = el
-                            break
-                    if exp_input:
-                        break
-                except Exception:
-                    continue
+            ])
 
             if exp_input:
                 try:
@@ -363,31 +389,20 @@ class FounditSearch:
                         self.driver.execute_script("arguments[0].click();", target_opt)
                         time.sleep(0.3)
                 except Exception as e:
-                    print_lg(f"[FounditSearch] Notice setting experience: {e}")
+                    print_lg(f"[FounditSearch] Notice setting experience in hero input: {e}")
 
         # Ensure any dropdown modal is closed before clicking search
         self.close_open_modals()
 
         # 4. Click Search Button
-        search_btn = None
-        for sel in [
+        search_btn = self._find_visible_element([
             HOME_SEARCH_BUTTON,
             SRP_SEARCH_BUTTON,
             "button.search_submit_btn",
             "button[class*='search_submit_btn']",
             "button[aria-label='search']",
             "//button[contains(@class, 'search') or .//*[name()='svg']]",
-        ]:
-            try:
-                elems = self.driver.find_elements(By.XPATH if sel.startswith("//") else By.CSS_SELECTOR, sel)
-                for b in elems:
-                    if b.is_displayed():
-                        search_btn = b
-                        break
-                if search_btn:
-                    break
-            except Exception:
-                continue
+        ])
 
         if search_btn:
             print_lg("[FounditSearch] Clicking Search button...")
@@ -395,15 +410,38 @@ class FounditSearch:
                 search_btn.click()
             except Exception:
                 self.driver.execute_script("arguments[0].click();", search_btn)
-            time.sleep(5)
+            time.sleep(4.0)
+        elif skills_input:
+            print_lg("[FounditSearch] Search button not found. Submitting search via ENTER key...")
+            try:
+                skills_input.send_keys(Keys.ENTER)
+                time.sleep(4.0)
+            except Exception as e:
+                print_lg(f"[FounditSearch] Notice submitting via Enter: {e}")
+                return False
         else:
             print_lg("[FounditSearch] Notice: Search button not found.")
             return False
 
+        # Wait for page transition
+        start_wait = time.time()
+        while time.time() - start_wait < 10:
+            if self.is_access_denied():
+                print_lg("[FounditSearch] Warning: Access Denied encountered during UI search.")
+                return False
+            cur_url = (self.driver.current_url or "").lower()
+            if "/search" in cur_url or "/srp" in cur_url or self.find_job_cards():
+                break
+            time.sleep(0.5)
+
         # Close any lingering popups after search
         self.close_open_modals()
 
-        # 5. Apply or deactivate Quick Apply toggle on SRP based on configuration
+        # 5. Apply Experience Filter on left sidebar if requested
+        if experience_years is not None and experience_years >= 0:
+            self.apply_sidebar_experience_filter(experience_years)
+
+        # 6. Apply or deactivate Quick Apply toggle on SRP based on configuration
         if quick_apply:
             self.apply_quick_apply_filter()
         else:
@@ -656,14 +694,24 @@ class FounditSearch:
         quick_apply: bool = True,
         page: int = 1,
     ) -> List[WebElement]:
-        """Performs search via canonical URL navigation with left sidebar filter application (Screenshot 2).
-        Avoids split-pane /srp/results mode by applying filters through the UI sidebar.
+        """Performs search strictly via UI automation to avoid Akamai EdgeSuite Access Denied blocks.
+        Never navigates to constructed or manipulated search query URLs.
         """
-        print_lg(f"[FounditSearch] Searching: '{keyword}' in '{location}' (page {page})...")
+        print_lg(f"[FounditSearch] Searching via UI: '{keyword}' in '{location}' (page {page})...")
 
-        # 1. If page > 1 and already on a search results page, advance via dynamic pagination
-        if page > 1 and self.driver and "/search" in (self.driver.current_url or ""):
-            print_lg(f"[FounditSearch] Advancing to page {page} on existing search page...")
+        # 1. Access Denied recovery
+        if self.is_access_denied():
+            print_lg("[FounditSearch] Access Denied detected on current page. Recovering to home page...")
+            self.browser.navigate(HOME_URL)
+            time.sleep(2.5)
+
+        # 2. If page > 1, advance strictly via UI pagination controls on the active search results page
+        if page > 1:
+            if not self.driver or "/search" not in (self.driver.current_url or "").lower():
+                print_lg(f"[FounditSearch] Cannot advance to page {page}: Not on search results page.")
+                return []
+
+            print_lg(f"[FounditSearch] Advancing to page {page} via UI pagination controls...")
             next_btn = self.get_next_page_element()
             if next_btn:
                 print_lg(f"[FounditSearch] Clicking Next page button for page {page}...")
@@ -703,51 +751,25 @@ class FounditSearch:
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(random.uniform(2.0, 3.5))
             cards = self.find_job_cards()
-            if cards:
-                return cards
+            return cards
 
-        # Primary: Canonical Search URL (opens standard search layout with left sidebar)
-        url = build_search_url(
+        # 3. Primary for page 1: Pure UI Search (Keyword input -> Location -> Exp -> Search btn -> Sidebar filters)
+        ui_success = self.search_via_ui(
             keyword=keyword,
             location=location,
             experience_years=experience_years,
             freshness_days=freshness_days,
-            page=page,
+            quick_apply=quick_apply,
         )
-        print_lg(f"[FounditSearch] Navigating to canonical search URL: {url}")
-        self.browser.navigate(url)
-        time.sleep(random.uniform(3.0, 4.5))
-        self.close_open_modals()
 
-        # 2. Apply experience filter via UI sidebar if specified (Screenshot 2)
-        if experience_years is not None and experience_years >= 0:
-            self.apply_sidebar_experience_filter(experience_years)
-
-        # 3. Handle Quick Apply toggle if configured (Screenshot 2 center toggle)
-        if quick_apply:
-            self.apply_quick_apply_filter()
-        else:
-            self.ensure_quick_apply_filter_off()
+        if not ui_success:
+            print_lg("[FounditSearch] UI search execution was not completed or encountered a block.")
+            if self.is_access_denied():
+                print_lg("[FounditSearch] Blocked by Akamai EdgeSuite Access Denied during UI search.")
+            return []
 
         cards = self.find_job_cards()
-        if cards:
-            return cards
-
-        # 4. Resilient fallback: Try UI search only if initial navigation returned 0 cards on page 1
-        if page == 1:
-            print_lg("[FounditSearch] Canonical navigation returned 0 cards. Attempting UI search fallback...")
-            ui_success = self.search_via_ui(
-                keyword=keyword,
-                location=location,
-                experience_years=experience_years,
-                freshness_days=freshness_days,
-                quick_apply=quick_apply,
-            )
-            if ui_success:
-                cards = self.find_job_cards()
-                if cards:
-                    return cards
-
+        print_lg(f"[FounditSearch] Found {len(cards)} job cards via UI search on page 1.")
         return cards
     def find_job_cards(self) -> List[WebElement]:
         """Returns all visible, validated job cards currently present on the page."""
