@@ -78,6 +78,15 @@ image/
 !JobPilot.png
 !docs/flows/image.png
 
+# Branding Showcase & Scratch Concepts
+.gemini/
+docs/branding/concepts/
+docs/branding/slides/
+docs/branding/*.html
+docs/branding/jobpilot-stacked-draft.svg
+docs/branding/jobpilot-symbol-1024.png
+docs/branding/presentation-spec.json
+
 # User Data & Storage
 data/
 data/*

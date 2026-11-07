@@ -1,0 +1,82 @@
+<svg fill="#ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-symbol">
+  <title id="title-symbol">JobPilot Brand Symbol</title>
+  <g id="symbol-group" transform="translate(-120, 6)">
+    <!-- 1. ROBOT MASCOT & SLIM LAPTOP -->
+    <g id="robot-mascot">
+      <!-- Antenna Tip & Stem -->
+      <circle cx="240" cy="28" r="9" fill="#ffffff"/>
+      <rect x="236" y="36" width="8" height="20" rx="3" fill="#ffffff"/>
+
+      <!-- Aviator Headphone Cups -->
+      <rect x="172" y="78" width="14" height="46" rx="7" fill="#ffffff"/>
+      <rect x="168" y="84" width="6" height="34" rx="3" fill="#ffffff"/>
+      <rect x="294" y="78" width="14" height="46" rx="7" fill="#ffffff"/>
+      <rect x="306" y="84" width="6" height="34" rx="3" fill="#ffffff"/>
+
+      <!-- Robot Head Chassis -->
+      <rect x="184" y="56" width="112" height="86" rx="26" fill="#ffffff"/>
+
+      <!-- Panoramic Visor Slot -->
+      <rect x="196" y="76" width="88" height="42" rx="14" fill="#ffffff"/>
+
+      <!-- Glowing Cyan Pilot Eyes -->
+      <rect x="210" y="86" width="16" height="22" rx="8" fill="#ffffff"/>
+      <rect x="254" y="86" width="16" height="22" rx="8" fill="#ffffff"/>
+
+      <!-- Neck Connector -->
+      <rect x="226" y="142" width="28" height="12" rx="4" fill="#ffffff"/>
+
+      <!-- Robot Torso -->
+      <path fill="#ffffff" d="
+        M 194 154
+        C 194 154 210 150 240 150
+        C 270 150 286 154 286 154
+        C 310 158 324 178 324 208
+        L 156 208
+        C 156 178 170 158 194 154
+        Z
+      "/>
+
+      <!-- Chest Accent -->
+      <path fill="#ffffff" d="M 218 154 L 262 154 L 250 176 L 230 176 Z"/>
+
+      <!-- Floating Ultra-Slim Laptop Display -->
+      <polygon points="184,226 202,192 278,192 296,226" fill="#ffffff"/>
+      <polygon points="192,224 206,196 274,196 288,224" fill="#ffffff" fill-opacity="0.3"/>
+
+      <!-- Slim Laptop Base -->
+      <rect x="148" y="226" width="184" height="8" rx="4" fill="#ffffff"/>
+      <rect x="220" y="227" width="40" height="4" rx="2" fill="#ffffff"/>
+
+      <!-- Bot Hands -->
+      <circle cx="190" cy="222" r="8" fill="#ffffff"/>
+      <circle cx="290" cy="222" r="8" fill="#ffffff"/>
+    </g>
+
+    <!-- 2. SOARING JOB APPLICATION DOSSIER -->
+    <g id="job-application-dossier" transform="translate(270, 102)">
+      <path fill="#ffffff" d="
+        M -10 66 L -2 58 L 2 62 L -6 70 Z
+        M 6 50 L 14 42 L 18 46 L 10 54 Z
+      "/>
+
+      <g transform="rotate(-20, 24, 30)">
+        <path fill="#ffffff" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" d="
+          M 0 0 L 42 0 L 54 12 L 54 68 A 4 4 0 0 1 50 72 L 4 72 A 4 4 0 0 1 0 68 Z
+        "/>
+        <path fill="#ffffff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round" d="
+          M 42 0 L 42 12 L 54 12 Z
+        "/>
+        <rect x="8" y="14" width="26" height="3" rx="1.5" fill="#ffffff"/>
+        <rect x="8" y="22" width="38" height="3" rx="1.5" fill="#ffffff"/>
+        <rect x="8" y="30" width="32" height="3" rx="1.5" fill="#ffffff"/>
+        <circle cx="27" cy="50" r="13" fill="#ffffff"/>
+        <path d="M 21 50 L 25 54 L 34 44" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+
+      <path fill="#ffffff" d="
+        M 56 6 L 78 12 L 70 34 L 60 26 L 66 18 L 50 20 Z
+      "/>
+    </g>
+  </g>
+</svg>

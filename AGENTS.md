@@ -26,6 +26,8 @@ The complete engineering standards and architectural boundaries are defined in t
 - 🧪 **Testing & Verification:** [`docs/ai/TESTING_RULES.md`](docs/ai/TESTING_RULES.md)
 - 📦 **Git, CI/CD & Releases:** [`docs/ai/GIT_AND_RELEASE_RULES.md`](docs/ai/GIT_AND_RELEASE_RULES.md)
 - 💻 **Cross-Platform & Contributor Rules:** [`.agents/rules/cross-platform-rules.md`](.agents/rules/cross-platform-rules.md)
+- ⚡ **Token-Efficient Navigation & Codebase Exploration:** [`.agents/rules/token-efficient-exploration.md`](.agents/rules/token-efficient-exploration.md)
+- 🛡️ **Code Standards & Anti-AI Slop:** [`.agents/rules/code-standards-and-anti-slop.md`](.agents/rules/code-standards-and-anti-slop.md)
 
 ### Development Templates
 - 📋 **Feature Template:** [`docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md`](docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md)
@@ -46,6 +48,8 @@ The complete engineering standards and architectural boundaries are defined in t
 5. **Zero Hallucination & Zero Fake Data:** Candidate answers must originate from verified sources (`PROFILE_FACT`, `RESUME_FACT`, `QNA_RULE`). Never guess or mock production results.
 6. **No Silent Error Swallowing:** `except: pass` is strictly prohibited. Distinguish `FAILED` from `STATUS_UNKNOWN` and `MANUAL_REQUIRED`.
 7. **NEVER Commit or Push Without Explicit User Permission:** Never run `git commit` or `git push` unless the user explicitly gives permission in their prompt (e.g. "commit this", "push the code"). All changes must remain uncommitted in the local working tree for user inspection.
+8. **Token-Efficient & Graph-First Navigation:** In this large codebase (>750 files, 1.1M+ words), NEVER read whole files line-by-line or dump uncontrolled command outputs into context. Follow the 4-tier navigation hierarchy: use `graphify explain "<concept>"`, `graphify path "<A>" "<B>"`, and targeted line-numbered grep first. Read only bounded line ranges (`StartLine`/`EndLine`) to preserve context budget and avoid wasting tokens. Run `graphify update .` after code edits to keep the graph current.
+9. **Anti-AI Slop & Production Code Hygiene:** All code, comments, docstrings, and log statements must meet enterprise production standards. Strictly prohibited: emojis/icons in source code or log messages (e.g. 🚀, ✅, ⚠️), performative/chatty AI comments, syntax-restating comments, incomplete mock stubs (`# TODO: implement later`), and informal conversational filler. Code must be fully implemented, strictly typed, and cleanly structured.
 
 ---
 

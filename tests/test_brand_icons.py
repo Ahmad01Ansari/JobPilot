@@ -31,6 +31,7 @@ class TestBrandIconsAndAssets(unittest.TestCase):
             "jobpilot_24.png",
             "jobpilot_16.png",
             "jobpilot.ico",
+            "jobpilot_splash.png",
             "jobpilot_tray.png",
             "jobpilot_tray_active.png",
             "jobpilot_badge.png",
@@ -113,6 +114,14 @@ class TestBrandIconsAndAssets(unittest.TestCase):
         self.assertEqual(dlg.windowTitle(), "About JobPilot")
         dlg.close()
         dlg.deleteLater()
+
+    def test_11_theme_manager_splash_pixmap(self):
+        """Verifies that ThemeManager.get_splash_pixmap() returns a valid non-null brand pixmap."""
+        splash = ThemeManager.get_splash_pixmap()
+        self.assertFalse(splash.isNull(), "Splash pixmap is null.")
+        self.assertGreater(splash.width(), 200)
+        self.assertGreater(splash.height(), 200)
+
 
 
 if __name__ == "__main__":

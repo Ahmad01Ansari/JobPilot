@@ -764,3 +764,16 @@ class ThemeManager:
             return pix.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return QPixmap()
 
+    @classmethod
+    def get_splash_pixmap(cls):
+        """Returns a high-resolution dark brand splash pixmap for application startup."""
+        from PySide6.QtGui import QPixmap
+        brand_dir = cls.get_brand_dir()
+        path = brand_dir / "jobpilot_splash.png"
+        if not path.exists():
+            path = brand_dir / "jobpilot_512.png"
+        if path.exists():
+            return QPixmap(str(path))
+        return QPixmap()
+
+

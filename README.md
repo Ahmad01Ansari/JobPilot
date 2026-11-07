@@ -1,11 +1,24 @@
-# 🚀 JobPilot
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/branding/jobpilot-stacked-dark.svg">
+    <img alt="JobPilot Logo" src="docs/branding/jobpilot-stacked-color.svg" width="220" height="220">
+  </picture>
+</p>
 
-> **The unified, autonomous job application cockpit (LinkedIn, Naukri, Indeed, Glassdoor, Foundit, and Universal ATS portals) featuring an intelligent PySide6 desktop suite, multi-tier Q&A reasoning, and automated cross-platform distribution.**
+<h1 align="center">JobPilot</h1>
 
-[![Release](https://img.shields.io/badge/Release-v0.1.0--beta.1-orange.svg)](https://github.com/Ahmad01Ansari/JobPilot/releases)
-[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Ubuntu%20Linux-lightgrey.svg)](#downloads--installation)
+<p align="center">
+  <b>Autonomous Career Navigation & Multi-Platform Job Application Autopilot</b><br>
+  <i>Unified multi-platform automation across LinkedIn, Naukri, Indeed, Glassdoor, Foundit, and Universal ATS portals.</i>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Ahmad01Ansari/JobPilot/releases"><img src="https://img.shields.io/badge/Release-v0.1.0--beta.1-orange.svg" alt="Release"></a>
+  <a href="https://www.python.org/downloads/release/python-3110/"><img src="https://img.shields.io/badge/Python-3.11-blue.svg" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"></a>
+  <a href="#downloads--installation"><img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Ubuntu%20Linux-lightgrey.svg" alt="Platform"></a>
+  <a href="docs/branding/BRAND_GUIDELINES.md"><img src="https://img.shields.io/badge/Brand-Guidelines-blueviolet.svg" alt="Brand Guidelines"></a>
+</p>
 
 ---
 
