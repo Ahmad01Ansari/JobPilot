@@ -879,7 +879,7 @@ export function AntennaNavbar({
                   </span>
                   <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold tracking-wider uppercase bg-orange-500/10 text-orange-400 border border-orange-500/30 shadow-[0_0_8px_rgba(255,122,0,0.15)]">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-safety animate-pulse" />
-                    v0.1.0-beta
+                    v0.4.5-beta
                   </span>
                 </div>
                 <span className="text-[10px] sm:text-[11px] font-mono font-medium text-slate-400 tracking-wide uppercase leading-tight mt-0.5 group-hover:text-slate-300 transition-colors">
