@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Automatic Virtual Environment Bootstrapping**: Added seamless `.venv` auto-detection in `run_desktop.py`, ensuring that invoking the application via system Python automatically re-executes inside the local project virtual environment without manual interpreter activation.
+- **Cross-Platform Governance & Contribution Standards**: Added cross-platform agent guidelines (`.agents/rules/cross-platform-rules.md`), standardized pull request templates (`.github/pull_request_template.md`), repo-wide `.gitattributes`, and fork synchronization documentation in `CONTRIBUTING.md`.
+
+### Fixed
+- **Resilient Package Initialization (`app/__init__.py`)**: Guarded legacy Flask web dashboard imports with `try...except (ImportError, ModuleNotFoundError)` so importing desktop modules never crashes when Flask or optional web dependencies are not loaded.
+- **Windows Frozen GUI Stream Safeguards**: Implemented `_SafeStream` for `sys.stdout` and `sys.stderr` in `run_desktop.py` to prevent `NoneType` attribute errors in windowed PyInstaller executable builds on Windows.
+- **Browser Fallback Discovery on Windows**: Extended browser automation to detect and launch Microsoft Edge, Brave, or Chromium when Google Chrome is not installed on Windows hosts or virtual machines.
+- **Automation & QnA Synchronization**: Resolved Windows browser initialization parameters, job link extraction nuances, and candidate question-and-answer persistence in the AI QnA engine.
+
+---
+
 ## [0.1.0-beta.3] — 2026-10-14
 
 ### Windows Polish & Feedback Release (Windows & Linux)
