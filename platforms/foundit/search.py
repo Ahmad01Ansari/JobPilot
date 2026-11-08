@@ -15,6 +15,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 from platforms.foundit.selectors import (
     HOME_URL,
+    USER_HOME_URL,
     SEARCH_BASE_URL,
     CARD_CONTAINER_SELECTOR,
     ACTIVE_CARD_SELECTOR,
@@ -163,12 +164,45 @@ class FounditSearch:
             title = (self.driver.title or "").strip().lower()
             if "access denied" in title:
                 return True
-            body_text = (self.driver.find_element(By.TAG_NAME, "body").text or "").lower()
-            if "you don't have permission to access" in body_text or "edgesuite.net" in body_text:
-                return True
+            body_elems = self.driver.find_elements(By.TAG_NAME, "body")
+            if body_elems:
+                body_text = (body_elems[0].text or "").lower()
+                if "you don't have permission to access" in body_text or "edgesuite.net" in body_text:
+                    return True
         except Exception:
             pass
         return False
+
+    def recover_from_access_denied(self) -> bool:
+        """Recovers from Akamai plaintext HTTP Access Denied by forcing HTTPS."""
+        if not self.driver:
+            return False
+        try:
+            curr_url = (self.driver.current_url or "").strip()
+            if "/search" in curr_url or "/srp" in curr_url:
+                if curr_url.startswith("http://"):
+                    secure_url = curr_url.replace("http://", "https://", 1)
+                elif not curr_url.startswith("https://"):
+                    secure_url = "https://" + curr_url.lstrip("/")
+                else:
+                    secure_url = curr_url
+                print_lg(f"[FounditSearch] Transient Access Denied on search page. Upgrading to secure HTTPS: {secure_url}...")
+                if hasattr(self.browser, "navigate"):
+                    self.browser.navigate(secure_url)
+                else:
+                    self.driver.get(secure_url)
+                time.sleep(2.5)
+                return not self.is_access_denied()
+
+            print_lg("[FounditSearch] Recovering from Access Denied via home URL...")
+            if hasattr(self.browser, "navigate"):
+                self.browser.navigate(HOME_URL)
+            else:
+                self.driver.get(HOME_URL)
+            time.sleep(2)
+            return not self.is_access_denied()
+        except Exception:
+            return False
 
     def _find_visible_element(self, selectors: List[str]) -> Optional[WebElement]:
         """Finds first visible element matching a list of CSS or XPath selectors."""
@@ -223,15 +257,15 @@ class FounditSearch:
         if not self.driver:
             return False
 
-        # If on Access Denied page, immediately recover to clean home page
+        # If on Access Denied page, immediately recover
         if self.is_access_denied():
-            print_lg("[FounditSearch] Access Denied / EdgeSuite block detected on current page. Returning to home page...")
-            self.browser.navigate(HOME_URL)
-            time.sleep(3)
+            print_lg("[FounditSearch] Access Denied / EdgeSuite block detected on current page. Recovering...")
+            self.recover_from_access_denied()
+            time.sleep(2)
 
         current_url = (self.driver.current_url or "").lower()
         if "foundit.in" not in current_url:
-            self.browser.navigate(HOME_URL)
+            self.browser.navigate(USER_HOME_URL)
             time.sleep(2)
 
         # 1. Locate Skills input (Home or SRP)
@@ -246,7 +280,7 @@ class FounditSearch:
         if not skills_input:
             # If not on home or SRP with inputs, navigate to home
             print_lg("[FounditSearch] Navigating to Foundit home page to access search bar...")
-            self.browser.navigate(HOME_URL)
+            self.browser.navigate(USER_HOME_URL)
             time.sleep(2.5)
             skills_input = self._find_visible_element([
                 HOME_SKILLS_INPUT,
@@ -427,7 +461,10 @@ class FounditSearch:
         start_wait = time.time()
         while time.time() - start_wait < 10:
             if self.is_access_denied():
-                print_lg("[FounditSearch] Warning: Access Denied encountered during UI search.")
+                print_lg("[FounditSearch] Warning: Access Denied encountered during UI search. Attempting HTTPS recovery...")
+                if self.recover_from_access_denied():
+                    time.sleep(2)
+                    break
                 return False
             cur_url = (self.driver.current_url or "").lower()
             if "/search" in cur_url or "/srp" in cur_url or self.find_job_cards():
@@ -440,12 +477,18 @@ class FounditSearch:
         # 5. Apply Experience Filter on left sidebar if requested
         if experience_years is not None and experience_years >= 0:
             self.apply_sidebar_experience_filter(experience_years)
+            if self.is_access_denied():
+                self.recover_from_access_denied()
 
         # 6. Apply or deactivate Quick Apply toggle on SRP based on configuration
         if quick_apply:
             self.apply_quick_apply_filter()
+            if self.is_access_denied():
+                self.recover_from_access_denied()
         else:
             self.ensure_quick_apply_filter_off()
+            if self.is_access_denied():
+                self.recover_from_access_denied()
 
         return True
 
@@ -701,9 +744,9 @@ class FounditSearch:
 
         # 1. Access Denied recovery
         if self.is_access_denied():
-            print_lg("[FounditSearch] Access Denied detected on current page. Recovering to home page...")
-            self.browser.navigate(HOME_URL)
-            time.sleep(2.5)
+            print_lg("[FounditSearch] Access Denied detected on current page. Recovering...")
+            self.recover_from_access_denied()
+            time.sleep(2.0)
 
         # 2. If page > 1, advance strictly via UI pagination controls on the active search results page
         if page > 1:
@@ -723,6 +766,8 @@ class FounditSearch:
                     self.driver.execute_script("arguments[0].click();", next_btn)
                 time.sleep(random.uniform(2.5, 4.0))
                 self.close_open_modals()
+                if self.is_access_denied():
+                    self.recover_from_access_denied()
                 cards = self.find_job_cards()
                 if cards:
                     return cards
@@ -740,6 +785,8 @@ class FounditSearch:
                         self.driver.execute_script("arguments[0].click();", pb)
                         time.sleep(random.uniform(2.5, 4.0))
                         self.close_open_modals()
+                        if self.is_access_denied():
+                            self.recover_from_access_denied()
                         cards = self.find_job_cards()
                         if cards:
                             return cards
@@ -750,6 +797,8 @@ class FounditSearch:
             print_lg(f"[FounditSearch] Scrolling to bottom to load more jobs for page {page}...")
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(random.uniform(2.0, 3.5))
+            if self.is_access_denied():
+                self.recover_from_access_denied()
             cards = self.find_job_cards()
             return cards
 
@@ -765,10 +814,26 @@ class FounditSearch:
         if not ui_success:
             print_lg("[FounditSearch] UI search execution was not completed or encountered a block.")
             if self.is_access_denied():
-                print_lg("[FounditSearch] Blocked by Akamai EdgeSuite Access Denied during UI search.")
-            return []
+                print_lg("[FounditSearch] Blocked by Akamai EdgeSuite Access Denied during UI search. Attempting HTTPS recovery...")
+                self.recover_from_access_denied()
 
         cards = self.find_job_cards()
+        if not cards or self.is_access_denied():
+            # Intelligent fallback: Navigate to canonical HTTPS search URL directly
+            print_lg("[FounditSearch] Falling back to direct canonical HTTPS search navigation...")
+            direct_url = build_search_url(
+                keyword=keyword,
+                location=location,
+                experience_years=experience_years,
+                freshness_days=freshness_days,
+                page=page,
+            )
+            self.browser.navigate(direct_url)
+            time.sleep(3.0)
+            if self.is_access_denied():
+                self.recover_from_access_denied()
+            cards = self.find_job_cards()
+
         print_lg(f"[FounditSearch] Found {len(cards)} job cards via UI search on page 1.")
         return cards
     def find_job_cards(self) -> List[WebElement]:

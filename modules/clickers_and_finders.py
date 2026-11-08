@@ -17,16 +17,24 @@ from selenium.webdriver.common.action_chains import ActionChains
 # Click Functions
 def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=True, scroll: bool=True, scrollTop: bool=False) -> WebElement | bool:
     '''
-    Finds the span element with the given `text`.
+    Finds a clickable element with the given `text` (span, button, or labeled container).
     - Returns `WebElement` if found, else `False` if not found.
     - Clicks on it if `click = True`.
-    - Will spend a max of `time` seconds in searching for each element.
+    - Will spend a max of `time` seconds searching.
     - Will scroll to the element if `scroll = True`.
     - Will scroll to the top if `scrollTop = True`.
     '''
     if text:
+        xpaths = [
+            f'.//span[normalize-space(.)="{text}"]',
+            f'.//button[normalize-space(.)="{text}"]',
+            f'.//button[contains(normalize-space(.), "{text}")]',
+            f'.//button[contains(@aria-label, "{text}")]',
+            f'.//*[self::span or self::button or self::div or self::p][normalize-space(.)="{text}"]',
+        ]
+        combined_xpath = " | ".join(xpaths)
         try:
-            button = WebDriverWait(driver,time).until(EC.presence_of_element_located((By.XPATH, './/span[normalize-space(.)="'+text+'"]')))
+            button = WebDriverWait(driver, time).until(EC.presence_of_element_located((By.XPATH, combined_xpath)))
             if scroll:  scroll_to_view(driver, button, scrollTop)
             if click:
                 try:
@@ -39,6 +47,35 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
             print_lg("Click Failed! Didn't find '"+text+"'")
             # print_lg(e)
             return False
+
+def find_easy_apply_modal(driver: WebDriver, timeout: float = 5.0) -> WebElement:
+    '''
+    Locates the active Easy Apply modal dialog across legacy and modern Genesis SDUI layouts.
+    Supports <dialog[open]>, <dialog[data-testid='dialog']>, .jobs-easy-apply-modal, and div[role='dialog'].
+    '''
+    modal_selectors = [
+        (By.CSS_SELECTOR, "dialog[open]"),
+        (By.CSS_SELECTOR, "dialog[data-testid='dialog']"),
+        (By.CLASS_NAME, "jobs-easy-apply-modal"),
+        (By.XPATH, "//dialog[@open or @data-testid='dialog']"),
+        (By.XPATH, "//div[contains(@class, 'jobs-easy-apply-modal')]"),
+        (By.XPATH, "//div[@role='dialog' and (contains(@aria-labelledby, 'dialog-header') or .//button[contains(@aria-label, 'Dismiss') or contains(., 'Next') or contains(., 'Submit')])]"),
+        (By.CSS_SELECTOR, "div[role='dialog']"),
+    ]
+    import time as time_mod
+    start_time = time_mod.time()
+    while time_mod.time() - start_time < timeout:
+        for by_type, selector in modal_selectors:
+            try:
+                elements = driver.find_elements(by_type, selector)
+                for el in elements:
+                    if el.is_displayed():
+                        return el
+            except Exception:
+                continue
+        time_mod.sleep(0.3)
+    raise NoSuchElementException("Easy Apply modal not found after waiting.")
+
 
 def multi_sel(driver: WebDriver, texts: list, time: float=5.0) -> None:
     '''

@@ -546,16 +546,15 @@ _DOM_EXTRACTION_JS = """(() => {
         let selector;
         const tag = el.tagName.toLowerCase();
         const rawAutoId = el.getAttribute('data-automation-id');
-        if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
+        const isGenericAutoId = /^(checkbox|radio|text|input|select|button|searchBox)$/i.test(rawAutoId || '');
+        if (id && /^[a-zA-Z0-9_-]+$/.test(id) && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
             selector = `#${id}`;
-        } else if (rawAutoId && rawAutoId !== 'searchBox') {
+        } else if (rawAutoId && !isGenericAutoId && document.querySelectorAll(`[data-automation-id="${CSS.escape(rawAutoId)}"]`).length === 1) {
             selector = `[data-automation-id="${rawAutoId.replace(/"/g, '\\"')}"]`;
-        } else if (name) {
+        } else if (name && document.querySelectorAll(`${tag}[name="${CSS.escape(name)}"]`).length === 1) {
             selector = `${tag}[name="${name.replace(/"/g, '\\"')}"]`;
-        } else if (id) {
-            selector = `${tag}[id="${id.replace(/"/g, '\\"')}"]`;
         } else {
-            selector = tag;
+            selector = getUniqueSelector(el);
         }
 
         const isWorkdayPrompt = Boolean(
@@ -576,6 +575,50 @@ _DOM_EXTRACTION_JS = """(() => {
                     const ffAuto = parentFormField.getAttribute('data-automation-id') || '';
                     if (ffAuto.startsWith('formField-')) {
                         label = ffAuto.replace('formField-', '').replace(/([A-Z])/g, ' $1').trim();
+                    }
+                }
+            }
+        }
+
+        if (type === 'checkbox') {
+            if (!label || /^(yes|no|true|false|\s*)$/i.test(label.trim())) {
+                let p = el.parentElement;
+                for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                    const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], legend, h3, h4, h5, p, span');
+                    if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
+                        const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
+                        if (txt && txt.length > 3 && !/^(yes|no|true|false|\s*)$/i.test(txt)) {
+                            label = txt;
+                            break;
+                        }
+                    }
+                    let prev = p.previousElementSibling;
+                    while (prev) {
+                        const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                        if (prevLbl) {
+                            const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
+                            if (txt && txt.length > 3 && !/^(yes|no|true|false|\s*)$/i.test(txt)) {
+                                label = txt;
+                                break;
+                            }
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                    if (label && !/^(yes|no|true|false|\s*)$/i.test(label.trim())) break;
+
+                    const pAuto = (p.getAttribute('data-automation-id') || p.id || '').toLowerCase();
+                    if (pAuto.includes('consent') || pAuto.includes('privacy') || pAuto.includes('terms') || pAuto.includes('agreement')) {
+                        label = 'Terms and Privacy Policy Consent';
+                        break;
+                    }
+                }
+            }
+            if (!required) {
+                let p = el.parentElement;
+                for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                    if (p.querySelector('.required, [class*="required" i], [class*="asterisk" i]') !== null || (p.innerText || '').includes('*')) {
+                        required = true;
+                        break;
                     }
                 }
             }
@@ -667,8 +710,14 @@ _DOM_EXTRACTION_JS = """(() => {
     const customDropdownElements = Array.from(document.querySelectorAll(
         'button[data-automation-id*="dropdown" i], div[data-automation-id*="dropdown" i], ' +
         'button[data-automation-id*="prompt" i], div[data-automation-id*="prompt" i], ' +
-        'button[aria-haspopup="listbox"], [role="combobox"], ' +
-        '[data-automation-id="sourceDropdown"], [data-automation-id="phoneDevice-dropdown"], ' +
+        'button[data-automation-id*="select" i], [data-automation-id*="select-one" i], [data-automation-id*="selectOne" i], ' +
+        'button[data-automation-id*="combobox" i], button[data-automation-id*="option" i], ' +
+        'button[aria-haspopup], [role="combobox"], ' +
+        '[data-automation-id="sourceDropdown"], [data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], ' +
+        '[data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phone" i], button[data-automation-id*="device" i], ' +
+        '[data-automation-id*="phone-device" i], [data-automation-id*="phoneDevice" i], ' +
+        'button[data-automation-id*="gender" i], div[data-automation-id*="gender" i], ' +
+        'button[data-automation-id*="disability" i], div[data-automation-id*="disability" i], ' +
         '[data-automation-id="addressSection_countryRegion"], [data-automation-id="stateDropdown"], ' +
         '#address--countryRegion, #phoneNumber--phoneType, [id*="countryRegion" i], [id*="phoneType" i]'
     )).map(el => {
@@ -696,7 +745,43 @@ _DOM_EXTRACTION_JS = """(() => {
         if (alreadyAdded) continue;
 
         let label = getCleanLabel(el);
-        if (!label || /^(select|choose|search|select\s*one|\s*)$/i.test(label.trim())) {
+        const isGenericLabel = !label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim());
+        if (isGenericLabel) {
+            let p = el.parentElement;
+            for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], legend, h3, h4, h5, p');
+                if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
+                    const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
+                    if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(txt)) {
+                        label = txt;
+                        break;
+                    }
+                }
+                let prev = p.previousElementSibling;
+                while (prev) {
+                    const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                    if (prevLbl) {
+                        const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
+                        if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|\s*)$/i.test(txt)) {
+                            label = txt;
+                            break;
+                        }
+                    }
+                    prev = prev.previousElementSibling;
+                }
+                if (label && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) break;
+
+                const pAuto = (p.getAttribute('data-automation-id') || p.id || '').toLowerCase();
+                if (pAuto.includes('gender') || pAuto.includes('sex')) { label = 'Gender'; break; }
+                if (pAuto.includes('disability')) { label = 'Disability'; break; }
+                if (pAuto.includes('phonedevice') || pAuto.includes('phone-device')) { label = 'Phone Device Type'; break; }
+                if (pAuto.includes('source') || pAuto.includes('hear')) { label = 'How Did You Hear About Us'; break; }
+                if (pAuto.includes('veteran')) { label = 'Veteran Status'; break; }
+                if (pAuto.includes('ethnicity') || pAuto.includes('race')) { label = 'Ethnicity'; break; }
+                if (pAuto.includes('countryregion')) { label = 'State'; break; }
+            }
+        }
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
             const parentFormField = el.closest('[data-automation-id^="formField-"], [class*="formField" i], .form-group, .field-group');
             if (parentFormField) {
                 const ffLabel = parentFormField.querySelector('label, [data-automation-id="formLabel"], [class*="label" i], span, legend');
@@ -711,22 +796,30 @@ _DOM_EXTRACTION_JS = """(() => {
                 }
             }
         }
-        if (!label || /^(select|choose|search|select\s*one|\s*)$/i.test(label.trim())) {
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
             if (rawAutoId) {
                 if (rawAutoId.includes('countryRegion')) label = 'State';
-                else if (rawAutoId.includes('phoneDevice')) label = 'Phone Device Type';
+                else if (rawAutoId.includes('phoneDevice') || rawAutoId.includes('phone') || rawAutoId.includes('device')) label = 'Phone Device Type';
+                else if (rawAutoId.includes('gender') || rawAutoId.includes('sex')) label = 'Gender';
+                else if (rawAutoId.includes('disability')) label = 'Disability';
+                else if (rawAutoId.includes('source') || rawAutoId.includes('hear')) label = 'How Did You Hear About Us';
                 else if (rawAutoId.includes('countryDropdown')) label = 'Country';
-                else label = rawAutoId.replace(/dropdown|prompt/i, '').replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').trim();
+                else if (!/^(select-one-button|selectOne|dropdown|prompt|promptOption|menuItem|button)$/i.test(rawAutoId)) {
+                    label = rawAutoId.replace(/dropdown|prompt/i, '').replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').trim();
+                }
             }
         }
-        if (!label || /^(select|choose|search|select\s*one|\s*)$/i.test(label.trim())) {
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
             if (id) {
                 if (id.includes('countryRegion')) label = 'State';
-                else if (id.includes('phoneType')) label = 'Phone Device Type';
+                else if (id.includes('phoneType') || id.includes('phone') || id.includes('device')) label = 'Phone Device Type';
+                else if (id.includes('gender') || id.includes('sex')) label = 'Gender';
+                else if (id.includes('disability')) label = 'Disability';
+                else if (id.includes('source') || id.includes('hear')) label = 'How Did You Hear About Us';
                 else label = id.replace(/[-_]/g, ' ').replace(/([A-Z])/g, ' $1').trim();
             }
         }
-        if (!label) continue;
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) continue;
 
         let required = el.getAttribute('aria-required') === 'true' || el.required;
         if (!required) {
@@ -741,10 +834,11 @@ _DOM_EXTRACTION_JS = """(() => {
         const currentVal = isPlaceholderText ? '' : innerText;
 
         let selector;
-        if (rawAutoId) {
-            selector = `[data-automation-id="${rawAutoId.replace(/"/g, '\\"')}"]`;
-        } else if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
+        const isGenericAuto = /^(select-one-button|selectOne|dropdown|prompt|promptOption|menuItem|button)$/i.test(rawAutoId || '');
+        if (id && /^[a-zA-Z0-9_-]+$/.test(id) && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
             selector = `#${id}`;
+        } else if (rawAutoId && !isGenericAuto && document.querySelectorAll(`[data-automation-id="${CSS.escape(rawAutoId)}"]`).length === 1) {
+            selector = `[data-automation-id="${rawAutoId.replace(/"/g, '\\"')}"]`;
         } else {
             selector = getUniqueSelector(el);
         }

@@ -49,7 +49,7 @@ class FounditAuth:
         # 1. Ensure we are on a Foundit page so cookies and profile session are active
         current_url = (self.driver.current_url or "").lower()
         if "foundit.in" not in current_url:
-            self.browser.navigate(HOME_URL)
+            self.browser.navigate(LOGIN_URL)
             time.sleep(2)
 
         # 2. Check if session is already authenticated via stored cookies or profile
@@ -59,7 +59,15 @@ class FounditAuth:
             return (True, "Already logged in.")
 
         if initial_state in ["CAPTCHA", "OTP_REQUIRED"]:
-            return (False, f"Challenge encountered ({initial_state}). Manual intervention required.")
+            # If initially flagged due to transient Access Denied on root page, recover via LOGIN_URL
+            if self.browser.is_access_denied():
+                self.browser.navigate(LOGIN_URL)
+                time.sleep(2)
+                initial_state = self.browser.check_session_state()
+                if initial_state == "LOGGED_IN":
+                    return (True, "Already logged in.")
+            if initial_state in ["CAPTCHA", "OTP_REQUIRED"]:
+                return (False, f"Challenge encountered ({initial_state}). Manual intervention required.")
 
         # Resolve credentials if not explicitly passed
         if not username or not password:
@@ -121,52 +129,101 @@ class FounditAuth:
         if not user_input:
             return (False, "Username input field not found on login view.")
 
+        try:
+            user_input.click()
+        except Exception:
+            pass
         user_input.clear()
+        try:
+            self.driver.execute_script("arguments[0].value = '';", user_input)
+        except Exception:
+            pass
         user_input.send_keys(username)
-        time.sleep(0.5)
+        try:
+            self.driver.execute_script(
+                "arguments[0].dispatchEvent(new Event('input', { bubbles: true })); "
+                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                user_input,
+            )
+        except Exception:
+            pass
+        time.sleep(0.8)
 
-        # 5. Switch to Password Mode (from OTP prompt)
-        switched = False
-        for xp in LOGIN_PASSWORD_SWITCH_LINKS:
+        # 5. Switch to Password Mode (from OTP prompt) if password field not already visible
+        pwd_already_visible = False
+        for psel in [LOGIN_PASSWORD_INPUT, "input#password", "input[type='password']"]:
             try:
-                elems = self.driver.find_elements(By.XPATH if xp.startswith("//") else By.CSS_SELECTOR, xp)
-                for el in elems:
-                    if el.is_displayed():
-                        self.driver.execute_script("arguments[0].click();", el)
-                        switched = True
-                        time.sleep(1)
+                for pel in self.driver.find_elements(By.CSS_SELECTOR, psel):
+                    if pel.is_displayed():
+                        pwd_already_visible = True
                         break
-                if switched:
+                if pwd_already_visible:
                     break
             except Exception:
                 continue
+
+        if not pwd_already_visible:
+            switched = False
+            for xp in LOGIN_PASSWORD_SWITCH_LINKS:
+                try:
+                    elems = self.driver.find_elements(By.XPATH if xp.startswith("//") else By.CSS_SELECTOR, xp)
+                    for el in elems:
+                        if el.is_displayed():
+                            try:
+                                el.click()
+                            except Exception:
+                                self.driver.execute_script("arguments[0].click();", el)
+                            switched = True
+                            time.sleep(2)
+                            break
+                    if switched:
+                        break
+                except Exception:
+                    continue
 
         # 6. Fill Password
         pwd_input = None
-        for sel in [LOGIN_PASSWORD_INPUT, "input#password", "input[type='password']"]:
-            try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                    if el.is_displayed():
-                        pwd_input = el
+        for attempt in range(4):
+            for sel in [LOGIN_PASSWORD_INPUT, "input#password", "input[type='password']"]:
+                try:
+                    for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                        if el.is_displayed():
+                            pwd_input = el
+                            break
+                    if pwd_input:
                         break
-                if pwd_input:
+                except Exception:
+                    continue
+            if pwd_input:
+                try:
+                    pwd_input.click()
+                    pwd_input.clear()
+                    self.driver.execute_script("arguments[0].value = '';", pwd_input)
                     break
-            except Exception:
-                continue
+                except Exception:
+                    pwd_input = None
+                    time.sleep(0.5)
 
         if not pwd_input:
             return (False, "Password input field not displayed after switching to password mode.")
 
-        pwd_input.clear()
-        pwd_input.send_keys(password)
-        time.sleep(0.5)
+        try:
+            pwd_input.send_keys(password)
+            self.driver.execute_script(
+                "arguments[0].dispatchEvent(new Event('input', { bubbles: true })); "
+                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                pwd_input,
+            )
+        except Exception:
+            pass
+        time.sleep(0.8)
 
         # 7. Click Submit
         submit_btn = None
         for sel in [LOGIN_SUBMIT_BUTTON, "button#loginSubmit", "button[type='submit']"]:
             try:
                 for b in self.driver.find_elements(By.CSS_SELECTOR, sel):
-                    if b.is_displayed() and "login" in (b.text or "").strip().lower():
+                    if b.is_displayed() and ("login" in (b.text or "").strip().lower() or b.get_attribute("id") == "loginSubmit"):
                         submit_btn = b
                         break
                 if submit_btn:
@@ -188,6 +245,11 @@ class FounditAuth:
         start_t = time.time()
         while time.time() - start_t < timeout:
             time.sleep(1)
+
+            # Check if plaintext HTTP redirect or transient Access Denied occurred
+            if (self.driver.current_url or "").startswith("http://") or self.browser.is_access_denied():
+                self.browser.recover_from_access_denied()
+
             state = self.browser.check_session_state()
 
             if state == "LOGGED_IN":
@@ -199,11 +261,14 @@ class FounditAuth:
                 return (False, f"Challenge encountered ({state}). Manual intervention required.")
 
             # Check for invalid credentials error messages
-            for err_sel in ["div.error", "span.error-msg", "div[class*='error']", "p[class*='error']"]:
+            for err_sel in [
+                "div.error", "span.error-msg", "div[class*='error']", "p[class*='error']",
+                "div.text-red-500", "span.text-red-500", "div[class*='toast']", "div[class*='alert']"
+            ]:
                 try:
                     for err_el in self.driver.find_elements(By.CSS_SELECTOR, err_sel):
                         txt = (err_el.text or "").strip()
-                        if err_el.is_displayed() and any(w in txt.lower() for w in ["invalid", "incorrect", "wrong password", "not registered"]):
+                        if err_el.is_displayed() and any(w in txt.lower() for w in ["invalid", "incorrect", "wrong password", "not registered", "please try again"]):
                             print_lg(f"[FounditAuth] Authentication failed with error: {txt}")
                             return (False, f"Authentication error: {txt}")
                 except Exception:

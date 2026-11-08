@@ -920,8 +920,12 @@ class FounditPlatform(BasePlatformApplier):
         if not self.browser:
             self.initialize()
 
-        from platforms.foundit.selectors import HOME_URL
-        self.browser.navigate(HOME_URL)
+        if self.browser.is_logged_in():
+            print_lg("[FounditPlatform] Active authenticated session confirmed.")
+            return True
+
+        from platforms.foundit.selectors import LOGIN_URL
+        self.browser.navigate(LOGIN_URL)
         time.sleep(2)
         self.browser.dismiss_unexpected_popups()
 

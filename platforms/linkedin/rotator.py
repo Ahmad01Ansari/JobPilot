@@ -3,6 +3,7 @@
 Iterates through search terms, pages through listings, and executes pre-filtering deduplication.
 """
 
+import re
 import time
 from typing import List, Optional, Callable, Dict, Any
 from urllib.parse import urlencode
@@ -14,6 +15,7 @@ from platforms.linkedin.selectors import (
     JOB_RESULTS_CONTAINER,
     JOB_RESULTS_CONTAINERS,
     JOB_CARD_ITEMS,
+    JOB_CARD_CLICKABLE_SELECTORS,
     JOB_DETAILS_CONTAINER,
     NO_RESULTS_INDICATORS,
 )
@@ -160,31 +162,58 @@ class LinkedInRotator:
             print_lg(f"[LinkedInRotator] Notice scrolling job container: {e}")
 
     def wait_for_job_cards(self, driver: Any, max_wait: float = 12.0) -> List[Any]:
-        """Waits for job cards to populate in DOM, checking for early zero-results signals."""
+        """Waits for job cards to populate in DOM, ensuring cards take priority over banners."""
         start_time = time.time()
         while time.time() - start_time < max_wait:
-            # 1. Check if any cards exist in DOM first
+            # 1. Check if any cards exist in DOM first (cards ALWAYS take priority)
             for item_sel in JOB_CARD_ITEMS:
                 try:
                     by_type = By.XPATH if item_sel.startswith("//") else By.CSS_SELECTOR
                     cards = driver.find_elements(by_type, item_sel)
                     if cards and any(getattr(c, "is_displayed", lambda: True)() for c in cards):
-                        return cards
+                        # Deduplicate in case selector matched nested elements
+                        deduped = []
+                        seen_ids = set()
+                        for c in cards:
+                            jid = LinkedInJobParser.extract_job_id_from_card(c)
+                            if jid:
+                                if jid not in seen_ids:
+                                    seen_ids.add(jid)
+                                    deduped.append(c)
+                            else:
+                                deduped.append(c)
+                        if deduped:
+                            return deduped
                 except Exception:
                     pass
 
-            # 2. If no cards, check for fast zero-results indicators with text verification
-            for nr_sel in NO_RESULTS_INDICATORS:
-                try:
-                    by_type = By.XPATH if nr_sel.startswith("//") else By.CSS_SELECTOR
-                    elems = driver.find_elements(by_type, nr_sel)
-                    if elems and any(getattr(e, "is_displayed", lambda: False)() for e in elems):
-                        banner_text = " ".join([getattr(e, "text", "") for e in elems]).lower()
-                        if "no matching" in banner_text or "no jobs" in banner_text or nr_sel.startswith("//h1"):
-                            print_lg("[LinkedInRotator] Detected 'No matching jobs found' banner on LinkedIn.")
-                            return []
-                except Exception:
-                    pass
+            # 2. Check for zero-results indicator ONLY after allowing at least 4.0 seconds for cards to render.
+            # Never exit early on t=0 because eager page-load returns before async cards finish rendering.
+            elapsed = time.time() - start_time
+            if elapsed >= 4.0:
+                for nr_sel in NO_RESULTS_INDICATORS:
+                    try:
+                        by_type = By.XPATH if nr_sel.startswith("//") else By.CSS_SELECTOR
+                        elems = driver.find_elements(by_type, nr_sel)
+                        displayed_elems = [e for e in elems if getattr(e, "is_displayed", lambda: False)()]
+                        if displayed_elems:
+                            banner_text = " ".join([getattr(e, "text", "") for e in displayed_elems]).lower()
+                            if "no matching jobs" in banner_text or "no jobs found" in banner_text:
+                                # Even if banner is present, verify there are genuinely no cards on screen
+                                any_cards_present = False
+                                for item_sel in JOB_CARD_ITEMS[:8]:
+                                    try:
+                                        by_t = By.XPATH if item_sel.startswith("//") else By.CSS_SELECTOR
+                                        if driver.find_elements(by_t, item_sel):
+                                            any_cards_present = True
+                                            break
+                                    except Exception:
+                                        pass
+                                if not any_cards_present:
+                                    print_lg("[LinkedInRotator] Detected genuine 'No matching jobs found' banner on LinkedIn.")
+                                    return []
+                    except Exception:
+                        pass
 
             time.sleep(1.0)
 
@@ -194,7 +223,17 @@ class LinkedInRotator:
                 by_type = By.XPATH if item_sel.startswith("//") else By.CSS_SELECTOR
                 cards = driver.find_elements(by_type, item_sel)
                 if cards:
-                    return cards
+                    deduped = []
+                    seen_ids = set()
+                    for c in cards:
+                        jid = LinkedInJobParser.extract_job_id_from_card(c)
+                        if jid:
+                            if jid not in seen_ids:
+                                seen_ids.add(jid)
+                                deduped.append(c)
+                        else:
+                            deduped.append(c)
+                    return deduped if deduped else cards
             except Exception:
                 pass
 
@@ -273,6 +312,29 @@ class LinkedInRotator:
 
                     job_id = LinkedInJobParser.extract_job_id_from_card(card)
                     if not job_id:
+                        # Attempt to activate card to reveal job ID in URL or DOM
+                        try:
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});", card)
+                            time.sleep(0.3)
+                            for click_sel in JOB_CARD_CLICKABLE_SELECTORS:
+                                targets = card.find_elements(By.CSS_SELECTOR, click_sel)
+                                if targets:
+                                    try:
+                                        targets[0].click()
+                                    except Exception:
+                                        driver.execute_script("arguments[0].click();", targets[0])
+                                    break
+                            time.sleep(1.0)
+                            curr_url = getattr(driver, "current_url", "") or ""
+                            m_url = re.search(r"(?:/jobs/view/|currentJobId=)(\d+)", curr_url)
+                            if m_url:
+                                job_id = m_url.group(1)
+                            else:
+                                job_id = LinkedInJobParser.extract_job_id_from_card(card)
+                        except Exception:
+                            pass
+
+                    if not job_id:
                         continue
 
                     stats["jobs_evaluated"] += 1
@@ -287,16 +349,46 @@ class LinkedInRotator:
                         consecutive_skips += 1
                         continue
 
-                    # Click card to load details
+                    # Click card to load details using robust inner target + JS fallback
+                    clicked = False
                     try:
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", card)
-                        time.sleep(0.5)
-                        card.click()
-                        time.sleep(2)
-                    except Exception as e:
-                        print_lg(f"[LinkedInRotator] Notice clicking job card {job_id}: {e}")
-                        consecutive_skips += 1
-                        continue
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});", card)
+                        time.sleep(0.3)
+                    except Exception:
+                        pass
+
+                    for click_sel in JOB_CARD_CLICKABLE_SELECTORS:
+                        try:
+                            targets = card.find_elements(By.CSS_SELECTOR, click_sel)
+                            for target in targets:
+                                if getattr(target, "is_displayed", lambda: True)():
+                                    try:
+                                        target.click()
+                                        clicked = True
+                                        break
+                                    except Exception:
+                                        driver.execute_script("arguments[0].click();", target)
+                                        clicked = True
+                                        break
+                            if clicked:
+                                break
+                        except Exception:
+                            continue
+
+                    if not clicked:
+                        try:
+                            card.click()
+                            clicked = True
+                        except Exception:
+                            try:
+                                driver.execute_script("arguments[0].click();", card)
+                                clicked = True
+                            except Exception as e:
+                                print_lg(f"[LinkedInRotator] Notice clicking job card {job_id}: {e}")
+                                consecutive_skips += 1
+                                continue
+
+                    time.sleep(1.5)
 
                     # Reset consecutive skips on a fresh viable candidate
                     consecutive_skips = 0

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 256" width="740" height="256" role="img" aria-labelledby="title-lockup">
+  <title id="title-lockup">JobPilot Logo Lockup</title>
+  
+  <!-- Symbol Group (x=12, y=0) -->
+  <g id="symbol" transform="translate(12, 0)">
+    <path fill="#0F172A" fill-rule="evenodd" d="
+      M 128 16 A 8 8 0 1 0 128 32 A 8 8 0 1 0 128 16 Z
+      M 125 32 L 131 32 L 131 44 L 125 44 Z
+      M 88 44 L 168 44 A 24 24 0 0 1 192 68 L 192 96 A 24 24 0 0 1 168 120 L 88 120 A 24 24 0 0 1 64 96 L 64 68 A 24 24 0 0 1 88 44 Z
+      M 96 66 L 160 66 A 12 12 0 0 1 172 78 L 172 86 A 12 12 0 0 1 160 98 L 96 98 A 12 12 0 0 1 84 86 L 84 78 A 12 12 0 0 1 96 66 Z
+      M 56 68 L 64 68 L 64 96 L 56 96 A 4 4 0 0 1 52 92 L 52 72 A 4 4 0 0 1 56 68 Z
+      M 192 68 L 200 68 A 4 4 0 0 1 204 72 L 204 92 A 4 4 0 0 1 200 96 L 192 96 Z
+      M 116 120 L 140 120 L 140 128 L 116 128 Z
+      M 88 128 L 168 128 A 24 24 0 0 1 192 152 L 192 184 L 64 184 L 64 152 A 24 24 0 0 1 88 128 Z
+      M 36 216 L 66 186 L 190 186 L 220 216 L 224 216 A 6 6 0 0 1 230 222 L 230 226 A 4 4 0 0 1 226 230 L 30 230 A 4 4 0 0 1 26 226 L 26 222 A 6 6 0 0 1 32 216 Z
+      M 112 218 L 144 218 L 144 224 L 112 224 Z
+    "/>
+    <g fill="#0284C7">
+      <circle cx="108" cy="82" r="7"/>
+      <circle cx="148" cy="82" r="7"/>
+      <rect x="76" y="184" width="104" height="4" rx="2"/>
+    </g>
+    <path fill="#FF5F15" d="
+      M 180 120 L 232 120 L 198 170 L 182 154 L 196 140 L 164 140 Z
+      M 148 136 L 178 136 L 162 152 L 148 152 Z
+    "/>
+  </g>
+
+  <!-- Wordmark 'JobPilot' (Pure outlined vectors, centered vertically at y=80..176) -->
+  <g id="wordmark" transform="translate(268, 86)">
+    <!-- J -->
+    <path fill="#0F172A" d="
+      M 24 4 L 46 4 L 46 64 A 24 24 0 0 1 0 64 L 18 64 A 6 6 0 0 0 24 64 L 24 4 Z
+    "/>
+    <!-- o -->
+    <path fill="#0F172A" fill-rule="evenodd" d="
+      M 82 24 A 26 26 0 1 0 82 76 A 26 26 0 1 0 82 24 Z
+      M 82 38 A 12 12 0 1 1 82 62 A 12 12 0 1 1 82 38 Z
+    "/>
+    <!-- b -->
+    <path fill="#0F172A" fill-rule="evenodd" d="
+      M 118 4 L 134 4 L 134 30 A 24 24 0 0 1 168 52 A 24 24 0 0 1 134 76 L 118 76 Z
+      M 134 40 A 14 14 0 0 1 148 52 A 14 14 0 0 1 134 64 Z
+    "/>
+
+    <!-- P -->
+    <path fill="#FF5F15" fill-rule="evenodd" d="
+      M 194 4 L 234 4 A 22 22 0 0 1 234 46 L 210 46 L 210 76 L 194 76 Z
+      M 210 18 L 228 18 A 8 8 0 0 1 228 32 L 210 32 Z
+    "/>
+    <!-- i -->
+    <path fill="#FF5F15" d="
+      M 264 10 A 8 8 0 1 0 264 26 A 8 8 0 1 0 264 10 Z
+      M 256 32 L 272 32 L 272 76 L 256 76 Z
+    "/>
+    <!-- l -->
+    <path fill="#FF5F15" d="
+      M 294 4 L 310 4 L 310 76 L 294 76 Z
+    "/>
+    <!-- o -->
+    <path fill="#FF5F15" fill-rule="evenodd" d="
+      M 350 24 A 26 26 0 1 0 350 76 A 26 26 0 1 0 350 24 Z
+      M 350 38 A 12 12 0 1 1 350 62 A 12 12 0 1 1 350 38 Z
+    "/>
+    <!-- t -->
+    <path fill="#FF5F15" d="
+      M 400 12 L 416 12 L 416 30 L 434 30 L 434 42 L 416 42 L 416 66 A 10 10 0 0 0 426 76 L 434 76 L 434 88 A 20 20 0 0 1 416 88 A 22 22 0 0 1 400 68 L 400 42 L 390 42 L 390 30 L 400 30 Z
+    "/>
+  </g>
+</svg>

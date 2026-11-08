@@ -345,17 +345,6 @@ class FormFiller:
                     try {{ el.scrollIntoView({{ behavior: 'smooth', block: 'center' }}); }} catch(e) {{}}
 
                     if (el.checked !== desired) {{
-                        const proto = window.HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
-                        if (setter) {{
-                            setter.call(el, desired);
-                        }} else {{
-                            el.checked = desired;
-                        }}
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-
-                        // Trigger click on associated label or wrapper if needed (pretty-checkbox, etc.)
                         const id = el.id;
                         const lbl = (id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null) ||
                                      el.closest('label') ||
@@ -364,14 +353,20 @@ class FormFiller:
                         if (lbl && lbl !== el) {{
                             try {{ lbl.click(); }} catch(e) {{}}
                         }}
-
                         if (el.checked !== desired) {{
                             try {{ el.click(); }} catch(e) {{}}
                         }}
-
                         if (el.checked !== desired) {{
-                            el.checked = desired;
+                            const proto = window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
+                            if (setter) {{
+                                setter.call(el, desired);
+                            }} else {{
+                                el.checked = desired;
+                            }}
+                            el.dispatchEvent(new Event('input', {{ bubbles: true }}));
                             el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            el.dispatchEvent(new Event('click', {{ bubbles: true }}));
                         }}
                     }}
                     return el.checked === desired;
@@ -508,7 +503,7 @@ class FormFiller:
             const consentRegex = /privacy|privacy[\\s_-]*notice|privacy[\\s_-]*policy|personal[\\s_-]*information|personal[\\s_-]*data|store[\\s_-]*(?:your[\\s_-]*)?personal|process[\\s_-]*(?:your[\\s_-]*)?personal|consent|data[\\s_-]*protection|terms|terms[\\s_-]*and[\\s_-]*conditions|terms[\\s_-]*of[\\s_-]*service|terms[\\s_-]*of[\\s_-]*use|agree|agreement|acknowledg|certify|declaration|accurate|true[\\s_-]*and[\\s_-]*correct|gdpr/i;
             const marketingRegex = /marketing|newsletter|promotional|updates[\\s_-]*via[\\s_-]*email/i;
 
-            const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"], [role="checkbox"]'));
+            const checkboxes = Array.from(document.querySelectorAll('input[type="checkbox"], [role="checkbox"], [data-automation-id*="checkbox" i]'));
             for (const el of checkboxes) {
                 // If it's a native checkbox and already checked, skip
                 if (el.tagName.toLowerCase() === 'input' && el.checked) continue;
@@ -523,25 +518,48 @@ class FormFiller:
                 let labelText = '';
                 if (id) {
                     const lblEl = document.querySelector('label[for="' + CSS.escape(id) + '"]');
-                    if (lblEl) labelText = lblEl.innerText || lblEl.textContent || '';
+                    if (lblEl) labelText = (lblEl.innerText || lblEl.textContent || '').trim();
                 }
                 if (!labelText) {
                     const parentLbl = el.closest('label');
-                    if (parentLbl) labelText = parentLbl.innerText || parentLbl.textContent || '';
+                    if (parentLbl) labelText = (parentLbl.innerText || parentLbl.textContent || '').trim();
                 }
-                const container = el.closest('.pretty, .custom-control, .form-check, .checkbox, .field-group, .form-group, fieldset, div');
-                const containerText = container ? (container.innerText || container.textContent || '') : '';
-                
-                const allText = (id + ' ' + name + ' ' + ariaLabel + ' ' + labelText + ' ' + containerText).toLowerCase();
 
-                // Skip marketing / newsletter subscriptions
-                if (marketingRegex.test(allText)) continue;
+                let containerText = '';
+                let hasRequiredIndicator = false;
+                let p = el.parentElement;
+                for (let depth = 0; depth < 5 && p && p !== document.body && !/^(form|main|body|html|section)$/i.test(p.tagName); depth++, p = p.parentElement) {
+                    // Do not expand to ancestor containers that hold multiple different form controls
+                    if (p.querySelectorAll('input:not([type="hidden"]), select, textarea').length > 3) {
+                        break;
+                    }
+                    const txt = (p.innerText || p.textContent || '').trim();
+                    if (txt.length > containerText.length) {
+                        containerText = txt;
+                    }
+                    if (p.querySelector('.required, [class*="required" i], [class*="asterisk" i]') !== null || txt.includes('*')) {
+                        hasRequiredIndicator = true;
+                    }
+                    if (!labelText) {
+                        const lbl = p.querySelector('label, [data-automation-id="formLabel"], legend, span, p');
+                        if (lbl && (lbl.innerText || '').trim()) {
+                            labelText = lbl.innerText.trim();
+                        }
+                    }
+                }
+                
+                const fieldText = (id + ' ' + name + ' ' + ariaLabel + ' ' + labelText).toLowerCase();
+                const allText = (fieldText + ' ' + containerText).toLowerCase();
+
+                // Skip if this specific field is a marketing / newsletter subscription
+                const isMarketing = marketingRegex.test(fieldText) || (!consentRegex.test(fieldText) && marketingRegex.test(allText));
+                if (isMarketing) continue;
 
                 const isRequired = el.required || 
                                    el.getAttribute('aria-required') === 'true' || 
                                    labelText.includes('*') || 
                                    labelText.toLowerCase().includes('(required)') ||
-                                   (container && (container.querySelector('.required, [class*="asterisk" i]') !== null || containerText.includes('*')));
+                                   hasRequiredIndicator;
 
                 const isConsent = consentRegex.test(allText);
 
@@ -549,34 +567,30 @@ class FormFiller:
                     try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e) {}
 
                     if (el.tagName.toLowerCase() === 'input') {
-                        const proto = window.HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
-                        if (setter) {
-                            setter.call(el, true);
-                        } else {
-                            el.checked = true;
-                        }
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-
-                        // Click associated label or pretty wrapper if needed
-                        const targetLabel = (id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null) || 
-                                            el.closest('label') || 
-                                            el.closest('.pretty, .custom-control, .form-check') || 
-                                            el;
-                        if (targetLabel && targetLabel !== el) {
-                            try { targetLabel.click(); } catch(e) {}
-                        }
-
                         if (!el.checked) {
                             try { el.click(); } catch(e) {}
                         }
-
                         if (!el.checked) {
-                            el.checked = true;
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            const targetLabel = (id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null) || 
+                                                el.closest('label') || 
+                                                el.closest('.pretty, .custom-control, .form-check, .checkbox') || 
+                                                el.parentElement?.querySelector('label');
+                            if (targetLabel && targetLabel !== el) {
+                                try { targetLabel.click(); } catch(e) {}
+                            }
                         }
-
+                        if (!el.checked) {
+                            const proto = window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'checked')?.set;
+                            if (setter) {
+                                setter.call(el, true);
+                            } else {
+                                el.checked = true;
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        }
                         if (el.checked) acceptedCount++;
                     } else {
                         // ARIA checkbox
@@ -821,13 +835,24 @@ class FormFiller:
                 // Fallback by automation-id, aria-label, or parent form field label
                 const candidates = Array.from(document.querySelectorAll(
                     'button[data-automation-id*="dropdown" i], button[data-automation-id*="prompt" i], ' +
-                    'button[aria-haspopup="listbox"], div[role="combobox"], [data-automation-id="sourceDropdown"], ' +
-                    '[data-automation-id="phoneDevice-dropdown"], [data-automation-id="addressSection_countryRegion"], ' +
-                    '[data-automation-id="stateDropdown"], #source--source, input[data-automation-id="searchBox"]'
+                    'button[data-automation-id*="select" i], [data-automation-id*="select-one" i], [data-automation-id*="selectOne" i], ' +
+                    'button[data-automation-id*="combobox" i], button[data-automation-id*="option" i], ' +
+                    'button[aria-haspopup="listbox"], button[aria-haspopup], div[role="combobox"], [data-automation-id="sourceDropdown"], ' +
+                    '[data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], ' +
+                    '[data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phone" i], button[data-automation-id*="device" i], ' +
+                    '[data-automation-id*="phone-device" i], [data-automation-id*="phoneDevice" i], [id*="phoneType" i], [id*="phoneNumber" i], ' +
+                    'button[data-automation-id*="gender" i], [data-automation-id*="gender" i], ' +
+                    'button[data-automation-id*="disability" i], [data-automation-id*="disability" i], ' +
+                    '[data-automation-id="addressSection_countryRegion"], [data-automation-id="stateDropdown"], ' +
+                    '#source--source, input[data-automation-id="searchBox"]'
                 ));
                 trigger = candidates.find(b => {{
-                    const parent = b.closest('[data-automation-id^="formField-"], .form-group, div');
-                    const pTxt = parent ? (parent.innerText || '').toLowerCase() : '';
+                    let pTxt = '';
+                    let p = b.parentElement;
+                    for (let d = 0; d < 8 && p && p !== document.body; d++, p = p.parentElement) {{
+                        const t = (p.innerText || '').toLowerCase();
+                        if (t.length > pTxt.length) pTxt = t;
+                    }}
                     const t = (b.innerText || b.getAttribute('aria-label') || b.getAttribute('data-automation-id') || b.id || '').toLowerCase();
                     return hint && (t.includes(hint) || hint.includes(t) || pTxt.includes(hint));
                 }});
@@ -882,6 +907,7 @@ class FormFiller:
         js_search_and_select = f"""(() => {{
             const targetVal = {json.dumps(val_clean)};
             const targetLower = {json.dumps(val_lower)};
+            const hint = {json.dumps(hint_lower)};
 
             // Scope listbox container
             const listbox = document.querySelector(
@@ -932,11 +958,64 @@ class FormFiller:
                     return t === targetLower || t.includes(targetLower) || targetLower.includes(t);
                 }});
             }}
-            // 3. Category drill-down fallback (e.g. LinkedIn -> Job Board / Social Media)
-            if (!matched && targetLower === 'linkedin') {{
+            // 2b. Phone device type smart matching (Mobile / Telephone / Cell / Landline)
+            if (!matched && (hint.includes('phone') || hint.includes('device') || targetLower.includes('mobile') || targetLower.includes('telephone') || targetLower.includes('cell'))) {{
                 matched = options.find(o => {{
                     const t = getOptText(o);
-                    return t.includes('job board') || t.includes('social media') || t.includes('career site');
+                    return t.includes('mobile') || t.includes('cell') || t.includes('telephone') || t.includes('phone');
+                }}) || options.find(o => {{
+                    const t = getOptText(o);
+                    return !t.includes('select') && !t.includes('choose');
+                }});
+            }}
+            // 2c. Gender smart matching
+            if (!matched && (hint.includes('gender') || hint.includes('sex'))) {{
+                if (targetLower.includes('male') && !targetLower.includes('female')) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return (t === 'male' || t.startsWith('male ') || t.includes('man') || t.includes('he/him')) && !t.includes('female');
+                    }});
+                }} else if (targetLower.includes('female')) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return t === 'female' || t.includes('woman') || t.includes('she/her');
+                    }});
+                }}
+                if (!matched) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return t.includes('decline') || t.includes('prefer not') || t.includes('not disclose') || t.includes('do not wish');
+                    }});
+                }}
+                if (!matched && options.length > 0) {{
+                    matched = options.find(o => !/select|choose/i.test(getOptText(o))) || options[0];
+                }}
+            }}
+            // 2d. Disability smart matching
+            if (!matched && hint.includes('disability')) {{
+                if (targetLower === 'no' || targetLower.includes('do not have') || targetLower.includes("don't have")) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return t.includes('no') || t.includes('do not have') || t.includes("don't have") || t.includes('no disability');
+                    }});
+                }} else if (targetLower === 'yes' || targetLower.includes('have a disability')) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return (t.includes('yes') || t.includes('have a disability')) && !t.includes('do not');
+                    }});
+                }}
+                if (!matched) {{
+                    matched = options.find(o => {{
+                        const t = getOptText(o);
+                        return t.includes('decline') || t.includes('prefer not') || t.includes('not disclose') || t.includes('do not wish');
+                    }});
+                }}
+            }}
+            // 3. Category drill-down fallback (e.g. LinkedIn -> Job Board / Social Media)
+            if (!matched && (targetLower === 'linkedin' || hint.includes('source') || hint.includes('hear'))) {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    return t.includes('linkedin') || t.includes('job board') || t.includes('social media') || t.includes('career site') || t.includes('internet') || t.includes('website');
                 }});
             }}
             // 4. Degree fallback: match any Bachelor / Undergraduate option
@@ -989,7 +1068,7 @@ class FormFiller:
                         const autoLabel = o.getAttribute('data-automation-label') || '';
                         const t = (autoLabel || o.innerText || o.textContent || '').trim().toLowerCase();
                         return t === targetLower || t.includes(targetLower);
-                    }});
+                    }}) || (subOpts.length > 0 ? subOpts[0] : null);
                     if (subMatch) {{
                         try {{ subMatch.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
                         try {{ subMatch.focus(); }} catch(e) {{}}
@@ -1001,16 +1080,11 @@ class FormFiller:
                         subMatch.click();
                         return true;
                     }}
-                    return bool(subMatch);
+                    return false;
                 }})()"""
                 sub_selected = bool(await agent.evaluate(js_drilldown))
                 await asyncio.sleep(0.4)
-
-                # If target was a drilled-down item (e.g. LinkedIn), require sub_selected to be True
-                if val_lower == "linkedin" and not sub_selected:
-                    pass
-                else:
-                    return True, None
+                return True, None
         except Exception as e:
             logger.debug("Workday dropdown option selection error: %s", e)
 

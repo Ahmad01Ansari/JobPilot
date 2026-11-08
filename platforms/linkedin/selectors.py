@@ -86,21 +86,62 @@ LOGIN_SUBMIT_SELECTORS = [
 # Job Search & Listings
 JOB_RESULTS_CONTAINER = ".jobs-search-results-list"
 JOB_RESULTS_CONTAINERS = [
+    "div[data-display-contents='true']",
     ".jobs-search-results-list",
     ".scaffold-layout__list",
     ".jobs-search-results",
     "div[data-view-name='job-search-results-list']",
     "div.scaffold-layout__list-detail-inner",
+    "div.scaffold-layout__list-container",
+    "ul.scaffold-layout__list-container",
+    ".scaffold-layout__list-detail",
+    "main.scaffold-layout__main",
+    "main",
 ]
 JOB_CARD_ITEMS = [
+    # Modern Genesis SDUI layout (late 2024 - 2026+)
+    "div[role='button'][componentkey^='job-card-component-ref-']",
+    "div[role='button'][componentkey*='job-card']",
+    "div[componentkey^='job-card-component-ref-']",
+    "[componentkey^='job-card-component-ref-']",
+    "[componentkey*='job-card-']",
+    # Classic & Scaffold layouts
     "li[data-occludable-job-id]",
     "li.jobs-search-results__list-item",
+    "li.scaffold-layout__list-item",
     "ul.scaffold-layout__list-container > li",
     "div.job-card-container",
     "div[data-job-id]",
     "div.job-card-job-posting-card-wrapper",
     "div[data-view-name='job-card']",
+    "div[data-view-name='job-card-component']",
+    "div[data-view-name='job-card-item']",
+    "div.jobs-search-results-list__list-item",
+    "li.jobs-search-results-list__list-item",
+    "div[data-entity-urn*='urn:li:jobPosting:']",
+    "li[data-entity-urn*='urn:li:jobPosting:']",
     "div.job-card-list__entity-lockup",
+    "div.job-card-list",
+    "div.base-card",
+    "li.base-card",
+    "//div[@role='button' and contains(@componentkey, 'job-card-component-ref-')]",
+    "//div[contains(@componentkey, 'job-card')]",
+    "//li[contains(@class, 'scaffold-layout__list-item') or contains(@class, 'jobs-search-results__list-item') or @data-occludable-job-id]",
+    "//div[@data-job-id or contains(@class, 'job-card-container') or @data-view-name='job-card']",
+]
+
+JOB_CARD_CLICKABLE_SELECTORS = [
+    "a.job-card-list__title",
+    "a.job-card-container__link",
+    "a[href*='/jobs/view/']",
+    "a[href*='currentJobId=']",
+    "a[data-control-name='job_card_click']",
+    "div.job-card-list__entity-lockup",
+    ".artdeco-entity-lockup__title",
+    "h2 a",
+    "h3 a",
+    "p",
+    "span",
 ]
 
 NO_RESULTS_INDICATORS = [
@@ -113,6 +154,7 @@ NO_RESULTS_INDICATORS = [
 # Job Details & Description
 JOB_DETAILS_CONTAINER = ".jobs-search__job-details"
 JOB_DESCRIPTION_SELECTORS = [
+    "[data-testid='expandable-text-box']",
     "div#job-details",
     "div.dang-inner-html",
     "article.jobs-description__container",
@@ -123,36 +165,67 @@ JOB_DESCRIPTION_SELECTORS = [
 
 JOB_TITLE_SELECTORS = [
     "h1.t-24",
-    "h2.job-card-list__title",
+    "h1.job-details-jobs-unified-top-card__job-title",
     ".jobs-unified-top-card__job-title",
+    "h2.job-card-list__title",
     "a.job-card-list__title",
+    "div.job-details-jobs-unified-top-card__title-container h1",
+    ".job-details-jobs-unified-top-card__job-title a",
 ]
 
 JOB_COMPANY_SELECTORS = [
     ".job-card-container__company-name",
     ".jobs-unified-top-card__company-name a",
     ".jobs-unified-top-card__company-name",
+    ".job-details-jobs-unified-top-card__company-name a",
+    ".job-details-jobs-unified-top-card__company-name",
     ".job-card-container__primary-description",
+    ".artdeco-entity-lockup__subtitle",
 ]
 
 JOB_LOCATION_SELECTORS = [
     ".job-card-container__metadata-item",
     ".jobs-unified-top-card__bullet",
     ".jobs-unified-top-card__workplace-type",
+    ".job-details-jobs-unified-top-card__bullet",
+    ".job-details-jobs-unified-top-card__workplace-type",
+    ".artdeco-entity-lockup__caption",
 ]
 
 # Application buttons
 EASY_APPLY_BUTTON_XPATHS = [
+    ".//button[contains(@aria-label, 'Easy Apply') or contains(., 'Easy Apply')]",
+    ".//a[contains(@aria-label, 'Easy Apply') or contains(., 'Easy Apply')]",
     ".//button[contains(@class,'jobs-apply-button') and contains(@class, 'artdeco-button--3') and contains(@aria-label, 'Easy')]",
     ".//button[contains(@class,'jobs-apply-button') and contains(., 'Easy Apply')]",
     ".//a[contains(@href, 'openSDUIApplyFlow=true')]",
     ".//button[contains(@class,'jobs-apply-button')]",
+    ".//button[contains(., 'Apply') and not(contains(., 'Applied'))]",
+    ".//a[contains(., 'Apply') and not(contains(., 'Applied'))]",
 ]
 
 # Easy Apply Modal & Flow
 EASY_APPLY_MODAL_CLASS = "jobs-easy-apply-modal"
-MODAL_NEXT_BUTTON_XPATH = ".//button[contains(@aria-label, 'Continue to next step') or contains(., 'Next')]"
-MODAL_REVIEW_BUTTON_XPATH = ".//button[contains(@aria-label, 'Review your application') or contains(., 'Review')]"
-MODAL_SUBMIT_BUTTON_XPATH = ".//button[contains(@aria-label, 'Submit application') or contains(., 'Submit application')]"
-MODAL_DISMISS_BUTTON_XPATH = ".//button[contains(@aria-label, 'Dismiss') or contains(@class, 'artdeco-modal__dismiss')]"
-CONFIRM_DISCARD_BUTTON_XPATH = ".//button[contains(@data-control-name, 'discard_application_confirm_btn') or contains(., 'Discard')]"
+EASY_APPLY_MODAL_SELECTORS = [
+    "dialog[open]",
+    "dialog[data-testid='dialog']",
+    "div.jobs-easy-apply-modal",
+    "div[role='dialog'][aria-labelledby*='dialog-header']",
+    "div[role='dialog']",
+    "dialog",
+]
+EASY_APPLY_MODAL_XPATHS = [
+    "//dialog[@open or @data-testid='dialog']",
+    "//div[contains(@class, 'jobs-easy-apply-modal')]",
+    "//div[@role='dialog' and (contains(@aria-labelledby, 'dialog-header') or .//button[contains(@aria-label, 'Dismiss') or contains(., 'Next') or contains(., 'Submit')])]",
+    "//div[@role='dialog']",
+    "//dialog",
+]
+MODAL_NEXT_BUTTON_XPATH = ".//button[contains(@aria-label, 'Continue to next step') or contains(@aria-label, 'next step') or normalize-space(.)='Next' or contains(normalize-space(.), 'Next')]"
+MODAL_REVIEW_BUTTON_XPATH = ".//button[contains(@aria-label, 'Review your application') or normalize-space(.)='Review' or contains(normalize-space(.), 'Review')]"
+MODAL_SUBMIT_BUTTON_XPATH = ".//button[contains(@aria-label, 'Submit application') or normalize-space(.)='Submit application' or contains(normalize-space(.), 'Submit application') or (contains(normalize-space(.), 'Submit') and not(contains(normalize-space(.), 'Submitting')))]"
+MODAL_DISMISS_BUTTON_XPATH = ".//button[contains(@aria-label, 'Dismiss') or contains(@aria-label, 'Close') or normalize-space(.)='✕' or contains(@class, 'artdeco-modal__dismiss')]"
+CONFIRM_DISCARD_BUTTON_XPATH = ".//button[contains(@data-control-name, 'discard_application_confirm_btn') or normalize-space(.)='Discard' or contains(normalize-space(.), 'Discard')]"
+MODAL_BACK_BUTTON_XPATH = ".//button[contains(@aria-label, 'Back') or normalize-space(.)='Back' or contains(normalize-space(.), 'Back')]"
+MODAL_UPLOAD_RESUME_XPATH = ".//button[contains(., 'Upload resume') or contains(@aria-label, 'Upload resume')] | .//input[@type='file']"
+

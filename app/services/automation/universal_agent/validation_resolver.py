@@ -229,11 +229,12 @@ class ValidationResolver:
             [(e.selector or "") for e in report.field_errors] +
             report.summary_banners
         ).lower()
-        if any(k in all_err_text for k in ["state", "phone device", "device type", "phone type", "phonetype", "hear about", "source", "region", "province", "countryregion", "upload a file", "upload a resume", "resume", "cv", "upload", "5mb"]):
+        if any(k in all_err_text for k in ["state", "phone device", "device type", "phone type", "phonetype", "hear about", "source", "region", "province", "countryregion", "upload a file", "upload a resume", "resume", "cv", "upload", "5mb", "gender", "sex", "consent", "privacy", "policy"]):
             facts = candidate_facts or {}
             state_val = facts.get("profile.state", (None,))[0] if isinstance(facts.get("profile.state"), tuple) else (facts.get("profile.state") or facts.get("state") or "Uttar Pradesh")
             device_val = facts.get("phone_device_type", (None,))[0] if isinstance(facts.get("phone_device_type"), tuple) else (facts.get("phone_device_type") or facts.get("device_type") or "Mobile")
             source_val = facts.get("source", (None,))[0] if isinstance(facts.get("source"), tuple) else (facts.get("source") or "LinkedIn")
+            gender_val = facts.get("personal.gender", (None,))[0] if isinstance(facts.get("personal.gender"), tuple) else (facts.get("personal.gender") or facts.get("gender") or "Male")
 
             try:
                 from app.services.automation.universal_agent.form_filler import FormFiller
@@ -255,7 +256,7 @@ class ValidationResolver:
                 if any(k in all_err_text for k in ["phone device", "device type", "phone type", "phonetype", "phonedevice"]):
                     ok, err = await filler._fill_workday_dropdown(
                         agent,
-                        '#phoneNumber--phoneType, button[data-automation-id="phoneDevice-dropdown"], [data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phoneDevice" i], button[data-automation-id*="device" i]',
+                        '#phoneNumber--phoneType, button[data-automation-id="phoneDevice-dropdown"], [data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phoneDevice" i], button[data-automation-id*="device" i], button[data-automation-id*="phone" i], div[data-automation-id*="phone-device" i] button',
                         str(device_val),
                         "Phone Device Type",
                     )
@@ -268,7 +269,7 @@ class ValidationResolver:
                 if any(k in all_err_text for k in ["hear about", "source", "how did you hear"]):
                     ok, err = await filler._fill_workday_dropdown(
                         agent,
-                        '#source--source, [data-automation-id="sourceDropdown"], [data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], input[data-automation-id="searchBox"]',
+                        '#source--source, [data-automation-id="sourceDropdown"], [data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], input[data-automation-id="searchBox"]',
                         str(source_val),
                         "How Did You Hear About Us",
                     )
@@ -277,6 +278,25 @@ class ValidationResolver:
                         fixed += 1
                     else:
                         logger.warning("Auto-remedy Source dropdown failed: %s", err)
+
+                if any(k in all_err_text for k in ["gender", "sex"]):
+                    ok, err = await filler._fill_workday_dropdown(
+                        agent,
+                        'button[data-automation-id*="gender" i], div[data-automation-id*="gender" i] button, [data-automation-id*="select-one" i], button[data-automation-id*="select" i], button[aria-haspopup="listbox"], button[aria-haspopup]',
+                        str(gender_val),
+                        "Gender",
+                    )
+                    if ok:
+                        logger.info("Auto-remedied Workday Gender dropdown with '%s'", gender_val)
+                        fixed += 1
+                    else:
+                        logger.warning("Auto-remedy Gender dropdown failed: %s", err)
+
+                if any(k in all_err_text for k in ["consent", "privacy", "terms", "policy", "agreement"]):
+                    c_cnt = await filler.ensure_mandatory_consent_accepted(agent)
+                    if c_cnt > 0:
+                        logger.info("Auto-remedied %d mandatory consent/privacy checkboxes", c_cnt)
+                        fixed += c_cnt
 
                 # 4. Resume / File upload error auto-remedy
                 if any(k in all_err_text for k in ["upload a file", "upload a resume", "resume", "cv", "upload a file (5mb max)"]):

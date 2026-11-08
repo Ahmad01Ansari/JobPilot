@@ -290,7 +290,7 @@ class UniversalApplicationOrchestrator:
         job_title: Optional[str] = None,
         company: Optional[str] = None,
         headless: bool = False,
-        max_wizard_steps: int = 10,
+        max_wizard_steps: int = 25,
         job_id: Optional[Any] = None,
     ) -> OrchestrationResult:
         """Executes full application lifecycle from navigation to certified submission."""
@@ -1015,6 +1015,12 @@ class UniversalApplicationOrchestrator:
                         AgentExecutionState.NAVIGATING_NEXT_STEP,
                         message=f"Navigating to next step using selector '{next_sel}'.",
                     )
+                    # Sweep and accept any mandatory privacy/consent checkboxes on current step before step transition
+                    try:
+                        await self.form_filler.ensure_mandatory_consent_accepted(self.browser_agent)
+                    except Exception as c_err:
+                        logger.debug("Notice during step consent sweep: %s", c_err)
+
                     # BUG-10: Dismiss any delayed popup overlays before clicking
                     try:
                         await PopupManager.scan_and_dismiss_popups(self.browser_agent)

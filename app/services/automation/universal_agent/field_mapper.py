@@ -255,6 +255,31 @@ class SemanticFieldMapper:
             facts["willing_to_relocate"] = (str(willing_to_relocate).lower(), FieldProvenance("profile", "personal.willing_to_relocate"))
             facts["open_to_relocation"] = ("yes" if willing_to_relocate else "no", FieldProvenance("profile", "personal.willing_to_relocate"))
 
+        # Demographic & Standard ATS selections
+        gender = personal_cfg.get("gender") or "Male"
+        disability = personal_cfg.get("disability_status") or "No"
+        veteran = personal_cfg.get("veteran_status") or "No"
+        ethnicity = personal_cfg.get("ethnicity") or "Asian"
+        device_type = personal_cfg.get("phone_device_type") or "Mobile"
+
+        if gender:
+            facts["personal.gender"] = (gender, FieldProvenance("profile", "personal.gender"))
+            facts["gender"] = (gender, FieldProvenance("profile", "personal.gender"))
+        if disability:
+            facts["personal.disability_status"] = (disability, FieldProvenance("profile", "personal.disability_status"))
+            facts["disability_status"] = (disability, FieldProvenance("profile", "personal.disability_status"))
+            facts["disability"] = (disability, FieldProvenance("profile", "personal.disability_status"))
+        if veteran:
+            facts["personal.veteran_status"] = (veteran, FieldProvenance("profile", "personal.veteran_status"))
+            facts["veteran_status"] = (veteran, FieldProvenance("profile", "personal.veteran_status"))
+            facts["veteran"] = (veteran, FieldProvenance("profile", "personal.veteran_status"))
+        if ethnicity:
+            facts["personal.ethnicity"] = (ethnicity, FieldProvenance("profile", "personal.ethnicity"))
+            facts["ethnicity"] = (ethnicity, FieldProvenance("profile", "personal.ethnicity"))
+        if device_type:
+            facts["phone_device_type"] = (device_type, FieldProvenance("profile", "personal.phone_device_type"))
+            facts["device_type"] = (device_type, FieldProvenance("profile", "personal.phone_device_type"))
+
         # Professional fields
         linkedin = (pro_profile.linkedin_url if pro_profile else None) or professional_cfg.get("linkedin_url")
         portfolio = (pro_profile.portfolio_url if pro_profile else None) or professional_cfg.get("portfolio_url")
@@ -914,45 +939,63 @@ class SemanticFieldMapper:
 
         # 16. Gender / Demographic
         if re.search(r"\b(gender|sex)\b", search_str) or f_info.name in ["gender", "sex"]:
+            gender_val = None
+            gender_prov = None
             for k in ["personal.gender", "gender"]:
                 if k in facts:
-                    val, prov = facts[k]
-                    opt_val = self._resolve_option_value(f_info, val)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=str(val),
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                    gender_val, gender_prov = facts[k]
+                    break
+            if not gender_val:
+                gender_val = "Male"
+                gender_prov = FieldProvenance("rule", "default_gender_profile", confidence=0.95)
+            opt_val = self._resolve_option_value(f_info, gender_val)
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=str(gender_val),
+                selected_option_value=opt_val,
+                provenance=gender_prov,
+                is_resolved=True,
+            )
 
         # 17. Veteran Status
         if re.search(r"\b(veteran|veteran[\s_-]*status)\b", search_str) or f_info.name in ["veteran", "veteran_status"]:
+            vet_val = None
+            vet_prov = None
             for k in ["personal.veteran_status", "veteran_status", "veteran"]:
                 if k in facts:
-                    val, prov = facts[k]
-                    opt_val = self._resolve_option_value(f_info, val)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=str(val),
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                    vet_val, vet_prov = facts[k]
+                    break
+            if not vet_val:
+                vet_val = "No"
+                vet_prov = FieldProvenance("rule", "default_veteran_status", confidence=0.95)
+            opt_val = self._resolve_option_value(f_info, vet_val)
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=str(vet_val),
+                selected_option_value=opt_val,
+                provenance=vet_prov,
+                is_resolved=True,
+            )
 
         # 18. Disability Status
         if re.search(r"\b(disability|disability[\s_-]*status)\b", search_str) or f_info.name in ["disability", "disability_status"]:
+            disability_val = None
+            disability_prov = None
             for k in ["personal.disability_status", "disability_status", "disability"]:
                 if k in facts:
-                    val, prov = facts[k]
-                    opt_val = self._resolve_option_value(f_info, val)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=str(val),
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                    disability_val, disability_prov = facts[k]
+                    break
+            if not disability_val:
+                disability_val = "No"
+                disability_prov = FieldProvenance("rule", "default_disability_status", confidence=0.95)
+            opt_val = self._resolve_option_value(f_info, disability_val)
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=str(disability_val),
+                selected_option_value=opt_val,
+                provenance=disability_prov,
+                is_resolved=True,
+            )
 
         # 18a. Privacy Policy, Data Processing Consent, Terms & Legal Declarations
         is_consent_keyword = bool(re.search(

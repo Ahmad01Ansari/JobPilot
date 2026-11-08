@@ -101,7 +101,7 @@ class FounditBrowser:
         options.add_argument("--no-default-browser-check")
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--disable-notifications")
-        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--enable-features=HttpsFirstBalancedMode,HttpsUpgrades")
 
         from modules.open_chrome import find_chrome_executable, get_installed_chrome_major_version
         chrome_path = find_chrome_executable()
@@ -147,40 +147,57 @@ class FounditBrowser:
             except Exception:
                 pass
 
-    def _recover_from_access_denied(self) -> bool:
-        """Clears stale network cache and cookies if Akamai serves Access Denied on home page."""
-        if not self.profile_dir or not os.path.isdir(self.profile_dir):
-            return False
-        default_dir = os.path.join(self.profile_dir, "Default")
-        if not os.path.isdir(default_dir):
+    def recover_from_access_denied(self) -> bool:
+        """Safely recovers from transient Akamai Access Denied errors (e.g. plaintext HTTP redirects).
+        Preserves stored session cookies without destructive filesystem unlinking.
+        """
+        if not self.driver:
             return False
 
-        print_lg("[FounditBrowser] Access Denied detected. Clearing stale session state and reloading...")
-        import glob
-        patterns = [
-            os.path.join(default_dir, "Cookies*"),
-            os.path.join(default_dir, "Network*"),
-            os.path.join(default_dir, ".com.google.Chrome.Network*"),
-            os.path.join(default_dir, "Storage"),
-            os.path.join(default_dir, "Session Storage"),
-            os.path.join(default_dir, "Local Storage"),
-        ]
-        for pat in patterns:
-            for item in glob.glob(pat):
-                try:
-                    if os.path.isdir(item):
-                        import shutil
-                        shutil.rmtree(item, ignore_errors=True)
-                    else:
-                        os.unlink(item)
-                except Exception:
-                    pass
-        return True
+        print_lg("[FounditBrowser] Transient Access Denied detected. Checking credentials and enforcing HTTPS...")
+        try:
+            curr = (self.driver.current_url or "").strip()
+            if "foundit.in" in curr and ("search" in curr or "srp" in curr):
+                if curr.startswith("http://"):
+                    secure_curr = curr.replace("http://", "https://", 1)
+                elif not curr.startswith("https://"):
+                    secure_curr = "https://" + curr.lstrip("/")
+                else:
+                    secure_curr = curr
+                print_lg(f"[FounditBrowser] Reloading search over HTTPS: {secure_curr}")
+                self.driver.get(secure_curr)
+                time.sleep(2)
+                if not self.is_access_denied():
+                    return True
+        except Exception:
+            pass
+
+        try:
+            # Check if active session cookies already exist
+            cookies = {c.get("name"): c.get("value") for c in self.driver.get_cookies()}
+            if cookies.get("IS_LOGGED_IN") == "true" or cookies.get("MSSOAT"):
+                self.driver.get("https://www.foundit.in/home/user")
+                time.sleep(2)
+                return not self.is_access_denied()
+        except Exception:
+            pass
+
+        # Force navigation to secure root URL
+        try:
+            self.driver.get("https://www.foundit.in/")
+            time.sleep(2)
+            return not self.is_access_denied()
+        except Exception:
+            return False
 
     def navigate(self, url: str, timeout: int = 30) -> bool:
         """Navigates to URL with eager page-load strategy and timeout handling."""
         if not self.driver:
             raise RuntimeError("Browser not started. Call start() first.")
+        # Guarantee HTTPS to prevent Akamai EdgeSuite plaintext HTTP 403 Access Denied
+        if url.startswith("http://"):
+            url = url.replace("http://", "https://", 1)
+
         from app.services.security.url_validator import is_safe_url
         is_safe, reason = is_safe_url(url, allow_local_ai=False)
         if not is_safe:
@@ -191,9 +208,8 @@ class FounditBrowser:
             self.driver.get(url)
             self.dismiss_unexpected_popups()
             if self.is_access_denied():
-                if self._recover_from_access_denied():
+                if self.recover_from_access_denied():
                     time.sleep(1)
-                    self.driver.get(url)
                     self.dismiss_unexpected_popups()
             return True
         except TimeoutException:
@@ -203,9 +219,8 @@ class FounditBrowser:
                 pass
             self.dismiss_unexpected_popups()
             if self.is_access_denied():
-                if self._recover_from_access_denied():
+                if self.recover_from_access_denied():
                     time.sleep(1)
-                    self.driver.get(url)
                     self.dismiss_unexpected_popups()
             return True
         except Exception as e:
@@ -234,11 +249,41 @@ class FounditBrowser:
         if not self.driver:
             return "UNKNOWN"
 
-        # 0. Check Access Denied / EdgeSuite anti-bot block
-        if self.is_access_denied():
-            return "CAPTCHA"
+        # 1. Check persistent session cookies first (deterministic and fast)
+        try:
+            cookies = {c.get("name"): c.get("value") for c in self.driver.get_cookies()}
+            if cookies.get("IS_LOGGED_IN") == "true" or (cookies.get("MSSOAT") and len(cookies.get("MSSOAT")) > 10):
+                # If currently stuck on an Access Denied error or plaintext http page, recover to home/user
+                if self.is_access_denied() or (self.driver.current_url or "").startswith("http://"):
+                    try:
+                        self.driver.get("https://www.foundit.in/home/user")
+                        time.sleep(1.5)
+                    except Exception:
+                        pass
+                return "LOGGED_IN"
+        except Exception:
+            pass
 
-        # 1. Check CAPTCHA / Anti-bot Challenge first
+        current_url = (self.driver.current_url or "").lower()
+
+        # 2. Check Logged In URL and DOM indicators
+        if any(w in current_url for w in ["/home/user", "/seeker/", "/dashboard", "/my-profile"]):
+            return "LOGGED_IN"
+
+        for sel in LOGGED_IN_SELECTORS:
+            try:
+                elems = self.driver.find_elements(By.XPATH if sel.startswith("//") else By.CSS_SELECTOR, sel)
+                if any(e.is_displayed() for e in elems):
+                    return "LOGGED_IN"
+            except Exception:
+                pass
+
+        # 3. Check for transient Access Denied / EdgeSuite anti-bot block
+        if self.is_access_denied():
+            if not self.recover_from_access_denied():
+                return "CAPTCHA"
+
+        # 4. Check CAPTCHA / Anti-bot Challenge
         detector = CaptchaDetector(platform="foundit")
         is_cap, _ = detector.is_captcha_present(self.driver, platform="foundit")
         if is_cap and not detector.is_captcha_solved(self.driver, platform="foundit"):
@@ -252,7 +297,7 @@ class FounditBrowser:
             except Exception:
                 pass
 
-        # 2. Check OTP / 2FA checkpoint
+        # 5. Check OTP / 2FA checkpoint
         for sel in OTP_SELECTORS:
             try:
                 elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
@@ -260,24 +305,6 @@ class FounditBrowser:
                     return "OTP_REQUIRED"
             except Exception:
                 pass
-
-        # 3. Check persistent session cookies first (deterministic and fast)
-        try:
-            cookies = {c.get("name"): c.get("value") for c in self.driver.get_cookies()}
-            if cookies.get("IS_LOGGED_IN") == "true" or (cookies.get("MSSOAT") and len(cookies.get("MSSOAT")) > 10):
-                return "LOGGED_IN"
-        except Exception:
-            pass
-
-        current_url = (self.driver.current_url or "").lower()
-
-        # 4. Check Logged In URL and DOM indicators
-        if any(w in current_url for w in ["/home/user", "/seeker/", "/dashboard", "/my-profile"]):
-            return "LOGGED_IN"
-
-        for sel in LOGGED_IN_SELECTORS:
-            try:
-                elems = self.driver.find_elements(By.XPATH if sel.startswith("//") else By.CSS_SELECTOR, sel)
                 if any(e.is_displayed() for e in elems):
                     return "LOGGED_IN"
             except Exception:

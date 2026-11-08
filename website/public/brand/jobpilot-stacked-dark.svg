@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" width="480" height="480" role="img" aria-labelledby="title-stacked">
+  <title id="title-stacked">JobPilot Official Logo</title>
+
+  <!-- ============================================== -->
+  <!-- 1. ROBOT MASCOT & SLIM LAPTOP (CENTER X=240)   -->
+  <!-- ============================================== -->
+  <g id="robot-mascot">
+    <!-- Antenna Tip & Stem (X=240) -->
+    <circle cx="240" cy="28" r="9" fill="#FF5F15"/>
+    <rect x="236" y="36" width="8" height="20" rx="3" fill="#64748B"/>
+
+    <!-- Aviator Headphone Cups (Left & Right) -->
+    <rect x="172" y="78" width="14" height="46" rx="7" fill="#1E293B"/>
+    <rect x="168" y="84" width="6" height="34" rx="3" fill="#FF5F15"/>
+    <rect x="294" y="78" width="14" height="46" rx="7" fill="#1E293B"/>
+    <rect x="306" y="84" width="6" height="34" rx="3" fill="#FF5F15"/>
+
+    <!-- Robot Head Chassis -->
+    <rect x="184" y="56" width="112" height="86" rx="26" fill="#F0F6FC"/>
+
+    <!-- Panoramic Visor Slot -->
+    <rect x="196" y="76" width="88" height="42" rx="14" fill="#1E293B"/>
+
+    <!-- Glowing Cyan Pilot Eyes -->
+    <rect x="210" y="86" width="16" height="22" rx="8" fill="#38BDF8"/>
+    <rect x="254" y="86" width="16" height="22" rx="8" fill="#38BDF8"/>
+
+    <!-- Neck Connector -->
+    <rect x="226" y="142" width="28" height="12" rx="4" fill="#475569"/>
+
+    <!-- Robot Torso (Curved shoulders) -->
+    <path fill="#F0F6FC" d="
+      M 194 154
+      C 194 154 210 150 240 150
+      C 270 150 286 154 286 154
+      C 310 158 324 178 324 208
+      L 156 208
+      C 156 178 170 158 194 154
+      Z
+    "/>
+
+    <!-- Chest Armor Plate / Accent -->
+    <path fill="#1E293B" d="
+      M 218 154 L 262 154 L 250 176 L 230 176 Z
+    "/>
+
+    <!-- Floating Ultra-Slim Laptop Display -->
+    <polygon points="184,226 202,192 278,192 296,226" fill="#1E293B"/>
+    <polygon points="192,224 206,196 274,196 288,224" fill="#38BDF8" fill-opacity="0.3"/>
+
+    <!-- Slim Modern Aluminum Laptop Base -->
+    <rect x="148" y="226" width="184" height="8" rx="4" fill="#334155"/>
+    <rect x="220" y="227" width="40" height="4" rx="2" fill="#1E293B"/>
+
+    <!-- Bot Hands on the keys -->
+    <circle cx="190" cy="222" r="8" fill="#F0F6FC"/>
+    <circle cx="290" cy="222" r="8" fill="#F0F6FC"/>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- 2. SOARING JOB APPLICATION DOSSIER (THE ACTION)                -->
+  <!-- ============================================================== -->
+  <!-- Ascending from the laptop display toward top-right at 45 degrees -->
+  <g id="job-application-dossier" transform="translate(270, 102)">
+    <!-- Motion trails -->
+    <path fill="#FF5F15" d="
+      M -10 66 L -2 58 L 2 62 L -6 70 Z
+      M 6 50 L 14 42 L 18 46 L 10 54 Z
+    "/>
+
+    <!-- Main Job Document -->
+    <g transform="rotate(-20, 24, 30)">
+      <!-- Document Page -->
+      <path fill="#FFFFFF" stroke="#F0F6FC" stroke-width="2.5" stroke-linejoin="round" d="
+        M 0 0
+        L 42 0
+        L 54 12
+        L 54 68
+        A 4 4 0 0 1 50 72
+        L 4 72
+        A 4 4 0 0 1 0 68
+        Z
+      "/>
+      <!-- Folded Top Corner -->
+      <path fill="#CBD5E1" stroke="#F0F6FC" stroke-width="1.5" stroke-linejoin="round" d="
+        M 42 0 L 42 12 L 54 12 Z
+      "/>
+      
+      <!-- Resume Content Lines -->
+      <rect x="8" y="14" width="26" height="3" rx="1.5" fill="#64748B"/>
+      <rect x="8" y="22" width="38" height="3" rx="1.5" fill="#94A3B8"/>
+      <rect x="8" y="30" width="32" height="3" rx="1.5" fill="#94A3B8"/>
+
+      <!-- Certified Job Applied Checkmark Badge -->
+      <circle cx="27" cy="50" r="13" fill="#FF5F15"/>
+      <!-- Checkmark -->
+      <path d="M 21 50 L 25 54 L 34 44" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    </g>
+
+    <!-- Aerodynamic Upward Trajectory Arrow -->
+    <path fill="#FF5F15" d="
+      M 56 6
+      L 78 12
+      L 70 34
+      L 60 26
+      L 66 18
+      L 50 20
+      Z
+    "/>
+  </g>
+
+  <!-- ============================================================== -->
+  <!-- 3. CENTERED WORDMARK: JOBPILOT (ALL LETTERS EQUALLY VISIBLE)   -->
+  <!-- ============================================================== -->
+  <!-- Scaled uniformly by 0.78 and centered at X=240                 -->
+  <!-- Total width = 306px. translate X = 87 (87 to 393 on width 480) -->
+  <!-- Left margin = 87px, Right margin = 87px: PERFECT EQUIDISTANCE -->
+  <g id="wordmark" transform="translate(87, 280) scale(0.78)">
+    <!-- 'Job' in Solid Deep Navy / Slate White -->
+    <!-- J -->
+    <path fill="#F0F6FC" d="
+      M 24 10 L 44 10 L 44 64 A 20 20 0 0 1 2 64 L 18 64 A 5 5 0 0 0 24 64 L 24 10 Z
+    "/>
+    <!-- o -->
+    <path fill="#F0F6FC" fill-rule="evenodd" d="
+      M 78 26 A 24 24 0 1 0 78 74 A 24 24 0 1 0 78 26 Z
+      M 78 38 A 11 11 0 1 1 78 62 A 11 11 0 1 1 78 38 Z
+    "/>
+    <!-- b -->
+    <path fill="#F0F6FC" fill-rule="evenodd" d="
+      M 112 8 L 126 8 L 126 32 A 22 22 0 0 1 156 52 A 22 22 0 0 1 126 74 L 112 74 Z
+      M 126 40 A 13 13 0 0 1 138 52 A 13 13 0 0 1 126 64 Z
+    "/>
+
+    <!-- 'Pilot' in Vibrant Safety Orange -->
+    <!-- P -->
+    <path fill="#FF5F15" fill-rule="evenodd" d="
+      M 178 8 L 214 8 A 20 20 0 0 1 214 46 L 192 46 L 192 74 L 178 74 Z
+      M 192 20 L 208 20 A 7 7 0 0 1 208 34 L 192 34 Z
+    "/>
+    <!-- i -->
+    <path fill="#FF5F15" d="
+      M 240 14 A 7 7 0 1 0 240 28 A 7 7 0 1 0 240 14 Z
+      M 233 34 L 247 34 L 247 74 L 233 74 Z
+    "/>
+    <!-- l -->
+    <path fill="#FF5F15" d="
+      M 268 8 L 282 8 L 282 74 L 268 74 Z
+    "/>
+    <!-- o -->
+    <path fill="#FF5F15" fill-rule="evenodd" d="
+      M 318 26 A 24 24 0 1 0 318 74 A 24 24 0 1 0 318 26 Z
+      M 318 38 A 11 11 0 1 1 318 62 A 11 11 0 1 1 318 38 Z
+    "/>
+    <!-- t (Completely visible with 87px clearance!) -->
+    <path fill="#FF5F15" d="
+      M 364 16 L 378 16 L 378 32 L 394 32 L 394 42 L 378 42 L 378 64 A 9 9 0 0 0 387 72 L 394 72 L 394 82 A 18 18 0 0 1 378 82 A 20 20 0 0 1 364 64 L 364 42 L 356 42 L 356 32 L 364 32 Z
+    "/>
+  </g>
+
+  <!-- Tagline Pill: CAREER AUTOPILOT (Centered at X=240, Outlined vector paths) -->
+  <g id="tagline-pill" transform="translate(146, 388)">
+    <rect x="0" y="0" width="188" height="26" rx="13" fill="#1E293B"/>
+  </g>
+  <path d="M 160 400 A 3.5 4.5 0 0 0 155 402.5 A 3.5 4.5 0 0 0 160 405 M 163.5 407 L 167.0 398 L 170.5 407 M 165.0 403.85 L 169.0 403.85 M 174.0 407 L 174.0 398 L 179.0 398 A 2.25 2.25 0 0 1 179.0 402.5 L 174.0 402.5 M 178.0 402.5 L 181.0 407 M 191.5 398 L 184.5 398 L 184.5 407 L 191.5 407 M 184.5 402.5 L 189.5 402.5 M 202.0 398 L 195.0 398 L 195.0 407 L 202.0 407 M 195.0 402.5 L 200.0 402.5 M 205.5 407 L 205.5 398 L 210.5 398 A 2.25 2.25 0 0 1 210.5 402.5 L 205.5 402.5 M 209.5 402.5 L 212.5 407 M 223.0 407 L 226.5 398 L 230.0 407 M 224.5 403.85 L 228.5 403.85 M 233.5 398 L 233.5 405 A 3.5 2 0 0 0 240.5 405 L 240.5 398 M 244.0 398 L 251.0 398 M 247.5 398 L 247.5 407 M 258.0 398 A 3.5 4.5 0 1 0 258.0 407 A 3.5 4.5 0 1 0 258.0 398 M 265.0 407 L 265.0 398 L 270.0 398 A 2.25 2.25 0 0 1 270.0 402.5 L 265.0 402.5 M 279.0 398 L 279.0 407 M 286.0 398 L 286.0 407 L 293.0 407 M 300.0 398 A 3.5 4.5 0 1 0 300.0 407 A 3.5 4.5 0 1 0 300.0 398 M 307.0 398 L 314.0 398 M 310.5 398 L 310.5 407" stroke="#94A3B8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

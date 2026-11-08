@@ -106,3 +106,22 @@ $RECYCLE.BIN/
 .AppleDouble
 .LSOverride
 .vs/
+
+# Website Application
+website/node_modules/
+website/.next/
+website/out/
+website/.turbo/
+website/dist/
+
+# Raw Demo Recordings & Compiled Doc Outputs
+assets/demo/
+docs/output/
+docs/tools/
+
+# Agent Skills Bundle & Lock
+.agents/skills/*
+!.agents/skills/graphify/
+!.agents/skills/run-bot/
+skills-lock.json
+
