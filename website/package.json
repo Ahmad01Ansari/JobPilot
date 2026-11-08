@@ -1,6 +1,7 @@
 {
   "name": "jobpilot-website",
-  "version": "0.1.0",
+  "version": "0.4.5-beta",
+  "homepage": "https://jobpilot-automation.vercel.app",
   "private": true,
   "scripts": {
     "dev": "next dev",

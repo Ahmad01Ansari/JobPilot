@@ -16,14 +16,17 @@ export function Footer() {
           
           {/* Brand Info */}
           <div className="md:col-span-2 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <Image
-                src="/brand/jobpilot-symbol-color.svg"
-                alt="JobPilot Mascot Icon"
-                width={32}
-                height={32}
-              />
-              <span className="font-sans text-xl font-bold tracking-tight text-white">
+            <div className="flex items-center gap-3">
+              <div className="relative w-9 h-9 rounded-lg bg-slate-900 border border-slate-700/80 p-1 flex items-center justify-center shadow-md">
+                <Image
+                  src="/brand/jobpilot-symbol-dark.svg"
+                  alt="JobPilot Mascot Icon"
+                  width={28}
+                  height={28}
+                  className="drop-shadow-sm"
+                />
+              </div>
+              <span className="font-sans text-xl font-black tracking-tight text-white">
                 Job<span className="text-orange-safety">Pilot</span>
               </span>
             </div>
