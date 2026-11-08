@@ -8,8 +8,12 @@ from app.version import __version__, VERSION
 _root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _flask_app_file = os.path.join(_root_dir, "app.py")
 if os.path.exists(_flask_app_file):
-    with open(_flask_app_file, "r", encoding="utf-8") as _f:
-        _code = compile(_f.read(), _flask_app_file, "exec")
-        exec(_code, globals())
+    try:
+        with open(_flask_app_file, "r", encoding="utf-8") as _f:
+            _code = compile(_f.read(), _flask_app_file, "exec")
+            exec(_code, globals())
+    except (ImportError, ModuleNotFoundError):
+        pass
+
 
 
