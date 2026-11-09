@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from app.services.secrets_service import SecretsService
+from app.services.workday_account_service import WorkdayAccountService
 from app.ui.theme import COLORS
 from app.ui.views.settings.components.credential_dialog import CredentialDialog
 from app.ui.views.settings.components.platform_card import PlatformCard
+from app.ui.views.settings.components.workday_accounts_dialog import WorkdayAccountsDialog
 from app.ui.views.settings.workers.email_test_worker import EmailTestWorker
 
 # Resolve SVG icon paths for password visibility toggle
@@ -44,6 +46,7 @@ class CredentialsSection(QWidget):
     ):
         super().__init__(parent)
         self.secrets_service = secrets_service
+        self.workday_account_service = WorkdayAccountService()
         self._email_worker: Optional[EmailTestWorker] = None
         self.txt_li_pwd = QLineEdit()
         self.txt_li_pwd.setEchoMode(QLineEdit.Password)
@@ -151,6 +154,11 @@ class CredentialsSection(QWidget):
         self.card_naukri = PlatformCard("naukri", "Naukri.com", "🎯", self)
         self.card_naukri.edit_clicked.connect(self._open_credential_dialog)
         layout.addWidget(self.card_naukri)
+
+        self.card_workday = PlatformCard("workday", "Workday / Universal ATS", "🏢", self)
+        self.card_workday.edit_clicked.connect(self._open_credential_dialog)
+        self.card_workday.secondary_clicked.connect(self._open_workday_accounts_dialog)
+        layout.addWidget(self.card_workday)
 
         # 3. Recruiter Outreach Email Section
         lbl_email = QLabel("Recruiter Outreach Email")
@@ -348,11 +356,27 @@ class CredentialsSection(QWidget):
             self._apply_eye_default_style()
 
     def _open_credential_dialog(self, platform_key: str) -> None:
-        name = "LinkedIn" if platform_key == "linkedin" else "Naukri.com"
+        names = {
+            "linkedin": "LinkedIn",
+            "naukri": "Naukri.com",
+            "workday": "Workday / Universal ATS",
+        }
+        name = names.get(platform_key, platform_key.title())
         username, _ = self.secrets_service.get_platform_credentials(platform_key)
+        if not username and platform_key == "workday":
+            try:
+                from modules.config_loader import get_personal
+                username = get_personal().get("email", "")
+            except Exception:
+                pass
         dialog = CredentialDialog(platform_key, name, self.secrets_service, username or "", self)
         dialog.credentials_saved.connect(lambda _k, _u: self.refresh_display())
         dialog.exec()
+
+    def _open_workday_accounts_dialog(self, platform_key: str = "workday") -> None:
+        dlg = WorkdayAccountsDialog(account_service=self.workday_account_service, parent=self)
+        dlg.accounts_changed.connect(self.refresh_display)
+        dlg.exec()
 
     def refresh_display(self) -> None:
         # LinkedIn
@@ -363,8 +387,19 @@ class CredentialsSection(QWidget):
         nk_user, nk_pwd = self.secrets_service.get_platform_credentials("naukri")
         self.card_naukri.set_configured(nk_user, bool(nk_pwd))
 
+        # Workday / Universal ATS
+        wd_user, wd_pwd = self.secrets_service.get_platform_credentials("workday")
+        self.card_workday.set_configured(wd_user, bool(wd_pwd))
+
+        # Workday registered company portals count
+        try:
+            wd_accounts = self.workday_account_service.list_accounts()
+            self.card_workday.set_company_count(len(wd_accounts))
+        except Exception:
+            pass
+
         # Count configured
-        count = sum([bool(li_user and li_pwd), bool(nk_user and nk_pwd)])
+        count = sum([bool(li_user and li_pwd), bool(nk_user and nk_pwd), bool(wd_pwd)])
         self.credentials_updated.emit(count)
 
         # Email

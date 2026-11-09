@@ -234,6 +234,74 @@ class IndeedForm:
 
         return "QUESTIONS"
 
+    def _clear_and_type_input(self, elem: Any, value: str) -> bool:
+        """Thoroughly clears an input/textarea element and sets value, dispatching React synthetic events."""
+        if not elem:
+            return False
+        try:
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", elem)
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+        # 1. Native key-based text deletion (Ctrl+A -> Backspace -> clear)
+        try:
+            elem.click()
+            time.sleep(0.05)
+            elem.send_keys(Keys.CONTROL + "a")
+            elem.send_keys(Keys.BACKSPACE)
+            elem.clear()
+        except Exception:
+            pass
+
+        # 2. Reset React internal value tracker to blank
+        try:
+            self.driver.execute_script("""
+                const el = arguments[0];
+                const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+                if (descriptor && descriptor.set) {
+                    descriptor.set.call(el, '');
+                } else {
+                    el.value = '';
+                }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            """, elem)
+        except Exception:
+            pass
+
+        # 3. Type value via send_keys
+        typed_ok = False
+        try:
+            elem.send_keys(value)
+            typed_ok = True
+        except Exception:
+            pass
+
+        # 4. Verification & React descriptor setter fallback (prevents concatenation e.g. '21-4 YEARS')
+        try:
+            current_val = (elem.get_attribute("value") or "").strip()
+            if current_val != value:
+                self.driver.execute_script("""
+                    const el = arguments[0];
+                    const val = arguments[1];
+                    const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                    const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+                    if (descriptor && descriptor.set) {
+                        descriptor.set.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                """, elem, value)
+                typed_ok = True
+        except Exception:
+            pass
+
+        return typed_ok
+
     def fill_field_if_needed(self, selectors: List[str], value: str, clear_first: bool = False) -> bool:
         """Finds visible input matching selectors and fills value if empty or requested."""
         if not value:
@@ -245,8 +313,7 @@ class IndeedForm:
                     if el.is_displayed():
                         existing = (el.get_attribute("value") or "").strip()
                         if not existing or clear_first:
-                            el.clear()
-                            el.send_keys(value)
+                            self._clear_and_type_input(el, value)
                             print_lg(f"[IndeedForm] Filled '{value}' into field ({sel[:35]})")
                             return True
             except Exception:
@@ -586,26 +653,54 @@ class IndeedForm:
                     continue
 
                 # Text / Number inputs and Textareas
+                q_lower = question_text.lower()
+                inputmode = (elem.get_attribute("inputmode") or "").lower()
+                pattern = (elem.get_attribute("pattern") or "").lower()
+
+                is_numeric_field = (
+                    inp_type == "number"
+                    or inputmode in ("numeric", "decimal")
+                    or "0-9" in pattern
+                    or any(w in q_lower for w in [
+                        "how many years", "years of experience", "total years",
+                        "number of years", "years of relevant", "how many months",
+                        "notice period", "rate yourself", "scale of", "scale 1-", "scale (1-"
+                    ])
+                )
+
                 ans_obj: Answer = self.qna_engine.answer_question(
                     question=question_text,
                     options=[],
-                    field_type="number" if inp_type == "number" else "text",
+                    field_type="number" if is_numeric_field else "text",
                     job_context={"title": job_title, "company": company_name}
                 )
                 ans_str = str(ans_obj.value if ans_obj else "").strip()
 
-                if inp_type == "number":
-                    num_match = re.search(r'\d+', ans_str)
-                    ans_str = num_match.group(0) if num_match else "2"
+                if is_numeric_field:
+                    # Indeed strictly enforces: "Answer must be a valid number (no decimals)."
+                    # Extract pure integer digits, resolve ranges (e.g. '1-4 YEARS'), and ensure no decimals
+                    digits = re.findall(r'\d+', ans_str)
+                    if digits:
+                        try:
+                            cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
+                        except Exception:
+                            cand_exp = 2
+                        if len(digits) > 1 and str(cand_exp) in digits:
+                            ans_str = str(cand_exp)
+                        elif len(digits) > 1 and int(digits[0]) <= cand_exp <= int(digits[-1]):
+                            ans_str = str(cand_exp)
+                        else:
+                            ans_str = digits[0]
+                    else:
+                        try:
+                            cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
+                        except Exception:
+                            cand_exp = 2
+                        ans_str = str(cand_exp) if any(w in q_lower for w in ["experience", "years"]) else "0"
 
                 existing_val = (elem.get_attribute("value") or "").strip()
                 if not existing_val or existing_val != ans_str:
-                    elem.clear()
-                    elem.send_keys(ans_str)
-                    self.driver.execute_script(
-                        "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('input', {bubbles: true})); arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
-                        elem, ans_str
-                    )
+                    self._clear_and_type_input(elem, ans_str)
                     print_lg(f"[IndeedForm] Q: '{question_text[:60]}' -> Input: '{ans_str}'")
                     answered.append({"question": question_text, "answer": ans_str})
 
@@ -731,6 +826,22 @@ class IndeedForm:
             if self.driver.current_url != old_url:
                 break
             time.sleep(0.5)
+
+        if self.driver.current_url == old_url:
+            try:
+                err_texts = self.driver.execute_script("""
+                    const errs = Array.from(document.querySelectorAll(
+                        '[class*="error" i], [class*="invalid" i], [role="alert"], [aria-invalid="true"]'
+                    ));
+                    return errs
+                        .filter(e => e.offsetWidth > 0 && e.offsetHeight > 0)
+                        .map(e => (e.innerText || e.textContent || '').trim())
+                        .filter(t => t.length > 0 && !t.includes('cookie') && !t.includes('javascript'));
+                """)
+                if err_texts:
+                    print_lg(f"[IndeedForm] Validation error(s) preventing advance: {err_texts[:3]}")
+            except Exception:
+                pass
 
         return True
 

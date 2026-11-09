@@ -28,6 +28,9 @@ from platforms.linkedin.selectors import (
     GUEST_INDICATORS,
     TWO_FA_KEYWORDS,
     POST_LOGIN_DISMISS_XPATHS,
+    LOGIN_USERNAME_SELECTORS,
+    LOGIN_PASSWORD_SELECTORS,
+    LOGIN_SUBMIT_SELECTORS,
 )
 
 
@@ -200,6 +203,88 @@ class LinkedInBrowser:
             except Exception:
                 pass
         return dismissed
+
+    def login(self, username: str, password: str, timeout: int = 15) -> Tuple[bool, str]:
+        """Attempts credential login on LinkedIn.com.
+        If CAPTCHA or 2FA checkpoint is encountered, halts automated typing and returns False.
+        """
+        if self.is_logged_in():
+            return (True, "Already logged in.")
+
+        self.navigate(LOGIN_URL)
+        time.sleep(2)
+
+        if self.is_2fa_or_challenge():
+            return (False, "Challenge/2FA encountered. Manual intervention required.")
+
+        # Find username field
+        user_elem = None
+        for sel in LOGIN_USERNAME_SELECTORS:
+            try:
+                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                for e in elems:
+                    if e.is_displayed():
+                        user_elem = e
+                        break
+                if user_elem:
+                    break
+            except Exception:
+                continue
+
+        if not user_elem:
+            return (False, "Username input field not found on LinkedIn login page.")
+
+        human_type(user_elem, username, clear_first=True, driver=self.driver)
+        human_delay(0.4, 0.8, action="click")
+
+        # Find password field
+        pwd_elem = None
+        for sel in LOGIN_PASSWORD_SELECTORS:
+            try:
+                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                for e in elems:
+                    if e.is_displayed():
+                        pwd_elem = e
+                        break
+                if pwd_elem:
+                    break
+            except Exception:
+                continue
+
+        if not pwd_elem:
+            return (False, "Password input field not found on LinkedIn login page.")
+
+        human_type(pwd_elem, password, clear_first=True, driver=self.driver)
+        human_delay(0.4, 0.8, action="click")
+
+        # Click submit button
+        submit_elem = None
+        for sel in LOGIN_SUBMIT_SELECTORS:
+            try:
+                elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                for e in elems:
+                    if e.is_displayed():
+                        submit_elem = e
+                        break
+                if submit_elem:
+                    break
+            except Exception:
+                continue
+
+        if submit_elem:
+            human_click(self.driver, submit_elem)
+        else:
+            from selenium.webdriver.common.keys import Keys
+            pwd_elem.send_keys(Keys.ENTER)
+
+        time.sleep(3)
+        self.dismiss_post_login_prompts()
+
+        if self.is_logged_in():
+            return (True, "Logged in successfully.")
+        if self.is_2fa_or_challenge():
+            return (False, "Security checkpoint/2FA required.")
+        return (False, "Login submitted but authenticated session not yet active.")
 
     def ensure_authenticated(self, max_wait_seconds: int = 180) -> bool:
         """Waits for user to complete manual login or 2FA challenge if unauthenticated."""

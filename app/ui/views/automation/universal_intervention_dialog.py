@@ -51,7 +51,8 @@ class UniversalInterventionDialog(QDialog):
         self.on_cancelled_cb = on_cancelled
 
         self.setWindowTitle("Action Required — Automation Paused")
-        self.setFixedSize(580, 420)
+        self.setMinimumSize(540, 380)
+        self.resize(600, 440)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         self._setup_ui()
@@ -85,6 +86,8 @@ class UniversalInterventionDialog(QDialog):
         type_str = getattr(self.intervention_type, "value", str(self.intervention_type))
         if "LOGIN" in type_str:
             icon_char = "🔑"
+        elif "EMAIL_VERIFICATION" in type_str:
+            icon_char = "✉️"
         elif "TWO_FACTOR" in type_str or "OTP" in type_str:
             icon_char = "🔢"
         elif "CAPTCHA" in type_str:
@@ -113,6 +116,8 @@ class UniversalInterventionDialog(QDialog):
             title_text = "Security Verification Detected"
         elif type_str == "LOGIN_REQUIRED":
             title_text = "Account Authentication Required"
+        elif "EMAIL_VERIFICATION" in type_str:
+            title_text = "Email Account Verification Link Sent"
         elif "TWO_FACTOR" in type_str or "OTP" in type_str:
             title_text = "Verification Code (OTP) Required"
         elif type_str == "UNKNOWN_REQUIRED_FIELD":
@@ -142,21 +147,22 @@ class UniversalInterventionDialog(QDialog):
                 background-color: {COLORS.get('surface_alt', '#0D1117')};
                 border: 1px solid {border_color};
                 border-radius: 8px;
-                padding: 12px;
             }}
         """)
         msg_layout = QVBoxLayout(msg_frame)
-        msg_layout.setContentsMargins(12, 10, 12, 10)
-        msg_layout.setSpacing(6)
+        msg_layout.setContentsMargins(14, 12, 14, 12)
+        msg_layout.setSpacing(8)
 
         msg_body = QLabel(self.message_text)
         msg_body.setWordWrap(True)
-        msg_body.setStyleSheet(f"color: {text_color}; font-size: 13px; line-height: 1.4; background: transparent; border: none;")
+        msg_body.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        msg_body.setStyleSheet(f"color: {text_color}; font-size: 13px; font-weight: 500; background: transparent; border: none;")
         msg_layout.addWidget(msg_body)
 
         if self.action_url:
             url_line = QLabel(f"<b>URL:</b> <a href='{self.action_url}' style='color: {primary_color};'>{self.action_url}</a>")
             url_line.setOpenExternalLinks(True)
+            url_line.setTextInteractionFlags(Qt.TextSelectableByMouse)
             url_line.setStyleSheet("font-size: 11px; background: transparent; border: none;")
             msg_layout.addWidget(url_line)
 
@@ -277,7 +283,7 @@ class UniversalInterventionDialog(QDialog):
                 "Type the code above and click <b>'Verify & Continue'</b>, or enter it directly in the open Chrome browser."
             )
             inst_lbl.setWordWrap(True)
-            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px; line-height: 1.3;")
+            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px;")
             input_box.addWidget(inst_lbl)
             layout.addLayout(input_box)
         else:
@@ -286,7 +292,7 @@ class UniversalInterventionDialog(QDialog):
                 "Complete the requested action in the browser, then click 'I've Solved It / Continue' below."
             )
             inst_lbl.setWordWrap(True)
-            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px; line-height: 1.3;")
+            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px;")
             layout.addWidget(inst_lbl)
 
         layout.addStretch()

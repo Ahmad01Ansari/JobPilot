@@ -76,7 +76,20 @@ image/
 !app/ui/assets/brand/*.png
 !app/ui/assets/brand/*.ico
 !JobPilot.png
-!WorkingFlow/image.png
+!docs/flows/image.png
+
+# Branding Showcase & Scratch Concepts
+.gemini/
+docs/branding/concepts/
+docs/branding/slides/
+docs/branding/*.html
+docs/branding/jobpilot-stacked-draft.svg
+docs/branding/jobpilot-symbol-1024.png
+docs/branding/presentation-spec.json
+
+# User Data & Storage
+data/
+data/*
 
 # Virtual Environments
 .venv
@@ -93,3 +106,22 @@ $RECYCLE.BIN/
 .AppleDouble
 .LSOverride
 .vs/
+
+# Website Application
+website/node_modules/
+website/.next/
+website/out/
+website/.turbo/
+website/dist/
+
+# Raw Demo Recordings & Compiled Doc Outputs
+assets/demo/
+docs/output/
+docs/tools/
+
+# Agent Skills Bundle & Lock
+.agents/skills/*
+!.agents/skills/graphify/
+!.agents/skills/run-bot/
+skills-lock.json
+

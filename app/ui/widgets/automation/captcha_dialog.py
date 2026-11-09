@@ -31,7 +31,8 @@ class CaptchaInterventionDialog(QDialog):
         self.message_text = message or "A CAPTCHA challenge requires human verification in the browser."
 
         self.setWindowTitle("Action Required: CAPTCHA Verification")
-        self.setFixedSize(540, 360)
+        self.setMinimumSize(500, 320)
+        self.resize(560, 380)
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         self._setup_ui()

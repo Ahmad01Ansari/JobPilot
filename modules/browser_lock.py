@@ -174,17 +174,20 @@ def get_profile_dir(platform: str, user_id: Optional[int] = None) -> str:
     """Returns deterministic profile directory for a platform and user.
     
     For multi-user (user_id > 1), creates an isolated profile path:
-    ~/.jobpilot/profiles/user_{user_id}_{platform}
+    <user_data_dir>/profiles/user_{user_id}_{platform}
     
     For default user (user_id is None or 1), maintains full backwards
     compatibility with legacy profile locations:
     - LinkedIn: ~/.jobpilot-chrome-profile (or fallback ~/.apply-and-pray-chrome-profile)
     - Naukri: ~/.jobpilot-naukri-profile (or fallback ~/.apply-and-pray-naukri-profile)
+    - Windows AppData fallback if legacy does not exist.
     """
+    from app.services.os.app_paths import AppPaths
     plat = platform.strip().lower()
+    user_data = AppPaths.get_user_data_dir()
     
     if user_id is not None and user_id > 1:
-        base_dir = os.path.expanduser(f"~/.jobpilot/profiles/user_{user_id}_{plat}")
+        base_dir = str(user_data / "profiles" / f"user_{user_id}_{plat}")
         make_directories([base_dir])
         return base_dir
 
@@ -193,17 +196,40 @@ def get_profile_dir(platform: str, user_id: Optional[int] = None) -> str:
         fallback = os.path.expanduser("~/.apply-and-pray-naukri-profile")
         if not os.path.exists(primary) and os.path.exists(fallback):
             return fallback
+        if not os.path.exists(primary) and AppPaths.is_windows():
+            win_prof = str(user_data / "profiles" / "naukri")
+            make_directories([win_prof])
+            return win_prof
         return primary
     elif plat == "indeed":
-        return os.path.expanduser("~/.jobpilot-indeed-profile")
+        primary = os.path.expanduser("~/.jobpilot-indeed-profile")
+        if not os.path.exists(primary) and AppPaths.is_windows():
+            win_prof = str(user_data / "profiles" / "indeed")
+            make_directories([win_prof])
+            return win_prof
+        return primary
     elif plat == "foundit":
-        return os.path.expanduser("~/.jobpilot-foundit-profile")
+        primary = os.path.expanduser("~/.jobpilot-foundit-profile")
+        if not os.path.exists(primary) and AppPaths.is_windows():
+            win_prof = str(user_data / "profiles" / "foundit")
+            make_directories([win_prof])
+            return win_prof
+        return primary
     elif plat == "glassdoor":
-        return os.path.expanduser("~/.jobpilot-glassdoor-profile")
+        primary = os.path.expanduser("~/.jobpilot-glassdoor-profile")
+        if not os.path.exists(primary) and AppPaths.is_windows():
+            win_prof = str(user_data / "profiles" / "glassdoor")
+            make_directories([win_prof])
+            return win_prof
+        return primary
     else:
         # Default: LinkedIn / General
         primary = os.path.expanduser("~/.jobpilot-chrome-profile")
         fallback = os.path.expanduser("~/.apply-and-pray-chrome-profile")
         if not os.path.exists(primary) and os.path.exists(fallback):
             return fallback
+        if not os.path.exists(primary) and AppPaths.is_windows():
+            win_prof = str(user_data / "profiles" / "linkedin")
+            make_directories([win_prof])
+            return win_prof
         return primary

@@ -88,7 +88,7 @@ PHASE 7: REPORT      ──► Structured report: what changed, tested, risks, l
 
 ### Phase Details:
 - **Phase 0 — Understand:** Identify requirements, constraints, and platform scope. Never make assumptions; ask clarifying questions if requirements are ambiguous.
-- **Phase 1 — Audit:** Locate existing implementations. Check `app/services/`, `app/repositories/`, `platforms/`, and `modules/` before writing new classes. If functionality exists, reuse or extend it.
+- **Phase 1 — Audit:** Locate existing implementations using graph-first exploration (`graphify explain <concept>`, `graphify path`, or targeted grep) to avoid token waste. Check `app/services/`, `app/repositories/`, `platforms/`, and `modules/` before writing new classes. Read only bounded line ranges (`StartLine`/`EndLine`); never read whole 100+ line files line-by-line blindly. If functionality exists, reuse or extend it.
 - **Phase 2 — Plan:** Document the step-by-step diff plan. Identify regression risks, affected components, and exact test suites to execute.
 - **Phase 3 — Implement:** Apply the **Smallest Safe Change**. Preserve existing comments, interfaces, and backward-compatible parameters.
 - **Phase 4 — Test:** Compile Python files (`py_compile`), execute targeted unit tests, affected platform test suites, and regression gates.
@@ -142,12 +142,14 @@ apply-and-pray/
 
 ## 5. Coding & Style Conventions
 
-1. **Python Runtime:** Python 3.11.x inside `.venv` (`/home/ahmad10raza/anaconda3/envs/apply-and-pray`).
+1. **Python Runtime:** Python 3.11.x inside local dedicated `.venv` (`.venv/bin/python`).
 2. **Type Annotations:** All new functions, methods, and classes must include Python type hints (`from typing import Optional, List, Dict, Any, Tuple, Callable`).
 3. **No Duplicate Services/Helpers:** Never create `NewService2`, `HelperUtils`, or parallel managers. Always search and extend existing services.
 4. **Change Minimization:** Prefer the smallest safe change. Do not refactor unrelated files when implementing a specific feature or bug fix.
 5. **Documentation Integrity:** Preserve existing docstrings and comments. Never delete explanatory commentary without explicit rationale.
 6. **No Zombie Code:** Do not commit commented-out blocks of dead code. Use version control for history.
+7. **Anti-AI Slop & Zero Emojis in Code/Logs:** Never use emojis/icons in source code, variable names, docstrings, inline comments, or log messages (e.g. 🚀, ✅, ⚠️, ❌). Use clean structured logging. Never write performative or syntax-restating comments (`# Loop over items`). Comments must explain *why*, not *what*.
+8. **No Placeholders or Incomplete Stubs:** Never leave `# TODO: implement later`, `pass # mock`, or hallucinated dummy returns. All changes must be complete, typed, and fully implemented.
 
 ---
 
@@ -285,6 +287,7 @@ Before declaring any coding task finished, the AI agent must verify every item:
 - [ ] **Targeted Tests Passed:** Specific unit/integration tests pass.
 - [ ] **Regression Suite Passed:** Full test suite passes without breaking existing features.
 - [ ] **Desktop Preflight Verified:** `run_desktop.py --offscreen --test-run` succeeds.
+- [ ] **No Unprompted Commits/Pushes:** Code remains uncommitted in working tree unless explicit user permission to commit or push was granted.
 - [ ] **Documentation Updated:** Relevant documentation reflects new/changed behavior.
 - [ ] **Report Provided:** Final output adheres strictly to the Agent Response Format.
 

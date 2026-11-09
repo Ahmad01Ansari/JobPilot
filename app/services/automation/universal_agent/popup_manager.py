@@ -126,18 +126,61 @@ class PopupManager:
                 }));
 
             // Mark unique target identifier
-            if (!target.id && !target.dataset.jobpilotPopup) {
-                target.dataset.jobpilotPopup = "active";
-            }
+            target.dataset.jobpilotPopup = "active";
 
-            return {
+            return JSON.stringify({
                 text: text,
                 buttons: buttons,
                 tagName: target.tagName.toLowerCase(),
                 id: target.id || "",
                 className: target.className || "",
-            };
+            });
         })()"""
+
+        # Fast-path: Check for standalone cookie consent buttons (e.g. Workday legalNoticeAcceptButton or standalone Accept Cookies)
+        js_quick_cookie = """(() => {
+            const btn = document.querySelector(
+                'button[data-automation-id="legalNoticeAcceptButton"], [data-automation-id*="legalNoticeAccept" i], ' +
+                'button[id*="accept-cookie" i], button[id*="acceptCookie" i], #onetrust-accept-btn-handler'
+            ) || Array.from(document.querySelectorAll('button, a')).find(b => {
+                const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                return t === 'accept cookies' || t === 'accept all cookies' || t === 'i accept' || t === 'agree and proceed';
+            });
+            if (btn && btn.getBoundingClientRect().width > 0) {
+                try { btn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                try { btn.focus(); } catch(e) {}
+                const opts = { bubbles: true, cancelable: true, view: window };
+                btn.dispatchEvent(new PointerEvent('pointerdown', opts));
+                btn.dispatchEvent(new MouseEvent('mousedown', opts));
+                btn.dispatchEvent(new PointerEvent('pointerup', opts));
+                btn.dispatchEvent(new MouseEvent('mouseup', opts));
+                btn.click();
+                return JSON.stringify(true);
+            }
+            return JSON.stringify(false);
+        })()"""
+        try:
+            q_res = agent.evaluate(js_quick_cookie)
+            if asyncio.iscoroutine(q_res):
+                q_clicked = await q_res
+            else:
+                q_clicked = q_res
+            if isinstance(q_clicked, str):
+                import json
+                try:
+                    q_clicked = json.loads(q_clicked)
+                except Exception:
+                    q_clicked = bool(q_clicked and q_clicked.lower() == "true")
+            if q_clicked:
+                logger.info("Directly dismissed cookie banner via standalone consent button.")
+                return True, DetectedPopup(
+                    element_selector="cookie-consent-button",
+                    text_content="Accept Cookies",
+                    classification=PopupClassification.BENIGN,
+                    dismiss_button_selector="Accept Cookies",
+                )
+        except Exception as q_err:
+            logger.debug("Quick cookie dismissal check: %s", q_err)
 
         try:
             res = agent.evaluate(js_scan)
@@ -145,6 +188,12 @@ class PopupManager:
                 data = await res
             else:
                 data = res
+            if isinstance(data, str) and (data.startswith("{") or data.startswith("[")):
+                import json
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    pass
         except Exception:
             return False, None
 
@@ -216,6 +265,13 @@ class PopupManager:
         for pat in cls.DESTRUCTIVE_PATTERNS:
             if re.search(pat, lower_text):
                 return PopupClassification.DESTRUCTIVE
+
+        # Application entry modal (e.g. Workday 'Start Your Application' modal with Autofill / Apply Manually options)
+        if any(w in lower_text for w in [
+            "start your application", "apply manually", "autofill with resume",
+            "choose how you would like to complete", "use my last application"
+        ]):
+            return PopupClassification.ACTIONABLE
 
         # Check for Cookie consent / Newsletters / Benign notices / Notifications / Location requests
         if any(w in lower_text for w in [

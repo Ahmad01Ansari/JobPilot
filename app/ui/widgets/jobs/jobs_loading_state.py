@@ -33,6 +33,16 @@ class JobsLoadingState(QFrame):
         layout.setSpacing(14)
         layout.setContentsMargins(40, 60, 40, 60)
 
+        # Brand icon badge
+        from app.ui.theme import ThemeManager
+        icon_pix = ThemeManager.get_brand_pixmap(48, variant="app")
+        if not icon_pix.isNull():
+            self.lbl_icon = QLabel()
+            self.lbl_icon.setPixmap(icon_pix)
+            self.lbl_icon.setAlignment(Qt.AlignCenter)
+            self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+            layout.addWidget(self.lbl_icon, alignment=Qt.AlignCenter)
+
         # Loading Spinner / Indeterminate bar
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)  # Indeterminate animation

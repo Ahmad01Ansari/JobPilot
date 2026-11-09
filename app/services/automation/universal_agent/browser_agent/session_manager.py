@@ -55,9 +55,11 @@ class UniversalSessionManager:
             if not isinstance(prefs, dict):
                 prefs = {}
             profile = prefs.setdefault("profile", {})
+            profile["password_manager_enabled"] = False
             cd_settings = profile.setdefault("default_content_setting_values", {})
             cd_settings["geolocation"] = 2  # Block geolocation
             cd_settings["notifications"] = 2  # Block notifications
+            prefs["credentials_enable_service"] = False
             with open(pref_file, "w", encoding="utf-8") as f:
                 json.dump(prefs, f)
         except Exception:
@@ -95,6 +97,9 @@ class UniversalSessionManager:
                 "--disable-gpu",
                 "--deny-permission-prompts",
                 "--disable-geolocation",
+                "--disable-save-password-bubble",
+                "--disable-password-generation",
+                "--disable-password-manager-reauthentication",
             ],
         }
         # Explicit Chrome executable path for Windows/Linux

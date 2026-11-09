@@ -1,17 +1,35 @@
-# 🚀 JobPilot
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/branding/jobpilot-stacked-dark.svg">
+    <img alt="JobPilot Logo" src="docs/branding/jobpilot-stacked-color.svg" width="220" height="220">
+  </picture>
+</p>
 
-> **The unified, autonomous job application cockpit (LinkedIn, Naukri, Indeed, Glassdoor, Foundit, and Universal ATS portals) featuring an intelligent PySide6 desktop suite, multi-tier Q&A reasoning, and automated cross-platform distribution.**
+<h1 align="center">JobPilot</h1>
 
-[![Release](https://img.shields.io/badge/Release-v0.1.0--beta.1-orange.svg)](https://github.com/Ahmad01Ansari/JobPilot/releases)
-[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Ubuntu%20Linux-lightgrey.svg)](#downloads--installation)
+<p align="center">
+  <b>Autonomous Career Navigation & Multi-Platform Job Application Autopilot</b><br>
+  <i>Unified multi-platform automation across LinkedIn, Naukri, Indeed, Glassdoor, Foundit, and Universal ATS portals.</i>
+</p>
+
+<p align="center">
+  <a href="https://jobpilot-automation.vercel.app/"><img src="https://img.shields.io/badge/Live_Site-jobpilot--automation.vercel.app-ff7a00.svg" alt="Live Website"></a>
+  <a href="https://github.com/Ahmad01Ansari/JobPilot/releases"><img src="https://img.shields.io/badge/Release-v0.4.5--beta-orange.svg" alt="Release"></a>
+  <a href="https://www.python.org/downloads/release/python-3110/"><img src="https://img.shields.io/badge/Python-3.11-blue.svg" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License"></a>
+  <a href="#downloads--installation"><img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Ubuntu%20Linux-lightgrey.svg" alt="Platform"></a>
+  <a href="docs/branding/BRAND_GUIDELINES.md"><img src="https://img.shields.io/badge/Brand-Guidelines-blueviolet.svg" alt="Brand Guidelines"></a>
+</p>
+
+<p align="center">
+  🌐 <b>Live Interactive Product Showcase:</b> <a href="https://jobpilot-automation.vercel.app/">https://jobpilot-automation.vercel.app/</a>
+</p>
 
 ---
 
 ## 📥 Downloads & Installation
 
-Pre-built binaries for **Windows 10/11** and **Ubuntu/Linux** are published with every release under [GitHub Releases](../../releases).
+Pre-built binaries for **Windows 10/11** and **Ubuntu/Linux** are published with every release under [GitHub Releases](https://github.com/Ahmad01Ansari/JobPilot/releases).
 
 ### 🐧 Ubuntu / Debian Linux
 
@@ -19,10 +37,10 @@ Pre-built binaries for **Windows 10/11** and **Ubuntu/Linux** are published with
 Installs system-wide with desktop application launcher and brand icons:
 ```bash
 # Install via apt (handles dependencies automatically)
-sudo apt install ./jobpilot_0.1.0-beta.1_amd64.deb
+sudo apt install ./jobpilot_0.4.5-beta_amd64.deb
 
 # Or install via dpkg
-sudo dpkg -i jobpilot_0.1.0-beta.1_amd64.deb
+sudo dpkg -i jobpilot_0.4.5-beta_amd64.deb
 sudo apt-get install -f
 ```
 Launch directly from your application menu or via terminal:
@@ -33,15 +51,15 @@ jobpilot
 #### Option B: Standalone AppImage
 Runs on any modern 64-bit Linux distribution with zero system installation:
 ```bash
-chmod +x JobPilot-0.1.0-beta.1-x86_64.AppImage
-./JobPilot-0.1.0-beta.1-x86_64.AppImage
+chmod +x JobPilot-0.4.5-beta-x86_64.AppImage
+./JobPilot-0.4.5-beta-x86_64.AppImage
 ```
 
 ---
 
 ### 🪟 Windows 10 / 11
 
-1. Download **`JobPilot-v0.1.0-beta.1-windows-x64.zip`** from [Releases](../../releases).
+1. Download **`JobPilot-v-windows-x64.zip`** from [GitHub Releases](https://github.com/Ahmad01Ansari/JobPilot/releases).
 2. Extract the ZIP archive to a folder (e.g., `C:\Program Files\JobPilot` or your Documents).
 3. Double-click **`JobPilot.exe`** to launch the Desktop application.
 

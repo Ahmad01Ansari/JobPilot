@@ -64,6 +64,7 @@ class TestATSArchetypes(unittest.IsolatedAsyncioTestCase):
                 "gender": "Female",
                 "veteran_status": "No",
                 "disability_status": "No",
+                "workday_password": "SecurePassword123!",
             },
             "resume": {
                 "resume.file_path": str(self.sample_resume),
@@ -203,6 +204,94 @@ class TestATSArchetypes(unittest.IsolatedAsyncioTestCase):
         verification = await self.result_verifier.verify_submission(self.agent)
         self.assertTrue(verification.is_success, f"Workday submission verification failed: {verification}")
         self.assertEqual(verification.reference_number, "WD-CONF-77889")
+
+    async def test_workday_landing_modal_account_creation_journey(self) -> None:
+        """Evaluates Workday landing page -> 'Apply' button click -> 'Start Your Application' modal
+        -> auto-select 'Apply Manually' -> Create Account form mapping & submission -> Step 1 redirect.
+        """
+        portal_url = f"{self.base_url}/workday/job"
+        await self.agent.navigate(portal_url)
+
+        # 1. Landing Page Analysis: 0 form fields, entry button present
+        analysis = await self.page_analyzer.analyze(self.agent)
+        self.assertEqual(len(analysis.fields), 0)
+        self.assertTrue(len(analysis.apply_now_buttons) > 0)
+        entry_btn = analysis.apply_now_buttons[0]
+        self.assertTrue(entry_btn["selector"])
+        self.assertTrue(any(k in entry_btn["selector"] for k in ["workday-landing-apply", "adventureButton"]))
+
+        # 2. Click Apply button to trigger modal
+        await self.agent.click(entry_btn["selector"])
+        await asyncio.sleep(0.5)
+
+        # 3. Detect and click "Apply Manually" option in modal
+        await self.agent.click("[data-automation-id='authOption-applyManually']")
+        await asyncio.sleep(0.5)
+
+        # 4. Verify arrival at Create Account / Sign In page
+        current_url = await self.agent.get_url()
+        self.assertIn("/workday/applyManually", current_url)
+
+        # 5. Page Analysis on Registration Form: verify NO false-positive LOGIN_REQUIRED
+        reg_analysis = await self.page_analyzer.analyze(self.agent)
+        self.assertIsNone(reg_analysis.challenge_detected, "Registration form was falsely flagged as LOGIN_REQUIRED!")
+        self.assertGreaterEqual(len(reg_analysis.fields), 4)
+
+        # 6. Semantic Mapping: verify email, password, verify_password, agreement checkbox
+        mapping_res = self.field_mapper.map_fields(reg_analysis)
+        self.assertEqual(len(mapping_res.unresolved_required_fields), 0, "Unresolved required fields on Workday account creation")
+        self.assertGreaterEqual(mapping_res.accuracy, 0.98)
+
+        # 7. Form Population
+        fill_res = await self.form_filler.fill_form(self.agent, mapping_res)
+        self.assertEqual(fill_res.required_completion_rate, 1.0)
+        self.assertTrue(fill_res.is_complete)
+
+        # 8. Submit Account Creation
+        await self.agent.click("#workday-create-account-btn")
+        await asyncio.sleep(1.0)
+
+        # 9. Verify server-side receipt and redirect to Step 1
+        url_after = await self.agent.get_url()
+        self.assertIn("/workday/step1", url_after)
+
+        last_sub = self.server.last_submission
+        self.assertIsNotNone(last_sub)
+        self.assertEqual(last_sub["fields"]["email"], "jane.doe@example.com")
+        self.assertEqual(last_sub["fields"]["password"], "SecurePassword123!")
+        self.assertEqual(last_sub["fields"]["verifyPassword"], "SecurePassword123!")
+
+    async def test_workday_proactive_sign_in_for_known_company(self) -> None:
+        """Verifies that when a company account already exists in DB,
+        the orchestrator proactively switches to 'Sign In' mode and logs in."""
+        from app.services.workday_account_service import WorkdayAccountService
+        wd_svc = WorkdayAccountService()
+        portal_url = f"{self.base_url}/workday/job"
+
+        # Pre-record account for this company
+        wd_svc.record_account(
+            url=portal_url,
+            company_name="Workday Employer",
+            username="jane.doe@example.com",
+        )
+        try:
+            self.assertTrue(wd_svc.has_account(portal_url, company_name="Workday Employer"))
+
+            orchestrator = UniversalApplicationOrchestrator(
+                browser_agent=self.agent,
+                candidate_context=self.candidate_context,
+            )
+            # Run 2 steps: landing click -> applyManually -> proactive switch to sign in
+            res = await orchestrator.run(
+                portal_url=portal_url,
+                company="Workday Employer",
+                max_wizard_steps=2,
+                headless=True,
+            )
+            current_url = await self.agent.get_url()
+            self.assertIn("/workday", current_url)
+        finally:
+            wd_svc.delete_account("Workday Employer")
 
     async def test_ashby_archetype(self) -> None:
         """Evaluates Ashby ATS archetype: dynamic form, compensation, visa questions."""

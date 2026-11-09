@@ -153,13 +153,43 @@ class StagehandBrowserAgent(BrowserAgent):
         else:
             self.page = await self.browser.context.new_page()
 
+        self._headless = headless
         if not headless and self.page:
-            try:
-                await self.page.evaluate("() => { try { window.moveTo(0, 0); window.resizeTo(screen.availWidth, screen.availHeight); } catch(e){} }")
-            except Exception:
-                pass
+            await self._ensure_maximized(self.page)
 
         self._is_initialized = True
+
+    async def _ensure_maximized(self, page: Any) -> None:
+        """Maximizes the browser window and expands viewport to full screen dimensions."""
+        if not page or getattr(self, "_headless", False):
+            return
+        try:
+            # 1. Expand viewport via Playwright set_viewport_size if supported
+            js_dim = """(() => {
+                const w = window.screen.availWidth || window.screen.width || 1920;
+                const h = window.screen.availHeight || window.screen.height || 1080;
+                return JSON.stringify({ width: w, height: h });
+            })()"""
+            dim_str = await page.evaluate(js_dim)
+            if dim_str:
+                dims = json.loads(dim_str) if isinstance(dim_str, str) else dim_str
+                w = int(dims.get("width") or 1920)
+                h = int(dims.get("height") or 1080)
+                if hasattr(page, "set_viewport_size"):
+                    try:
+                        await page.set_viewport_size({"width": w, "height": h})
+                    except Exception:
+                        pass
+
+            # 2. Maximize native window via DOM resizeTo and moveTo
+            await page.evaluate("""(() => {
+                try {
+                    window.moveTo(0, 0);
+                    window.resizeTo(window.screen.availWidth || 1920, window.screen.availHeight || 1080);
+                } catch(e) {}
+            })()""")
+        except Exception as e:
+            logger.debug("Window maximization attempt: %s", e)
 
     async def sync_active_page(self, force_refresh: bool = False) -> None:
         """Synchronizes self.page to the most recently opened or focused page tab in the browser context."""
@@ -262,6 +292,7 @@ class StagehandBrowserAgent(BrowserAgent):
         async def _do_nav(p: Page) -> bool:
             await p.goto(url)
             await p.wait_for_load_state(state="domcontentloaded")
+            await self._ensure_maximized(p)
             return True
 
         res = await self._safe_page_op(_do_nav, default_val=False, op_name=f"navigate({url})")

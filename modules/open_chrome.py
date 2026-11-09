@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import subprocess
+from typing import Optional
 from config.settings import run_in_background, stealth_mode, disable_extensions, safe_mode, file_name, failed_file_name, logs_folder_path, generated_resume_path
 from config.questions import default_resume_path
 if stealth_mode:
@@ -21,6 +22,27 @@ from selenium.webdriver.support.ui import WebDriverWait
 from modules.helpers import find_default_profile_directory, critical_error_log, print_lg
 from modules.stealth import apply_stealth_to_driver
 from selenium.common.exceptions import SessionNotCreatedException
+
+
+def ensure_ssl_certificates() -> None:
+    """Configures trusted CA bundle for Python SSL/TLS without bypassing verification."""
+    import ssl
+    try:
+        verify_paths = ssl.get_default_verify_paths()
+        ca_file_valid = bool(verify_paths.cafile and os.path.exists(verify_paths.cafile))
+        ca_env_valid = bool(os.environ.get("SSL_CERT_FILE") and os.path.exists(os.environ["SSL_CERT_FILE"]))
+        if not ca_file_valid and not ca_env_valid:
+            import certifi
+            ca_path = certifi.where()
+            if os.path.exists(ca_path):
+                os.environ["SSL_CERT_FILE"] = ca_path
+                if not os.environ.get("REQUESTS_CA_BUNDLE"):
+                    os.environ["REQUESTS_CA_BUNDLE"] = ca_path
+    except Exception:
+        pass
+
+
+ensure_ssl_certificates()
 
 
 def find_chrome_executable(allow_fallback_chromium: bool = True) -> Optional[str]:
@@ -250,17 +272,47 @@ def _should_skip_linkedin_chrome_init() -> bool:
     if "--platform" in sys.argv:
         try:
             idx = sys.argv.index("--platform")
-            if idx + 1 < len(sys.argv) and sys.argv[idx + 1].strip().lower() in ["naukri", "indeed", "foundit", "glassdoor"]:
+            if idx + 1 < len(sys.argv) and sys.argv[idx + 1].strip().lower() in ["naukri", "indeed", "foundit", "glassdoor", "universal"]:
                 return True
         except Exception:
             pass
+    # Guard against desktop GUI, PyInstaller frozen builds, and non-CLI module imports
+    if getattr(sys, "frozen", False) or os.environ.get("JOBPILOT_DESKTOP") == "1":
+        return True
+    if sys.argv and not any(sys.argv[0].endswith(x) for x in ["runAiBot.py", "runAiBot"]):
+        return True
     return False
 
-options, driver, actions, wait = None, None, None, None
+def _register_driver_cleanup(drv) -> None:
+    if drv:
+        try:
+            import signal
 
-if not _should_skip_linkedin_chrome_init():
+            def _terminate_chrome_session(signum, frame):
+                try:
+                    if drv:
+                        drv.quit()
+                except Exception:
+                    pass
+                sys.exit(0)
+
+            signal.signal(signal.SIGTERM, _terminate_chrome_session)
+            signal.signal(signal.SIGINT, _terminate_chrome_session)
+        except Exception:
+            pass
+
+def get_chrome_session(is_retry: bool = False):
+    """Initializes and returns (options, driver, actions, wait), reusing active session if valid."""
+    global options, driver, actions, wait
+    if driver is not None:
+        try:
+            _ = driver.window_handles
+            return options, driver, actions, wait
+        except Exception:
+            driver = None
+
     try:
-        options, driver, actions, wait = createChromeSession()
+        options, driver, actions, wait = createChromeSession(isRetry=is_retry)
     except SessionNotCreatedException as e:
         critical_error_log("Failed to create Chrome Session, retrying with guest profile", e)
         options, driver, actions, wait = createChromeSession(True)
@@ -279,19 +331,10 @@ if not _should_skip_linkedin_chrome_init():
             pass
         sys.exit(1)
 
-if driver:
-    try:
-        import signal
+    _register_driver_cleanup(driver)
+    return options, driver, actions, wait
 
-        def _terminate_chrome_session(signum, frame):
-            try:
-                if driver:
-                    driver.quit()
-            except Exception:
-                pass
-            sys.exit(0)
+options, driver, actions, wait = None, None, None, None
 
-        signal.signal(signal.SIGTERM, _terminate_chrome_session)
-        signal.signal(signal.SIGINT, _terminate_chrome_session)
-    except Exception:
-        pass
+if not _should_skip_linkedin_chrome_init():
+    options, driver, actions, wait = get_chrome_session()

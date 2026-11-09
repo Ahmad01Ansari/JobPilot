@@ -66,6 +66,8 @@ class ProfessionalProfileUpdateDTO:
     headline: Optional[str] = None
     summary: Optional[str] = None
     cover_letter: Optional[str] = None
+    work_experiences: Optional[List[Dict[str, Any]]] = None
+    education_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass

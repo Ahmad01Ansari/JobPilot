@@ -8,13 +8,12 @@ Mapped and verified during Phase 2 live DOM reconnaissance.
 # URLs
 # ---------------------------------------------------------------------------
 HOME_URL = "https://www.foundit.in/"
-LOGIN_URL = "https://www.foundit.in/auth/login"
+LOGIN_URL = "https://www.foundit.in/rio/login/seeker?return_url=https%3A%2F%2Fwww.foundit.in%2Fhome%2Fuser"
+LOGIN_SEEKER_URL = "https://www.foundit.in/rio/login/seeker?return_url=https%3A%2F%2Fwww.foundit.in%2Fhome%2Fuser"
+USER_HOME_URL = "https://www.foundit.in/home/user"
 SEARCH_BASE_URL = "https://www.foundit.in/search"
 SRP_BASE_URL = "https://www.foundit.in/srp/results"
 
-# ---------------------------------------------------------------------------
-# Authentication & Header Selectors
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Authentication & Header Selectors
 # ---------------------------------------------------------------------------
@@ -22,6 +21,7 @@ HEADER_LOGIN_BUTTONS = [
     "//button[normalize-space()='Login' or contains(normalize-space(), 'Log In') or contains(normalize-space(), 'Sign In')]",
     "//a[normalize-space()='Login' or contains(normalize-space(), 'Log In') or contains(normalize-space(), 'Sign In')]",
     "//button[contains(@class, 'text-[#6E00BE]') and contains(normalize-space(), 'Login')]",
+    "//a[contains(@href, '/rio/login') or contains(@href, '/login') or contains(@href, '/seeker/login')]",
 ]
 
 HEADER_REGISTER_BUTTONS = [
@@ -30,15 +30,17 @@ HEADER_REGISTER_BUTTONS = [
     "//button[contains(@class, 'bg-[#FC5912]') and contains(normalize-space(), 'Register')]",
 ]
 
-LOGIN_USERNAME_INPUT = "input#userName, input[name='userName'], input[placeholder*='Email ID / Phone Number']"
+LOGIN_USERNAME_INPUT = "input#userName, input[name='userName'], input[placeholder*='Email ID / Phone Number'], input[placeholder*='Email ID']"
 LOGIN_PASSWORD_SWITCH_LINKS = [
     "//*[contains(text(), 'Login via Password')]",
     "span.text-brand-primary.cursor-pointer",
     "//span[contains(normalize-space(), 'Login via Password')]",
+    "//p[contains(normalize-space(), 'Login via Password')]",
+    "//div[contains(normalize-space(), 'Login via Password')]",
 ]
 
 LOGIN_PASSWORD_INPUT = "input#password, input[name='password'], input[type='password']"
-LOGIN_SUBMIT_BUTTON = "button#loginSubmit[type='submit'], button#loginSubmit, button[aria-label='submit']"
+LOGIN_SUBMIT_BUTTON = "button#loginSubmit[type='submit'], button#loginSubmit, button[type='submit'], button[aria-label='submit']"
 
 # ---------------------------------------------------------------------------
 # Session State Verification Selectors

@@ -36,6 +36,24 @@ def ensure_sqlite_schema(eng: Engine) -> None:
                 if "daily_application_goal" not in cols:
                     conn.execute(text("ALTER TABLE platform_accounts ADD COLUMN daily_application_goal INTEGER NOT NULL DEFAULT 50"))
                     conn.commit()
+
+                # Clean up any duplicate accounts per platform and enforce unique index
+                try:
+                    conn.execute(text("""
+                        DELETE FROM platform_accounts 
+                        WHERE id NOT IN (
+                            SELECT MIN(id) 
+                            FROM platform_accounts 
+                            GROUP BY platform_id, account_name
+                        )
+                    """))
+                    conn.execute(text("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_platform_accounts_platform_account
+                        ON platform_accounts (platform_id, account_name)
+                    """))
+                    conn.commit()
+                except Exception:
+                    pass
             if "jobs" in tables:
                 res = conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
                 cols = [r[1] for r in res]
@@ -76,6 +94,16 @@ def ensure_sqlite_schema(eng: Engine) -> None:
                     conn.commit()
                 if "parsed_metadata" not in cols:
                     conn.execute(text("ALTER TABLE resumes ADD COLUMN parsed_metadata TEXT"))
+                    conn.commit()
+
+            if "professional_profiles" in tables:
+                res = conn.execute(text("PRAGMA table_info(professional_profiles)")).fetchall()
+                cols = [r[1] for r in res]
+                if "work_experiences" not in cols:
+                    conn.execute(text("ALTER TABLE professional_profiles ADD COLUMN work_experiences TEXT"))
+                    conn.commit()
+                if "education_history" not in cols:
+                    conn.execute(text("ALTER TABLE professional_profiles ADD COLUMN education_history TEXT"))
                     conn.commit()
 
             # Outreach Center: Email Templates Table

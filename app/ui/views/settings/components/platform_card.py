@@ -17,6 +17,7 @@ class PlatformCard(QFrame):
     """High-density card summarizing platform credentials without exposing raw secrets."""
 
     edit_clicked = Signal(str)  # Emits platform key: "linkedin" or "naukri"
+    secondary_clicked = Signal(str)  # Emits platform key for secondary management action (e.g. workday company portals)
 
     def __init__(
         self,
@@ -29,6 +30,7 @@ class PlatformCard(QFrame):
         self.platform_key = platform_key
         self.platform_name = platform_name
         self.icon_symbol = icon_symbol
+        self.btn_secondary: Optional[QPushButton] = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -86,7 +88,31 @@ class PlatformCard(QFrame):
 
         layout.addLayout(details_layout, 1)
 
-        # Right Action
+        # Right Action Buttons
+        actions_box = QHBoxLayout()
+        actions_box.setSpacing(8)
+
+        if self.platform_key == "workday":
+            self.btn_secondary = QPushButton("🏢 Company Portals")
+            self.btn_secondary.setCursor(Qt.PointingHandCursor)
+            self.btn_secondary.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS.get('surface', '#161B22')};
+                    border: 1px solid {COLORS.get('border', '#262C36')};
+                    color: {COLORS.get('text', '#F0F6FC')};
+                    font-weight: 600;
+                    font-size: 12px;
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                }}
+                QPushButton:hover {{
+                    border-color: {COLORS.get('info', '#388BFD')};
+                    color: {COLORS.get('info', '#388BFD')};
+                }}
+            """)
+            self.btn_secondary.clicked.connect(lambda: self.secondary_clicked.emit(self.platform_key))
+            actions_box.addWidget(self.btn_secondary)
+
         self.btn_edit = QPushButton("Edit Credentials")
         self.btn_edit.setCursor(Qt.PointingHandCursor)
         self.btn_edit.setStyleSheet(f"""
@@ -106,7 +132,16 @@ class PlatformCard(QFrame):
             }}
         """)
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.platform_key))
-        layout.addWidget(self.btn_edit, 0, Qt.AlignVCenter)
+        actions_box.addWidget(self.btn_edit)
+        layout.addLayout(actions_box, 0)
+
+    def set_company_count(self, count: int) -> None:
+        """Updates the company count displayed on the Workday card secondary button."""
+        if self.btn_secondary:
+            if count > 0:
+                self.btn_secondary.setText(f"🏢 {count} Portals")
+            else:
+                self.btn_secondary.setText("🏢 Company Portals")
 
     def set_configured(self, username: Optional[str], has_password: bool) -> None:
         if username and has_password:

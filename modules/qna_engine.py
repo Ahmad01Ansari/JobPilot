@@ -109,6 +109,8 @@ def validate_answer(
                     answer.validated = False
                     answer.validation_error = f"Experience {num_val} years is outside valid range (0-45)"
                     return answer
+                # Normalize answer value to clean integer string (no decimals or trailing words)
+                answer.value = str(int(round(num_val)))
             except ValueError:
                 pass
         else:
@@ -245,6 +247,8 @@ class QnAEngine:
         question_label: str,
         job_description: Optional[str] = None,
         work_location: Optional[str] = None,
+        company_name: Optional[str] = None,
+        job_title: Optional[str] = None,
     ) -> Answer:
         """Resolves text or textarea input questions with full answer provenance."""
         lbl = question_label.lower().strip()
@@ -292,9 +296,9 @@ class QnAEngine:
             exp_val = self.prof.get("years_of_experience", 2)
             try:
                 f_exp = float(exp_val)
-                exp_str = str(int(f_exp)) if f_exp.is_integer() else str(f_exp)
+                exp_str = str(int(round(f_exp)))
             except Exception:
-                exp_str = str(exp_val)
+                exp_str = str(exp_val).split(".")[0]
             ans = Answer(value=exp_str, source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
 
@@ -357,11 +361,19 @@ class QnAEngine:
         ])
         # Clean label by removing example parentheticals like (e.g., Jira, GitHub, ...) so examples do not falsely match short keys
         lbl_cleaned = re.sub(r'\(e\.?g\.?[^)]*\)', '', lbl)
+        is_numeric_question = any(w in lbl for w in ["how many years", "years of experience", "total years", "number of years", "how many months", "notice period"])
+        generic_rule_keys = {"experience", "work experience", "total experience", "overall experience", "title", "job title", "domain", "attach", "others", "qualification", "qualifications"}
+
         sorted_qa = sorted(self.custom_qa.items(), key=lambda item: len(item[0]), reverse=True)
         for key, val in sorted_qa:
             k_lower = key.lower().strip()
             if not k_lower:
                 continue
+
+            # Generic keys must strictly match exact field labels, never arbitrary substrings
+            if k_lower in generic_rule_keys and lbl_cleaned != k_lower and lbl != k_lower:
+                continue
+
             # For short 1-word keys (e.g. "git", "python", "sql", "github"), use word-boundary matching on cleaned label
             if len(k_lower.split()) <= 1:
                 matched_key = bool(re.search(r'\b' + re.escape(k_lower) + r'\b', lbl_cleaned))
@@ -371,6 +383,12 @@ class QnAEngine:
                 val_str = str(val).strip()
                 if is_descriptive and (val_str.isdigit() or val_str.lower() in ["yes", "no"]):
                     continue
+                # For numeric experience/tenure questions, reject non-numeric rule values
+                if is_numeric_question:
+                    digits = re.findall(r'\d+', val_str)
+                    if not digits:
+                        continue
+                    val_str = digits[0]
                 ans = Answer(value=val_str, source="rule", confidence=0.92)
                 return validate_answer(ans, question_label)
 
@@ -449,12 +467,20 @@ class QnAEngine:
 
             candidate_corpus = f"{self.ai_context} {self.resume_text}".lower()
             if skill_name and len(skill_name) > 1 and skill_name in candidate_corpus:
-                exp_val = str(self.prof.get("years_of_experience", 2))
+                exp_raw = self.prof.get("years_of_experience", 2)
+                try:
+                    exp_val = str(int(round(float(exp_raw))))
+                except Exception:
+                    exp_val = str(exp_raw).split(".")[0]
             elif skill_name and len(skill_name) > 1:
                 # Skill explicitly not found in candidate resume or profile -> 0
                 exp_val = "0"
             else:
-                exp_val = str(self.prof.get("years_of_experience", 2))
+                exp_raw = self.prof.get("years_of_experience", 2)
+                try:
+                    exp_val = str(int(round(float(exp_raw))))
+                except Exception:
+                    exp_val = str(exp_raw).split(".")[0]
 
             self.save_learned_answer(question_label, exp_val, category="skills", answer_type="number", source="rule")
             ans = Answer(value=exp_val, source="rule", confidence=0.75)
@@ -555,8 +581,19 @@ class QnAEngine:
         if "summary" in lbl or "about yourself" in lbl:
             ans = Answer(value=str(self.prof.get("summary", "")), source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
-        if "cover" in lbl:
-            ans = Answer(value=str(self.prof.get("cover_letter", "")), source="profile", confidence=1.0)
+        if "cover" in lbl or "letter of intent" in lbl or "statement of interest" in lbl:
+            raw_cover = str(self.prof.get("cover_letter", ""))
+            try:
+                from app.services.profile_service import ProfileService
+                rendered = ProfileService.render_cover_letter(
+                    template=raw_cover,
+                    company=company_name,
+                    job_title=job_title,
+                    candidate_name=self.full_name,
+                )
+            except Exception:
+                rendered = raw_cover
+            ans = Answer(value=rendered, source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
 
         # How did you hear
@@ -635,7 +672,15 @@ class QnAEngine:
         else:
             job_desc = job_context.get("description") if job_context else None
             work_loc = job_context.get("location") if job_context else None
-            return self.resolve_text_answer(question, job_description=job_desc, work_location=work_loc)
+            comp = (job_context.get("company") or job_context.get("company_name")) if job_context else None
+            title = (job_context.get("title") or job_context.get("job_title")) if job_context else None
+            return self.resolve_text_answer(
+                question,
+                job_description=job_desc,
+                work_location=work_loc,
+                company_name=comp,
+                job_title=title,
+            )
 
     def resolve_choice_answer(
         self,
@@ -649,9 +694,21 @@ class QnAEngine:
         confidence = 0.9
         target = "Yes"
 
+        # Tier 0: Direct legal work authorization without sponsorship (strict candidate right)
+        if any(w in lbl for w in ["authorized to work", "authorised to work", "legally authorized", "eligible to work"]) and any(w in lbl for w in ["without", "no sponsorship", "not require"]):
+            ans = Answer(value="Yes", source="profile", confidence=1.0)
+            return ans, self._match_option("Yes", available_options)
+
         # Tier 1: Custom Q&A
+        generic_choice_keys = {"experience", "work experience", "total experience", "overall experience", "title", "job title", "domain", "attach", "others"}
+        lbl_clean = re.sub(r'\(e\.?g\.?[^)]*\)', '', lbl).strip()
         for key, val in self.custom_qa.items():
-            if key.lower() in lbl:
+            k_lower = key.lower().strip()
+            if not k_lower:
+                continue
+            if k_lower in generic_choice_keys and lbl != k_lower and lbl_clean != k_lower:
+                continue
+            if k_lower in lbl:
                 target = str(val)
                 source = "rule"
                 confidence = 0.95
@@ -660,7 +717,11 @@ class QnAEngine:
             # Tier 2: Standard rules
             source = "profile"
             confidence = 1.0
-            if any(w in lbl for w in ["visa", "sponsorship"]):
+            if any(w in lbl for w in ["authorized to work", "authorised to work", "legally authorized", "eligible to work"]) and any(w in lbl for w in ["without", "no sponsorship", "not require"]):
+                target = "Yes"
+                source = "profile"
+                confidence = 0.98
+            elif any(w in lbl for w in ["visa", "sponsorship"]):
                 target = self.standard_answers.get("require_visa", "No")
             elif any(w in lbl for w in ["related to", "relative", "family member", "nepotism", "relationship with anyone", "conflict of interest"]):
                 target = "No"
@@ -978,6 +1039,7 @@ class QnAEngine:
             "overall experience", "full name", "first name", "last name", "legal name",
             "phone", "mobile", "email", "current ctc", "expected ctc", "notice period",
             "dob", "date of birth", "birth date", "what is your dob", "what is you dob",
+            "experience", "work experience", "relevant experience", "experience level", "title",
         }
         q_stripped = re.sub(r'[\?\:\*]', '', q_lower).strip()
         if q_stripped in generic_terms or any(w in q_lower for w in ["dob", "date of birth", "birth date"]):

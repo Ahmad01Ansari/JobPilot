@@ -52,8 +52,9 @@ class PlatformRepository(BaseRepository):
                 PlatformAccount.account_name == account_name.strip(),
             )
             .options(joinedload(PlatformAccount.platform))
+            .order_by(PlatformAccount.id.asc())
         )
-        return self.session.execute(stmt).scalar_one_or_none()
+        return self.session.execute(stmt).scalars().first()
 
     def save_account(
         self,

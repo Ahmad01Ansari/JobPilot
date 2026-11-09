@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JobPilot Automation Dashboard</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/img/jobpilot.png">
     <style>
         :root {
             --primary: #FF5F15;
@@ -26,7 +29,8 @@
             --bubble-text: #1e293b;
         }
 
-        @media (prefers-color-scheme: dark), body.dark-theme {
+        @media (prefers-color-scheme: dark),
+        body.dark-theme {
             :root {
                 --primary: #FF5F15;
                 --primary-hover: #ff7839;
@@ -126,15 +130,29 @@
             padding: 18px 20px;
             border-radius: 10px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
             border-left: 5px solid var(--primary);
         }
 
-        .metric-card.success { border-left-color: var(--success); }
-        .metric-card.warning { border-left-color: var(--warning); }
-        .metric-card.danger { border-left-color: var(--danger); }
-        .metric-card.info { border-left-color: var(--info); }
-        .metric-card.muted { border-left-color: var(--muted); }
+        .metric-card.success {
+            border-left-color: var(--success);
+        }
+
+        .metric-card.warning {
+            border-left-color: var(--warning);
+        }
+
+        .metric-card.danger {
+            border-left-color: var(--danger);
+        }
+
+        .metric-card.info {
+            border-left-color: var(--info);
+        }
+
+        .metric-card.muted {
+            border-left-color: var(--muted);
+        }
 
         .metric-title {
             font-size: 13px;
@@ -162,7 +180,7 @@
             padding: 14px 18px;
             border-radius: 8px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             margin-bottom: 18px;
         }
 
@@ -178,7 +196,12 @@
             color: var(--muted);
         }
 
-        select, input[type="text"], input[type="email"], input[type="url"], input[type="datetime-local"], textarea {
+        select,
+        input[type="text"],
+        input[type="email"],
+        input[type="url"],
+        input[type="datetime-local"],
+        textarea {
             padding: 8px 12px;
             background: var(--surface);
             color: var(--text);
@@ -189,7 +212,9 @@
             box-sizing: border-box;
         }
 
-        select:focus, input:focus, textarea:focus {
+        select:focus,
+        input:focus,
+        textarea:focus {
             border-color: var(--primary);
         }
 
@@ -200,11 +225,12 @@
             background: var(--surface);
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
             border: 1px solid var(--border-color);
         }
 
-        th, td {
+        th,
+        td {
             padding: 12px 16px;
             text-align: left;
             border-bottom: 1px solid var(--border-color);
@@ -238,34 +264,81 @@
             text-transform: uppercase;
         }
 
-        .badge-submitted { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
-        .badge-skipped { background: var(--surface-hover); color: var(--muted); }
-        .badge-manual { background: rgba(217, 119, 6, 0.15); color: #d97706; }
-        .badge-failed { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
-        .badge-external { background: rgba(2, 132, 199, 0.15); color: #0284c7; }
-        .badge-platform { background: rgba(147, 51, 234, 0.15); color: #9333ea; }
+        .badge-submitted {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .badge-skipped {
+            background: var(--surface-hover);
+            color: var(--muted);
+        }
+
+        .badge-manual {
+            background: rgba(217, 119, 6, 0.15);
+            color: #d97706;
+        }
+
+        .badge-failed {
+            background: rgba(220, 38, 38, 0.15);
+            color: #dc2626;
+        }
+
+        .badge-external {
+            background: rgba(2, 132, 199, 0.15);
+            color: #0284c7;
+        }
+
+        .badge-platform {
+            background: rgba(147, 51, 234, 0.15);
+            color: #9333ea;
+        }
 
         /* Outreach Badges */
-        .badge-waiting { background: rgba(217, 119, 6, 0.15); color: #d97706; }
-        .badge-replied { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
-        .badge-action { background: rgba(220, 38, 38, 0.15); color: #dc2626; }
-        .badge-completed { background: var(--surface-hover); color: var(--muted); }
-        .badge-paused { background: var(--surface-hover); color: var(--muted); }
+        .badge-waiting {
+            background: rgba(217, 119, 6, 0.15);
+            color: #d97706;
+        }
+
+        .badge-replied {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .badge-action {
+            background: rgba(220, 38, 38, 0.15);
+            color: #dc2626;
+        }
+
+        .badge-completed {
+            background: var(--surface-hover);
+            color: var(--muted);
+        }
+
+        .badge-paused {
+            background: var(--surface-hover);
+            color: var(--muted);
+        }
 
         /* Modal Styles */
         .modal-overlay {
             display: none;
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             background: rgba(15, 23, 42, 0.7);
             backdrop-filter: blur(4px);
             z-index: 1000;
             justify-content: center;
             align-items: center;
         }
+
         .modal-overlay.active {
             display: flex;
         }
+
         .modal-card {
             background: var(--surface);
             color: var(--text);
@@ -278,6 +351,7 @@
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
             padding: 24px;
         }
+
         .modal-header {
             display: flex;
             justify-content: space-between;
@@ -286,25 +360,30 @@
             padding-bottom: 16px;
             margin-bottom: 20px;
         }
+
         .form-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
             margin-bottom: 16px;
         }
+
         .form-group {
             display: flex;
             flex-direction: column;
             gap: 6px;
         }
+
         .form-group.full-width {
             grid-column: span 2;
         }
+
         .form-group label {
             font-size: 13px;
             font-weight: 600;
             color: var(--text-secondary);
         }
+
         .form-group textarea {
             resize: vertical;
             min-height: 120px;
@@ -385,6 +464,7 @@
             font-weight: 600;
             transition: all 0.15s;
         }
+
         .btn-theme:hover {
             background: var(--surface-hover);
             color: var(--text);
@@ -398,23 +478,27 @@
             padding: 10px 0;
             overflow-y: auto;
         }
+
         .timeline-bubble {
             padding: 14px 18px;
             border-radius: 10px;
             max-width: 85%;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             color: var(--bubble-text);
         }
+
         .timeline-bubble.outbound {
             align-self: flex-end;
             background: var(--bubble-outbound-bg);
             border: 1px solid var(--bubble-outbound-border);
         }
+
         .timeline-bubble.inbound {
             align-self: flex-start;
             background: var(--bubble-inbound-bg);
             border: 1px solid var(--bubble-inbound-border);
         }
+
         .fu-card {
             background: var(--surface-hover);
             border: 1px solid var(--border-color);
@@ -430,23 +514,38 @@
     </style>
 
 </head>
+
 <body>
     <div class="container">
         <header>
             <div>
                 <h1>JobPilot Automation Dashboard</h1>
-                <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application Tracker & Analytics</p>
-            </div>
-            <div>
-                <button onclick="refreshData()" style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer; font-weight: 600;">🔄 Refresh Data</button>
-            </div>
+                <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application Tracker &
+                    Analytics</p>
+                <div style="display: flex; align-items: center; gap: 14px;">
+                    <img src="/static/img/jobpilot.png" alt="JobPilot"
+                        style="width: 44px; height: 44px; border-radius: 10px; object-fit: contain;">
+                    <div>
+                        <h1>JobPilot Automation Dashboard</h1>
+                        <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application
+                            Tracker & Analytics</p>
+                    </div>
+                </div>
+                <div>
+                    <button onclick="refreshData()"
+                        style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer; font-weight: 600;">🔄
+                        Refresh Data</button>
+                </div>
         </header>
 
         <!-- Navigation Tabs -->
         <div class="tabs">
-            <button class="tab-btn active" id="btn-unified-tab" onclick="switchTab('unified-tab')">📊 Unified & Naukri Overview</button>
-            <button class="tab-btn" id="btn-linkedin-legacy-tab" onclick="switchTab('linkedin-legacy-tab')">💼 LinkedIn Applied History (Legacy)</button>
-            <button class="tab-btn" id="btn-outreach-tab" onclick="switchTab('outreach-tab')">✉️ Outreach Center</button>
+            <button class="tab-btn active" id="btn-unified-tab" onclick="switchTab('unified-tab')">📊 Unified & Naukri
+                Overview</button>
+            <button class="tab-btn" id="btn-linkedin-legacy-tab" onclick="switchTab('linkedin-legacy-tab')">💼 LinkedIn
+                Applied History (Legacy)</button>
+            <button class="tab-btn" id="btn-outreach-tab" onclick="switchTab('outreach-tab')">✉️ Outreach
+                Center</button>
         </div>
 
         <!-- TAB 1: Unified & Naukri Dashboard -->
@@ -506,10 +605,13 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <input type="text" id="searchInput" placeholder="Search by title or company..." oninput="filterUnifiedJobs()" style="width: 240px;">
+                    <input type="text" id="searchInput" placeholder="Search by title or company..."
+                        oninput="filterUnifiedJobs()" style="width: 240px;">
                 </div>
                 <div class="filter-group">
-                    <button id="btnToggleJunk" onclick="toggleJunkMode()" style="padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text);">🗑 Junk (<span id="junkBadgeCount">0</span>)</button>
+                    <button id="btnToggleJunk" onclick="toggleJunkMode()"
+                        style="padding: 6px 12px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text);">🗑
+                        Junk (<span id="junkBadgeCount">0</span>)</button>
                 </div>
             </div>
 
@@ -529,7 +631,10 @@
                     </tr>
                 </thead>
                 <tbody id="unifiedTableBody">
-                    <tr><td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">Loading applications...</td></tr>
+                    <tr>
+                        <td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">Loading
+                            applications...</td>
+                    </tr>
                 </tbody>
             </table>
         </div>
@@ -541,9 +646,9 @@
                     <tr>
                         <th class="sl-column">Sl No</th>
                         <th>Job Title</th>
-                        <th>Company</th>  
+                        <th>Company</th>
                         <th>HR Contact</th>
-                        <th>External Link</th> 
+                        <th>External Link</th>
                         <th class="applied-column">Applied</th>
                     </tr>
                 </thead>
@@ -580,13 +685,16 @@
             <!-- Controls Bar -->
             <div class="controls-bar">
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                    <button onclick="openOutreachComposer()" style="background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <button onclick="openOutreachComposer()"
+                        style="background: var(--primary); color: white; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                         <span>✉️</span> + Compose Outreach
                     </button>
-                    <button onclick="syncOutreachMailbox()" id="btnSyncMailbox" class="btn-theme" style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
+                    <button onclick="syncOutreachMailbox()" id="btnSyncMailbox" class="btn-theme"
+                        style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
                         📥 Sync Inbound Replies
                     </button>
-                    <button onclick="refreshDueFollowups()" class="btn-theme" style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
+                    <button onclick="refreshDueFollowups()" class="btn-theme"
+                        style="padding: 10px 16px; border-radius: 6px; cursor: pointer;">
                         ⚡ Refresh Cadences
                     </button>
                 </div>
@@ -602,20 +710,25 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <input type="text" id="outreachSearchInput" placeholder="Search company or recruiter..." oninput="onOutreachSearchInput(this.value)" style="width: 240px;">
+                        <input type="text" id="outreachSearchInput" placeholder="Search company or recruiter..."
+                            oninput="onOutreachSearchInput(this.value)" style="width: 240px;">
                     </div>
-                    <button onclick="testOutreachConnection()" title="Test Email Provider Connection" class="btn-theme" style="padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;">
+                    <button onclick="testOutreachConnection()" title="Test Email Provider Connection" class="btn-theme"
+                        style="padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;">
                         🔌 Test Connection
                     </button>
                 </div>
             </div>
 
             <!-- Due Follow-ups Alert Banner -->
-            <div id="dueFollowupsBanner" style="display: none; background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.3); border-left: 5px solid var(--warning); padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
+            <div id="dueFollowupsBanner"
+                style="display: none; background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.3); border-left: 5px solid var(--warning); padding: 14px 18px; border-radius: 8px; margin-bottom: 18px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong style="color: var(--text);">⚠️ You have <span id="dueFollowupCount">0</span> follow-up(s) due!</strong>
-                        <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Review and dispatch due follow-up messages to maintain recruiter engagement.</p>
+                        <strong style="color: var(--text);">⚠️ You have <span id="dueFollowupCount">0</span>
+                            follow-up(s) due!</strong>
+                        <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Review and dispatch due
+                            follow-up messages to maintain recruiter engagement.</p>
                     </div>
                 </div>
             </div>
@@ -624,13 +737,16 @@
             <div class="outreach-workspace">
                 <!-- Left Pane: Conversations List (35%) -->
                 <div class="outreach-list-pane">
-                    <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--surface-hover);">
-                        <span style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);">
+                    <div
+                        style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--surface-hover);">
+                        <span
+                            style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);">
                             Conversations (<span id="outreachConversationsCount">0</span>)
                         </span>
                     </div>
                     <div id="outreachCardsList" class="outreach-cards-container">
-                        <div style="text-align: center; color: var(--muted); padding: 32px 16px;">Loading conversations...</div>
+                        <div style="text-align: center; color: var(--muted); padding: 32px 16px;">Loading
+                            conversations...</div>
                     </div>
                 </div>
 
@@ -640,8 +756,11 @@
                     <div id="outreachEmptyState" class="empty-state-card">
                         <div style="font-size: 48px; margin-bottom: 12px;">✉️</div>
                         <h3 style="margin: 0 0 6px 0; color: var(--text);">Select an Outreach Conversation</h3>
-                        <p style="margin: 0 0 20px 0; color: var(--muted); font-size: 14px; max-width: 400px;">Choose a recruiter conversation from the list to view the full message stream, AI response analysis, and automated follow-up cadences.</p>
-                        <button onclick="openOutreachComposer()" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                        <p style="margin: 0 0 20px 0; color: var(--muted); font-size: 14px; max-width: 400px;">Choose a
+                            recruiter conversation from the list to view the full message stream, AI response analysis,
+                            and automated follow-up cadences.</p>
+                        <button onclick="openOutreachComposer()"
+                            style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer;">
                             + Compose New Outreach
                         </button>
                     </div>
@@ -649,34 +768,47 @@
                     <!-- Active Conversation Thread & Actions -->
                     <div id="outreachActiveThread" style="display: none; height: 100%; flex-direction: column;">
                         <!-- Thread Header -->
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 14px; border-bottom: 1px solid var(--border-color); margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
                             <div>
-                                <h2 id="wsCompanyTitle" style="margin: 0; font-size: 18px; color: var(--text);">Company Name</h2>
-                                <p id="wsRecruiterSubtitle" style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Recruiter Contact</p>
+                                <h2 id="wsCompanyTitle" style="margin: 0; font-size: 18px; color: var(--text);">Company
+                                    Name</h2>
+                                <p id="wsRecruiterSubtitle"
+                                    style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Recruiter Contact
+                                </p>
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <div id="wsStateBadge"></div>
-                                <button id="wsBtnToggleCadence" class="btn-theme" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">
+                                <button id="wsBtnToggleCadence" class="btn-theme"
+                                    style="padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">
                                     Pause Follow-ups
                                 </button>
-                                <button onclick="openReplyComposer()" style="background: var(--primary); color: white; border: none; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                <button onclick="openReplyComposer()"
+                                    style="background: var(--primary); color: white; border: none; padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                                     ↩ Reply
                                 </button>
                             </div>
                         </div>
 
                         <!-- AI Suggestion & Human Confirmation Banner -->
-                        <div id="wsAiRecommendationBanner" style="display: none; background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.25); border-left: 4px solid var(--info); padding: 12px 16px; border-radius: 6px; margin-bottom: 14px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div id="wsAiRecommendationBanner"
+                            style="display: none; background: rgba(2, 132, 199, 0.1); border: 1px solid rgba(2, 132, 199, 0.25); border-left: 4px solid var(--info); padding: 12px 16px; border-radius: 6px; margin-bottom: 14px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                                 <div>
-                                    <strong style="color: var(--text); font-size: 13px;" id="wsAiCategoryTitle">✨ AI Analysis: Recruiter Response</strong>
-                                    <div id="wsAiRationale" style="font-size: 12px; color: var(--muted); margin-top: 2px;">Rationale snippet...</div>
+                                    <strong style="color: var(--text); font-size: 13px;" id="wsAiCategoryTitle">✨ AI
+                                        Analysis: Recruiter Response</strong>
+                                    <div id="wsAiRationale"
+                                        style="font-size: 12px; color: var(--muted); margin-top: 2px;">Rationale
+                                        snippet...</div>
                                 </div>
                                 <div style="display: flex; gap: 8px;">
-                                    <button id="wsBtnApplyStatus" onclick="applySuggestedStatus()" style="background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                                    <button id="wsBtnApplyStatus" onclick="applySuggestedStatus()"
+                                        style="background: var(--success); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
                                         ✓ Apply Status Change
                                     </button>
-                                    <button onclick="dismissAiRecommendation()" class="btn-theme" style="padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                                    <button onclick="dismissAiRecommendation()" class="btn-theme"
+                                        style="padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">
                                         Dismiss
                                     </button>
                                 </div>
@@ -685,12 +817,14 @@
 
                         <!-- Messages Stream -->
                         <div class="timeline-container" id="wsTimelineMessages" style="flex: 1; max-height: 400px;">
-                            <div style="text-align: center; color: var(--muted); padding: 20px;">Loading timeline...</div>
+                            <div style="text-align: center; color: var(--muted); padding: 20px;">Loading timeline...
+                            </div>
                         </div>
 
                         <!-- Follow-up Cadence Schedule -->
                         <div style="margin-top: 14px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-                            <div style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">
+                            <div
+                                style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px;">
                                 Automated Follow-up Cadence
                             </div>
                             <div id="wsFollowupsList"></div>
@@ -706,21 +840,27 @@
         <div class="modal-card">
             <div class="modal-header">
                 <div>
-                    <h2 id="composerModalTitle" style="margin: 0; font-size: 20px; color: var(--text);">Direct Recruiter Outreach</h2>
-                    <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Craft a targeted application email with automated follow-up cadences.</p>
+                    <h2 id="composerModalTitle" style="margin: 0; font-size: 20px; color: var(--text);">Direct Recruiter
+                        Outreach</h2>
+                    <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 13px;">Craft a targeted application
+                        email with automated follow-up cadences.</p>
                 </div>
-                <button onclick="closeOutreachComposer()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted);">&times;</button>
+                <button onclick="closeOutreachComposer()"
+                    style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted);">&times;</button>
             </div>
 
             <!-- Duplicate Warning Notice -->
-            <div id="duplicateWarningBox" style="display: none; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.3); border-left: 4px solid var(--danger); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;">
+            <div id="duplicateWarningBox"
+                style="display: none; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.3); border-left: 4px solid var(--danger); padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;">
                 <strong style="color: var(--danger);">⚠️ Duplicate Application Detected</strong>
                 <p id="duplicateWarningText" style="margin: 4px 0 10px 0; color: var(--text); font-size: 13px;"></p>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <button type="button" onclick="submitOutreachComposer(true)" style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                    <button type="button" onclick="submitOutreachComposer(true)"
+                        style="background: var(--danger); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;">
                         Send Anyway
                     </button>
-                    <button type="button" onclick="closeOutreachComposer()" class="btn-theme" style="padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                    <button type="button" onclick="closeOutreachComposer()" class="btn-theme"
+                        style="padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer;">
                         Cancel
                     </button>
                 </div>
@@ -755,9 +895,11 @@
                     </select>
                 </div>
                 <div class="form-group full-width">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                         <label>Email Template</label>
-                        <button type="button" onclick="generateAIPitch()" class="btn-theme" style="color: var(--primary); padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;">
+                        <button type="button" onclick="generateAIPitch()" class="btn-theme"
+                            style="color: var(--primary); padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;">
                             ✨ Generate Tailored Pitch (AI)
                         </button>
                     </div>
@@ -767,33 +909,42 @@
                 </div>
 
                 <!-- Missing variables banner -->
-                <div id="missingVarsBanner" class="form-group full-width" style="display: none; background: rgba(217, 119, 6, 0.1); border: 1px solid rgba(217, 119, 6, 0.3); padding: 10px 14px; border-radius: 6px;">
-                    <span style="font-size: 13px; color: var(--warning); font-weight: 600;">⚠️ Unresolved Placeholders: </span>
+                <div id="missingVarsBanner" class="form-group full-width"
+                    style="display: none; background: rgba(217, 119, 6, 0.1); border: 1px solid rgba(217, 119, 6, 0.3); padding: 10px 14px; border-radius: 6px;">
+                    <span style="font-size: 13px; color: var(--warning); font-weight: 600;">⚠️ Unresolved Placeholders:
+                    </span>
                     <span id="missingVarsList" style="font-size: 13px; color: var(--text);"></span>
                 </div>
 
                 <div class="form-group full-width">
                     <label>Subject Line *</label>
-                    <input type="text" id="outreachSubject" placeholder="e.g. Application: Senior RPA Developer - Candidate" required>
+                    <input type="text" id="outreachSubject"
+                        placeholder="e.g. Application: Senior RPA Developer - Candidate" required>
                 </div>
                 <div class="form-group full-width">
                     <label>Email Body *</label>
-                    <textarea id="outreachBody" placeholder="Compose your personalized direct message to the recruiter..."></textarea>
+                    <textarea id="outreachBody"
+                        placeholder="Compose your personalized direct message to the recruiter..."></textarea>
                 </div>
 
                 <!-- Follow-up Cadence Selector -->
-                <div class="form-group full-width" style="background: var(--surface-hover); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px;">
-                    <label style="margin-bottom: 6px; display: block; color: var(--text-secondary);">Automated Follow-up Cadence:</label>
+                <div class="form-group full-width"
+                    style="background: var(--surface-hover); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 8px;">
+                    <label style="margin-bottom: 6px; display: block; color: var(--text-secondary);">Automated Follow-up
+                        Cadence:</label>
                     <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                        <label
+                            style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
                             <input type="checkbox" id="cadenceStep1" checked value="4">
                             Step 1: Polite Check-in (+4 days)
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                        <label
+                            style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
                             <input type="checkbox" id="cadenceStep2" checked value="10">
                             Step 2: Value-Add (+10 days)
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
+                        <label
+                            style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; color: var(--text);">
                             <input type="checkbox" id="cadenceStep3" checked value="17">
                             Step 3: Closeout (+17 days)
                         </label>
@@ -802,15 +953,21 @@
             </div>
 
             <!-- Footer Actions with Schedule Option -->
-            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 16px; flex-wrap: wrap; gap: 12px;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 16px; flex-wrap: wrap; gap: 12px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <label style="font-size: 13px; color: var(--muted); margin: 0;">Schedule (Optional):</label>
                     <input type="datetime-local" id="outreachScheduleTime" style="padding: 6px 10px; font-size: 13px;">
                 </div>
                 <div style="display: flex; gap: 10px;">
-                    <button onclick="closeOutreachComposer()" class="btn-theme" style="padding: 10px 18px; border-radius: 6px; cursor: pointer;">Cancel</button>
-                    <button onclick="submitOutreachComposer(false, true)" id="btnScheduleOutreach" class="btn-theme" style="color: var(--primary); padding: 10px 18px; border-radius: 6px; cursor: pointer;">⏰ Schedule</button>
-                    <button onclick="submitOutreachComposer(false, false)" id="btnSubmitOutreach" style="background: var(--primary); border: none; color: white; padding: 10px 22px; border-radius: 6px; font-weight: 600; cursor: pointer;">🚀 Send Now</button>
+                    <button onclick="closeOutreachComposer()" class="btn-theme"
+                        style="padding: 10px 18px; border-radius: 6px; cursor: pointer;">Cancel</button>
+                    <button onclick="submitOutreachComposer(false, true)" id="btnScheduleOutreach" class="btn-theme"
+                        style="color: var(--primary); padding: 10px 18px; border-radius: 6px; cursor: pointer;">⏰
+                        Schedule</button>
+                    <button onclick="submitOutreachComposer(false, false)" id="btnSubmitOutreach"
+                        style="background: var(--primary); border: none; color: white; padding: 10px 22px; border-radius: 6px; font-weight: 600; cursor: pointer;">🚀
+                        Send Now</button>
                 </div>
             </div>
         </div>
@@ -825,7 +982,7 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
+
             const btn = document.getElementById('btn-' + tabId);
             if (btn) {
                 btn.classList.add('active');
@@ -908,7 +1065,7 @@
                 if (res.ok) {
                     loadUnifiedApplications();
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error('Error marking job as junk:', e);
             }
         }
@@ -923,7 +1080,7 @@
                 if (res.ok) {
                     loadUnifiedApplications();
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error('Error restoring job from junk:', e);
             }
         }
@@ -947,7 +1104,7 @@
             const filtered = unifiedApplications.filter(job => {
                 const matchPlat = !plat || (job.platform && job.platform.toLowerCase() === plat);
                 const matchStatus = !status || (job.status && job.status.toUpperCase() === status);
-                const matchQuery = !query || 
+                const matchQuery = !query ||
                     (job.title && job.title.toLowerCase().includes(query)) ||
                     (job.company && job.company.toLowerCase().includes(query));
                 return matchPlat && matchStatus && matchQuery;
@@ -1006,12 +1163,12 @@
             tbody.innerHTML = '';
             jobs.forEach((job, index) => {
                 const row = document.createElement('tr');
-                
+
                 const slCell = document.createElement('td');
                 slCell.textContent = index + 1;
                 slCell.className = 'sl-column';
                 row.appendChild(slCell);
-                
+
                 const titleCell = document.createElement('td');
                 const titleLink = document.createElement('a');
                 titleLink.href = job.Job_Link;
@@ -1019,11 +1176,11 @@
                 titleLink.target = '_blank';
                 titleCell.appendChild(titleLink);
                 row.appendChild(titleCell);
-                
+
                 const companyCell = document.createElement('td');
                 companyCell.textContent = job.Company;
                 row.appendChild(companyCell);
-                
+
                 const hrCell = document.createElement('td');
                 if (job.HR_Name && job.HR_Name !== 'Unknown') {
                     const hrLink = document.createElement('a');
@@ -1035,7 +1192,7 @@
                     hrCell.textContent = 'N/A';
                 }
                 row.appendChild(hrCell);
-                
+
                 const extCell = document.createElement('td');
                 const appliedCell = document.createElement('td');
                 appliedCell.className = 'applied-column';
@@ -1057,7 +1214,7 @@
                 }
                 row.appendChild(extCell);
                 row.appendChild(appliedCell);
-                
+
                 tbody.appendChild(row);
             });
         }
@@ -1143,53 +1300,53 @@
             if (st === 'COMPLETED') return `<span class="badge badge-completed">Completed</span>`;
             if (st === 'PAUSED') return `<span class="badge badge-paused">Paused</span>`;
             return `<span class="badge badge-waiting">Awaiting Reply</span>`;
-        let outreachSearchTimer = null;
-        let currentSuggestedAction = null;
+            let outreachSearchTimer = null;
+            let currentSuggestedAction = null;
 
-        function onOutreachSearchInput(val) {
-            if (outreachSearchTimer) clearTimeout(outreachSearchTimer);
-            outreachSearchTimer = setTimeout(() => {
-                filterOutreachConversations();
-            }, 300);
-        }
-
-        function filterOutreachConversations() {
-            const stateFilter = document.getElementById('outreachStateFilter').value;
-            const query = (document.getElementById('outreachSearchInput').value || '').toLowerCase().trim();
-
-            const filtered = outreachConversations.filter(c => {
-                const matchState = !stateFilter || (c.conversation_state === stateFilter);
-                const matchQuery = !query ||
-                    (c.company_name && c.company_name.toLowerCase().includes(query)) ||
-                    (c.job_title && c.job_title.toLowerCase().includes(query)) ||
-                    (c.contact_name && c.contact_name.toLowerCase().includes(query)) ||
-                    (c.contact_email && c.contact_email.toLowerCase().includes(query));
-                return matchState && matchQuery;
-            });
-
-            renderOutreachCards(filtered);
-        }
-
-        function renderOutreachCards(conversations) {
-            const container = document.getElementById('outreachCardsList');
-            const countElem = document.getElementById('outreachConversationsCount');
-            if (countElem) countElem.textContent = conversations.length;
-            container.innerHTML = '';
-
-            if (conversations.length === 0) {
-                container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 32px 16px; font-size: 13px;">No outreach conversations match your filter.</div>`;
-                return;
+            function onOutreachSearchInput(val) {
+                if (outreachSearchTimer) clearTimeout(outreachSearchTimer);
+                outreachSearchTimer = setTimeout(() => {
+                    filterOutreachConversations();
+                }, 300);
             }
 
-            conversations.forEach(conv => {
-                const card = document.createElement('div');
-                card.className = `outreach-card ${currentTimelineAppId === conv.application_id ? 'active' : ''}`;
-                card.id = `outreach-card-${conv.application_id}`;
-                
-                const lastActivity = conv.last_activity_at ? new Date(conv.last_activity_at).toLocaleDateString() : '-';
-                const nextFollowup = conv.next_followup_due ? `Next due: ${new Date(conv.next_followup_due).toLocaleDateString()}` : 'No follow-up pending';
+            function filterOutreachConversations() {
+                const stateFilter = document.getElementById('outreachStateFilter').value;
+                const query = (document.getElementById('outreachSearchInput').value || '').toLowerCase().trim();
 
-                card.innerHTML = `
+                const filtered = outreachConversations.filter(c => {
+                    const matchState = !stateFilter || (c.conversation_state === stateFilter);
+                    const matchQuery = !query ||
+                        (c.company_name && c.company_name.toLowerCase().includes(query)) ||
+                        (c.job_title && c.job_title.toLowerCase().includes(query)) ||
+                        (c.contact_name && c.contact_name.toLowerCase().includes(query)) ||
+                        (c.contact_email && c.contact_email.toLowerCase().includes(query));
+                    return matchState && matchQuery;
+                });
+
+                renderOutreachCards(filtered);
+            }
+
+            function renderOutreachCards(conversations) {
+                const container = document.getElementById('outreachCardsList');
+                const countElem = document.getElementById('outreachConversationsCount');
+                if (countElem) countElem.textContent = conversations.length;
+                container.innerHTML = '';
+
+                if (conversations.length === 0) {
+                    container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 32px 16px; font-size: 13px;">No outreach conversations match your filter.</div>`;
+                    return;
+                }
+
+                conversations.forEach(conv => {
+                    const card = document.createElement('div');
+                    card.className = `outreach-card ${currentTimelineAppId === conv.application_id ? 'active' : ''}`;
+                    card.id = `outreach-card-${conv.application_id}`;
+
+                    const lastActivity = conv.last_activity_at ? new Date(conv.last_activity_at).toLocaleDateString() : '-';
+                    const nextFollowup = conv.next_followup_due ? `Next due: ${new Date(conv.next_followup_due).toLocaleDateString()}` : 'No follow-up pending';
+
+                    card.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
                         <strong style="color: var(--text); font-size: 14px;">${conv.company_name || 'Direct Outreach'}</strong>
                         ${getOutreachStateBadge(conv.conversation_state)}
@@ -1202,69 +1359,69 @@
                     <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">${nextFollowup}</div>
                 `;
 
-                card.onclick = () => selectOutreachConversation(conv.application_id);
-                container.appendChild(card);
-            });
-        }
+                    card.onclick = () => selectOutreachConversation(conv.application_id);
+                    container.appendChild(card);
+                });
+            }
 
-        async function selectOutreachConversation(appId) {
-            currentTimelineAppId = appId;
+            async function selectOutreachConversation(appId) {
+                currentTimelineAppId = appId;
 
-            // Highlight active card
-            document.querySelectorAll('.outreach-card').forEach(c => c.classList.remove('active'));
-            const activeCard = document.getElementById(`outreach-card-${appId}`);
-            if (activeCard) activeCard.classList.add('active');
+                // Highlight active card
+                document.querySelectorAll('.outreach-card').forEach(c => c.classList.remove('active'));
+                const activeCard = document.getElementById(`outreach-card-${appId}`);
+                if (activeCard) activeCard.classList.add('active');
 
-            // Switch workspace view
-            document.getElementById('outreachEmptyState').style.display = 'none';
-            const threadPane = document.getElementById('outreachActiveThread');
-            threadPane.style.display = 'flex';
+                // Switch workspace view
+                document.getElementById('outreachEmptyState').style.display = 'none';
+                const threadPane = document.getElementById('outreachActiveThread');
+                threadPane.style.display = 'flex';
 
-            const container = document.getElementById('wsTimelineMessages');
-            container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 24px;">Loading recruiter thread...</div>`;
+                const container = document.getElementById('wsTimelineMessages');
+                container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 24px;">Loading recruiter thread...</div>`;
 
-            try {
-                const res = await fetch(`/api/outreach/conversations/${appId}/timeline`);
-                if (!res.ok) {
-                    container.innerHTML = `<div style="text-align: center; color: var(--danger); padding: 24px;">Failed to load conversation timeline.</div>`;
-                    return;
-                }
-                const data = await res.json();
-                document.getElementById('wsCompanyTitle').textContent = `${data.company_name} — ${data.job_title}`;
-                const contactStr = data.contact ? `${data.contact.name || 'Recruiter'} (${data.contact.email})` : 'Recruiter Contact';
-                document.getElementById('wsRecruiterSubtitle').textContent = contactStr;
-                document.getElementById('wsStateBadge').innerHTML = getOutreachStateBadge(data.conversation_state);
+                try {
+                    const res = await fetch(`/api/outreach/conversations/${appId}/timeline`);
+                    if (!res.ok) {
+                        container.innerHTML = `<div style="text-align: center; color: var(--danger); padding: 24px;">Failed to load conversation timeline.</div>`;
+                        return;
+                    }
+                    const data = await res.json();
+                    document.getElementById('wsCompanyTitle').textContent = `${data.company_name} — ${data.job_title}`;
+                    const contactStr = data.contact ? `${data.contact.name || 'Recruiter'} (${data.contact.email})` : 'Recruiter Contact';
+                    document.getElementById('wsRecruiterSubtitle').textContent = contactStr;
+                    document.getElementById('wsStateBadge').innerHTML = getOutreachStateBadge(data.conversation_state);
 
-                // Cadence status toggle
-                const isPaused = data.follow_ups.some(f => f.status === 'PAUSED');
-                const btnToggle = document.getElementById('wsBtnToggleCadence');
-                if (isPaused) {
-                    btnToggle.textContent = '▶️ Resume Follow-ups';
-                    btnToggle.onclick = () => toggleCadence(appId, false);
-                } else {
-                    btnToggle.textContent = '⏸️ Pause Follow-ups';
-                    btnToggle.onclick = () => toggleCadence(appId, true);
-                }
+                    // Cadence status toggle
+                    const isPaused = data.follow_ups.some(f => f.status === 'PAUSED');
+                    const btnToggle = document.getElementById('wsBtnToggleCadence');
+                    if (isPaused) {
+                        btnToggle.textContent = '▶️ Resume Follow-ups';
+                        btnToggle.onclick = () => toggleCadence(appId, false);
+                    } else {
+                        btnToggle.textContent = '⏸️ Pause Follow-ups';
+                        btnToggle.onclick = () => toggleCadence(appId, true);
+                    }
 
-                // Render Messages
-                container.innerHTML = '';
-                let latestInbound = null;
-                if (!data.communications || data.communications.length === 0) {
-                    container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 20px;">No messages recorded in this conversation yet.</div>`;
-                } else {
-                    data.communications.forEach(comm => {
-                        const bubble = document.createElement('div');
-                        const isOutbound = comm.direction === 'OUTBOUND';
-                        bubble.className = `timeline-bubble ${isOutbound ? 'outbound' : 'inbound'}`;
+                    // Render Messages
+                    container.innerHTML = '';
+                    let latestInbound = null;
+                    if (!data.communications || data.communications.length === 0) {
+                        container.innerHTML = `<div style="text-align: center; color: var(--muted); padding: 20px;">No messages recorded in this conversation yet.</div>`;
+                    } else {
+                        data.communications.forEach(comm => {
+                            const bubble = document.createElement('div');
+                            const isOutbound = comm.direction === 'OUTBOUND';
+                            bubble.className = `timeline-bubble ${isOutbound ? 'outbound' : 'inbound'}`;
 
-                        if (!isOutbound) latestInbound = comm;
+                            if (!isOutbound) latestInbound = comm;
 
-                        const dateStr = comm.occurred_at ? new Date(comm.occurred_at).toLocaleString() : '';
-                        const badgeHtml = isOutbound
-                            ? `<span style="font-size: 11px; background: rgba(59, 130, 246, 0.2); color: #2563eb; padding: 2px 6px; border-radius: 4px; font-weight: 600;">OUTBOUND</span>`
-                            : `<span style="font-size: 11px; background: rgba(34, 197, 94, 0.2); color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: 600;">RECRUITER REPLY</span>`;
+                            const dateStr = comm.occurred_at ? new Date(comm.occurred_at).toLocaleString() : '';
+                            const badgeHtml = isOutbound
+                                ? `<span style="font-size: 11px; background: rgba(59, 130, 246, 0.2); color: #2563eb; padding: 2px 6px; border-radius: 4px; font-weight: 600;">OUTBOUND</span>`
+                                : `<span style="font-size: 11px; background: rgba(34, 197, 94, 0.2); color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: 600;">RECRUITER REPLY</span>`;
 
-                        bubble.innerHTML = `
+                            bubble.innerHTML = `
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <div>
                                     ${badgeHtml}
@@ -1282,33 +1439,33 @@
                             <div style="font-size: 13px; line-height: 1.5; white-space: pre-wrap;">${comm.snippet || '(Empty Body)'}</div>
                             ${comm.error_message ? `<div style="margin-top: 6px; font-size: 12px; color: var(--danger);">Error: ${comm.error_message}</div>` : ''}
                         `;
-                        container.appendChild(bubble);
-                    });
-                }
+                            container.appendChild(bubble);
+                        });
+                    }
 
-                // AI Response Classification & Human Confirmation Banner
-                const aiBanner = document.getElementById('wsAiRecommendationBanner');
-                if (latestInbound && (data.conversation_state === 'REPLIED' || data.conversation_state === 'NEEDS_ACTION')) {
-                    checkAndClassifyInbound(latestInbound.snippet || '', latestInbound.subject || '');
-                } else {
-                    aiBanner.style.display = 'none';
-                }
+                    // AI Response Classification & Human Confirmation Banner
+                    const aiBanner = document.getElementById('wsAiRecommendationBanner');
+                    if (latestInbound && (data.conversation_state === 'REPLIED' || data.conversation_state === 'NEEDS_ACTION')) {
+                        checkAndClassifyInbound(latestInbound.snippet || '', latestInbound.subject || '');
+                    } else {
+                        aiBanner.style.display = 'none';
+                    }
 
-                // Render Followups
-                const fuList = document.getElementById('wsFollowupsList');
-                fuList.innerHTML = '';
-                if (!data.follow_ups || data.follow_ups.length === 0) {
-                    fuList.innerHTML = `<div style="font-size: 12px; color: var(--muted);">No scheduled follow-up steps.</div>`;
-                } else {
-                    data.follow_ups.forEach(fu => {
-                        const card = document.createElement('div');
-                        card.className = 'fu-card';
-                        const dueDate = fu.due_at ? new Date(fu.due_at).toLocaleDateString() : '-';
-                        const statusBadge = fu.status === 'COMPLETED'
-                            ? `<span style="color: var(--success); font-weight: 600;">✓ Sent</span>`
-                            : (fu.status === 'PAUSED' ? `<span style="color: var(--muted);">Paused</span>` : `<span style="color: var(--warning); font-weight: 600;">Scheduled</span>`);
+                    // Render Followups
+                    const fuList = document.getElementById('wsFollowupsList');
+                    fuList.innerHTML = '';
+                    if (!data.follow_ups || data.follow_ups.length === 0) {
+                        fuList.innerHTML = `<div style="font-size: 12px; color: var(--muted);">No scheduled follow-up steps.</div>`;
+                    } else {
+                        data.follow_ups.forEach(fu => {
+                            const card = document.createElement('div');
+                            card.className = 'fu-card';
+                            const dueDate = fu.due_at ? new Date(fu.due_at).toLocaleDateString() : '-';
+                            const statusBadge = fu.status === 'COMPLETED'
+                                ? `<span style="color: var(--success); font-weight: 600;">✓ Sent</span>`
+                                : (fu.status === 'PAUSED' ? `<span style="color: var(--muted);">Paused</span>` : `<span style="color: var(--warning); font-weight: 600;">Scheduled</span>`);
 
-                        card.innerHTML = `
+                            card.innerHTML = `
                             <div>
                                 <strong style="font-size: 13px;">Step ${fu.step_number}: Follow-up</strong>
                                 <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">Due: ${dueDate} (${statusBadge}) ${fu.paused_reason ? `— <em>${fu.paused_reason}</em>` : ''}</div>
@@ -1321,371 +1478,372 @@
                                 ` : ''}
                             </div>
                         `;
-                        fuList.appendChild(card);
-                    });
-                }
-            } catch (err) {
-                console.error("Error loading timeline:", err);
-            }
-        }
-
-        async function checkAndClassifyInbound(bodyText, subject) {
-            try {
-                const res = await fetch('/api/outreach/ai/classify-response', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ body_text: bodyText, subject: subject })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.category && data.category !== 'UNKNOWN' && data.category !== 'ACKNOWLEDGEMENT') {
-                        currentSuggestedAction = data.suggested_action;
-                        const banner = document.getElementById('wsAiRecommendationBanner');
-                        const catTitle = data.category.replace(/_/g, ' ');
-                        document.getElementById('wsAiCategoryTitle').textContent = `✨ AI Suggestion: ${catTitle} (Confidence: ${data.confidence})`;
-                        document.getElementById('wsAiRationale').textContent = data.rationale_snippet;
-                        
-                        const applyBtn = document.getElementById('wsBtnApplyStatus');
-                        if (data.suggested_action && data.suggested_action !== 'NONE') {
-                            applyBtn.style.display = 'inline-block';
-                            applyBtn.textContent = `✓ Apply Status: ${data.suggested_action}`;
-                        } else {
-                            applyBtn.style.display = 'none';
-                        }
-                        banner.style.display = 'block';
+                            fuList.appendChild(card);
+                        });
                     }
+                } catch (err) {
+                    console.error("Error loading timeline:", err);
                 }
-            } catch (err) {
-                console.warn("AI classification check skipped:", err);
             }
-        }
 
-        async function applySuggestedStatus() {
-            if (!currentTimelineAppId || !currentSuggestedAction) return;
-            try {
-                const res = await fetch(`/api/outreach/conversations/${currentTimelineAppId}/apply-status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: currentSuggestedAction, notes: 'Applied via AI Classification recommendation' })
-                });
-                if (res.ok) {
-                    alert(`Application updated to ${currentSuggestedAction}!`);
-                    dismissAiRecommendation();
-                    selectOutreachConversation(currentTimelineAppId);
-                    loadOutreachData();
+            async function checkAndClassifyInbound(bodyText, subject) {
+                try {
+                    const res = await fetch('/api/outreach/ai/classify-response', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ body_text: bodyText, subject: subject })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.category && data.category !== 'UNKNOWN' && data.category !== 'ACKNOWLEDGEMENT') {
+                            currentSuggestedAction = data.suggested_action;
+                            const banner = document.getElementById('wsAiRecommendationBanner');
+                            const catTitle = data.category.replace(/_/g, ' ');
+                            document.getElementById('wsAiCategoryTitle').textContent = `✨ AI Suggestion: ${catTitle} (Confidence: ${data.confidence})`;
+                            document.getElementById('wsAiRationale').textContent = data.rationale_snippet;
+
+                            const applyBtn = document.getElementById('wsBtnApplyStatus');
+                            if (data.suggested_action && data.suggested_action !== 'NONE') {
+                                applyBtn.style.display = 'inline-block';
+                                applyBtn.textContent = `✓ Apply Status: ${data.suggested_action}`;
+                            } else {
+                                applyBtn.style.display = 'none';
+                            }
+                            banner.style.display = 'block';
+                        }
+                    }
+                } catch (err) {
+                    console.warn("AI classification check skipped:", err);
                 }
-            } catch (err) {
-                alert(`Error applying status: ${err.message}`);
             }
-        }
 
-        function dismissAiRecommendation() {
-            document.getElementById('wsAiRecommendationBanner').style.display = 'none';
-        }
-
-        function openReplyComposer(rawSubject, rawSnippet, recEmail, recName) {
-            const subject = unescape(rawSubject || '');
-            const snippet = unescape(rawSnippet || '');
-            const email = unescape(recEmail || '');
-            const name = unescape(recName || '');
-
-            openOutreachComposer();
-            document.getElementById('composerModalTitle').textContent = `Reply to ${name || email || 'Recruiter'}`;
-
-            if (email) document.getElementById('outreachRecruiterEmail').value = email;
-            if (name) document.getElementById('outreachRecruiterName').value = name;
-            
-            const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
-            document.getElementById('outreachSubject').value = replySubject;
-
-            if (snippet) {
-                document.getElementById('outreachBody').value = `\n\n--- On ${new Date().toLocaleDateString()}, ${name || 'Recruiter'} wrote: ---\n> ${snippet}`;
+            async function applySuggestedStatus() {
+                if (!currentTimelineAppId || !currentSuggestedAction) return;
+                try {
+                    const res = await fetch(`/api/outreach/conversations/${currentTimelineAppId}/apply-status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: currentSuggestedAction, notes: 'Applied via AI Classification recommendation' })
+                    });
+                    if (res.ok) {
+                        alert(`Application updated to ${currentSuggestedAction}!`);
+                        dismissAiRecommendation();
+                        selectOutreachConversation(currentTimelineAppId);
+                        loadOutreachData();
+                    }
+                } catch (err) {
+                    alert(`Error applying status: ${err.message}`);
+                }
             }
-        }
 
-        // --- Composer Logic ---
-        function openOutreachComposer() {
-            document.getElementById('composerModalTitle').textContent = "Direct Recruiter Outreach";
-            document.getElementById('duplicateWarningBox').style.display = 'none';
-            document.getElementById('missingVarsBanner').style.display = 'none';
-            document.getElementById('outreachScheduleTime').value = '';
-            document.getElementById('outreachComposerModal').classList.add('active');
-        }
+            function dismissAiRecommendation() {
+                document.getElementById('wsAiRecommendationBanner').style.display = 'none';
+            }
 
-        function closeOutreachComposer() {
-            document.getElementById('outreachComposerModal').classList.remove('active');
-        }
+            function openReplyComposer(rawSubject, rawSnippet, recEmail, recName) {
+                const subject = unescape(rawSubject || '');
+                const snippet = unescape(rawSnippet || '');
+                const email = unescape(recEmail || '');
+                const name = unescape(recName || '');
 
-        async function onTemplateSelectChange() {
-            const tmplId = document.getElementById('outreachTemplateSelect').value;
-            if (!tmplId) return;
+                openOutreachComposer();
+                document.getElementById('composerModalTitle').textContent = `Reply to ${name || email || 'Recruiter'}`;
 
-            const compName = document.getElementById('outreachCompany').value || '[Company]';
-            const jobTitle = document.getElementById('outreachJobTitle').value || '[Position]';
-            const recName = document.getElementById('outreachRecruiterName').value || '[Hiring Manager]';
+                if (email) document.getElementById('outreachRecruiterEmail').value = email;
+                if (name) document.getElementById('outreachRecruiterName').value = name;
 
-            try {
-                const res = await fetch('/api/outreach/templates/preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        template_id: parseInt(tmplId),
-                        context: {
+                const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+                document.getElementById('outreachSubject').value = replySubject;
+
+                if (snippet) {
+                    document.getElementById('outreachBody').value = `\n\n--- On ${new Date().toLocaleDateString()}, ${name || 'Recruiter'} wrote: ---\n> ${snippet}`;
+                }
+            }
+
+            // --- Composer Logic ---
+            function openOutreachComposer() {
+                document.getElementById('composerModalTitle').textContent = "Direct Recruiter Outreach";
+                document.getElementById('duplicateWarningBox').style.display = 'none';
+                document.getElementById('missingVarsBanner').style.display = 'none';
+                document.getElementById('outreachScheduleTime').value = '';
+                document.getElementById('outreachComposerModal').classList.add('active');
+            }
+
+            function closeOutreachComposer() {
+                document.getElementById('outreachComposerModal').classList.remove('active');
+            }
+
+            async function onTemplateSelectChange() {
+                const tmplId = document.getElementById('outreachTemplateSelect').value;
+                if (!tmplId) return;
+
+                const compName = document.getElementById('outreachCompany').value || '[Company]';
+                const jobTitle = document.getElementById('outreachJobTitle').value || '[Position]';
+                const recName = document.getElementById('outreachRecruiterName').value || '[Hiring Manager]';
+
+                try {
+                    const res = await fetch('/api/outreach/templates/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            template_id: parseInt(tmplId),
+                            context: {
+                                company_name: compName,
+                                job_title: jobTitle,
+                                recruiter_name: recName,
+                                platform: 'Direct Email',
+                            }
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        document.getElementById('outreachSubject').value = data.subject_preview || '';
+                        document.getElementById('outreachBody').value = data.body_preview || '';
+
+                        const missingBanner = document.getElementById('missingVarsBanner');
+                        if (data.missing_variables && data.missing_variables.length > 0) {
+                            missingBanner.style.display = 'block';
+                            document.getElementById('missingVarsList').textContent = data.missing_variables.join(', ');
+                        } else {
+                            missingBanner.style.display = 'none';
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error previewing template:", err);
+                }
+            }
+
+            async function generateAIPitch() {
+                const compName = document.getElementById('outreachCompany').value;
+                const jobTitle = document.getElementById('outreachJobTitle').value;
+                const recName = document.getElementById('outreachRecruiterName').value;
+                const resumeId = document.getElementById('outreachResumeSelect').value;
+
+                if (!compName || !jobTitle) {
+                    alert("Please fill in Target Company and Position Title before generating AI pitch.");
+                    return;
+                }
+
+                const btn = event.target;
+                const origText = btn.textContent;
+                btn.textContent = "⏳ Generating pitch...";
+                btn.disabled = true;
+
+                try {
+                    const res = await fetch('/api/outreach/ai/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
                             company_name: compName,
                             job_title: jobTitle,
                             recruiter_name: recName,
-                            platform: 'Direct Email',
-                        }
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('outreachSubject').value = data.subject_preview || '';
-                    document.getElementById('outreachBody').value = data.body_preview || '';
-
-                    const missingBanner = document.getElementById('missingVarsBanner');
-                    if (data.missing_variables && data.missing_variables.length > 0) {
-                        missingBanner.style.display = 'block';
-                        document.getElementById('missingVarsList').textContent = data.missing_variables.join(', ');
+                            resume_id: resumeId ? parseInt(resumeId) : null,
+                            tone: 'direct'
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.subject) document.getElementById('outreachSubject').value = data.subject;
+                        if (data.body_text) document.getElementById('outreachBody').value = data.body_text;
+                        document.getElementById('missingVarsBanner').style.display = 'none';
                     } else {
-                        missingBanner.style.display = 'none';
+                        alert("AI generation failed. You can use standard email templates instead.");
                     }
+                } catch (err) {
+                    console.error("AI pitch error:", err);
+                } finally {
+                    btn.textContent = origText;
+                    btn.disabled = false;
                 }
-            } catch (err) {
-                console.error("Error previewing template:", err);
-            }
-        }
-
-        async function generateAIPitch() {
-            const compName = document.getElementById('outreachCompany').value;
-            const jobTitle = document.getElementById('outreachJobTitle').value;
-            const recName = document.getElementById('outreachRecruiterName').value;
-            const resumeId = document.getElementById('outreachResumeSelect').value;
-
-            if (!compName || !jobTitle) {
-                alert("Please fill in Target Company and Position Title before generating AI pitch.");
-                return;
             }
 
-            const btn = event.target;
-            const origText = btn.textContent;
-            btn.textContent = "⏳ Generating pitch...";
-            btn.disabled = true;
+            async function submitOutreachComposer(overrideDuplicate = false, isScheduled = false) {
+                const comp = document.getElementById('outreachCompany').value.trim();
+                const title = document.getElementById('outreachJobTitle').value.trim();
+                const recEmail = document.getElementById('outreachRecruiterEmail').value.trim();
+                const recName = document.getElementById('outreachRecruiterName').value.trim();
+                const jobUrl = document.getElementById('outreachJobUrl').value.trim();
+                const resumeId = document.getElementById('outreachResumeSelect').value;
+                const templateId = document.getElementById('outreachTemplateSelect').value;
+                const subject = document.getElementById('outreachSubject').value.trim();
+                const body = document.getElementById('outreachBody').value.trim();
+                const scheduleTime = document.getElementById('outreachScheduleTime').value;
 
-            try {
-                const res = await fetch('/api/outreach/ai/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        company_name: compName,
-                        job_title: jobTitle,
-                        recruiter_name: recName,
-                        resume_id: resumeId ? parseInt(resumeId) : null,
-                        tone: 'direct'
-                    })
-                });
-                if (res.ok) {
+                if (!comp || !title || !recEmail || !subject || !body) {
+                    alert("Please complete all required fields: Company, Position, Recruiter Email, Subject, and Body.");
+                    return;
+                }
+
+                if (isScheduled && !scheduleTime) {
+                    alert("Please pick a future date and time in the Schedule field before clicking Schedule.");
+                    return;
+                }
+
+                const cadences = [];
+                if (document.getElementById('cadenceStep1').checked) cadences.push(4);
+                if (document.getElementById('cadenceStep2').checked) cadences.push(10);
+                if (document.getElementById('cadenceStep3').checked) cadences.push(17);
+
+                const activeBtn = isScheduled ? document.getElementById('btnScheduleOutreach') : document.getElementById('btnSubmitOutreach');
+                const origLabel = activeBtn.textContent;
+                activeBtn.disabled = true;
+                activeBtn.textContent = isScheduled ? "⏳ Scheduling..." : "⏳ Sending...";
+
+                try {
+                    const res = await fetch('/api/outreach/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            manual_company_name: comp,
+                            manual_job_title: title,
+                            manual_job_url: jobUrl || null,
+                            contact_name: recName || null,
+                            contact_email: recEmail,
+                            resume_id: resumeId ? parseInt(resumeId) : null,
+                            template_id: templateId ? parseInt(templateId) : null,
+                            subject: subject,
+                            body_text: body,
+                            schedule_time: isScheduled && scheduleTime ? new Date(scheduleTime).toISOString() : null,
+                            followup_cadence_days: cadences,
+                            override_duplicate: overrideDuplicate,
+                        })
+                    });
+
                     const data = await res.json();
-                    if (data.subject) document.getElementById('outreachSubject').value = data.subject;
-                    if (data.body_text) document.getElementById('outreachBody').value = data.body_text;
-                    document.getElementById('missingVarsBanner').style.display = 'none';
-                } else {
-                    alert("AI generation failed. You can use standard email templates instead.");
-                }
-            } catch (err) {
-                console.error("AI pitch error:", err);
-            } finally {
-                btn.textContent = origText;
-                btn.disabled = false;
-            }
-        }
-
-        async function submitOutreachComposer(overrideDuplicate = false, isScheduled = false) {
-            const comp = document.getElementById('outreachCompany').value.trim();
-            const title = document.getElementById('outreachJobTitle').value.trim();
-            const recEmail = document.getElementById('outreachRecruiterEmail').value.trim();
-            const recName = document.getElementById('outreachRecruiterName').value.trim();
-            const jobUrl = document.getElementById('outreachJobUrl').value.trim();
-            const resumeId = document.getElementById('outreachResumeSelect').value;
-            const templateId = document.getElementById('outreachTemplateSelect').value;
-            const subject = document.getElementById('outreachSubject').value.trim();
-            const body = document.getElementById('outreachBody').value.trim();
-            const scheduleTime = document.getElementById('outreachScheduleTime').value;
-
-            if (!comp || !title || !recEmail || !subject || !body) {
-                alert("Please complete all required fields: Company, Position, Recruiter Email, Subject, and Body.");
-                return;
-            }
-
-            if (isScheduled && !scheduleTime) {
-                alert("Please pick a future date and time in the Schedule field before clicking Schedule.");
-                return;
-            }
-
-            const cadences = [];
-            if (document.getElementById('cadenceStep1').checked) cadences.push(4);
-            if (document.getElementById('cadenceStep2').checked) cadences.push(10);
-            if (document.getElementById('cadenceStep3').checked) cadences.push(17);
-
-            const activeBtn = isScheduled ? document.getElementById('btnScheduleOutreach') : document.getElementById('btnSubmitOutreach');
-            const origLabel = activeBtn.textContent;
-            activeBtn.disabled = true;
-            activeBtn.textContent = isScheduled ? "⏳ Scheduling..." : "⏳ Sending...";
-
-            try {
-                const res = await fetch('/api/outreach/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        manual_company_name: comp,
-                        manual_job_title: title,
-                        manual_job_url: jobUrl || null,
-                        contact_name: recName || null,
-                        contact_email: recEmail,
-                        resume_id: resumeId ? parseInt(resumeId) : null,
-                        template_id: templateId ? parseInt(templateId) : null,
-                        subject: subject,
-                        body_text: body,
-                        schedule_time: isScheduled && scheduleTime ? new Date(scheduleTime).toISOString() : null,
-                        followup_cadence_days: cadences,
-                        override_duplicate: overrideDuplicate,
-                    })
-                });
-
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    alert(isScheduled ? `⏰ Outreach email successfully scheduled!` : `🚀 Outreach application successfully sent!`);
-                    closeOutreachComposer();
-                    await loadOutreachData();
-                    if (data.application_id) {
-                        selectOutreachConversation(data.application_id);
+                    if (res.ok && data.success) {
+                        alert(isScheduled ? `⏰ Outreach email successfully scheduled!` : `🚀 Outreach application successfully sent!`);
+                        closeOutreachComposer();
+                        await loadOutreachData();
+                        if (data.application_id) {
+                            selectOutreachConversation(data.application_id);
+                        }
+                    } else if (data.is_duplicate) {
+                        const warnBox = document.getElementById('duplicateWarningBox');
+                        warnBox.style.display = 'block';
+                        document.getElementById('duplicateWarningText').textContent =
+                            `An active application for "${data.duplicate_info.job_title}" at "${data.duplicate_info.company_name}" already exists (Status: ${data.duplicate_info.existing_status}). Click 'Send Anyway' to override.`;
+                    } else {
+                        alert(`Failed to send outreach: ${data.error || 'Unknown error'}`);
                     }
-                } else if (data.is_duplicate) {
-                    const warnBox = document.getElementById('duplicateWarningBox');
-                    warnBox.style.display = 'block';
-                    document.getElementById('duplicateWarningText').textContent =
-                        `An active application for "${data.duplicate_info.job_title}" at "${data.duplicate_info.company_name}" already exists (Status: ${data.duplicate_info.existing_status}). Click 'Send Anyway' to override.`;
-                } else {
-                    alert(`Failed to send outreach: ${data.error || 'Unknown error'}`);
+                } catch (err) {
+                    alert(`Network error: ${err.message}`);
+                } finally {
+                    activeBtn.disabled = false;
+                    activeBtn.textContent = origLabel;
                 }
-            } catch (err) {
-                alert(`Network error: ${err.message}`);
-            } finally {
-                activeBtn.disabled = false;
-                activeBtn.textContent = origLabel;
             }
-        }
 
-        async function toggleCadence(appId, shouldPause) {
-            const endpoint = shouldPause ? `/api/outreach/conversations/${appId}/pause` : `/api/outreach/conversations/${appId}/resume`;
-            try {
-                const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ reason: 'Manual toggle from dashboard' })
-                });
-                if (res.ok) {
-                    selectOutreachConversation(appId);
-                    loadOutreachData();
+            async function toggleCadence(appId, shouldPause) {
+                const endpoint = shouldPause ? `/api/outreach/conversations/${appId}/pause` : `/api/outreach/conversations/${appId}/resume`;
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason: 'Manual toggle from dashboard' })
+                    });
+                    if (res.ok) {
+                        selectOutreachConversation(appId);
+                        loadOutreachData();
+                    }
+                } catch (err) {
+                    alert(`Failed to update cadence: ${err.message}`);
                 }
-            } catch (err) {
-                alert(`Failed to update cadence: ${err.message}`);
             }
-        }
 
-        async function executeFollowupNow(fuId) {
-            if (!confirm("Dispatch this scheduled follow-up email to the recruiter now?")) return;
-            try {
-                const res = await fetch(`/api/outreach/followups/${fuId}/execute`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    alert("Follow-up successfully sent!");
-                    if (currentTimelineAppId) selectOutreachConversation(currentTimelineAppId);
-                    loadOutreachData();
-                } else {
-                    alert(`Failed to send follow-up: ${data.error || 'Unknown error'}`);
+            async function executeFollowupNow(fuId) {
+                if (!confirm("Dispatch this scheduled follow-up email to the recruiter now?")) return;
+                try {
+                    const res = await fetch(`/api/outreach/followups/${fuId}/execute`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        alert("Follow-up successfully sent!");
+                        if (currentTimelineAppId) selectOutreachConversation(currentTimelineAppId);
+                        loadOutreachData();
+                    } else {
+                        alert(`Failed to send follow-up: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (err) {
+                    alert(`Error: ${err.message}`);
                 }
-            } catch (err) {
-                alert(`Error: ${err.message}`);
             }
-        }
 
-        async function syncOutreachMailbox() {
+            async function syncOutreachMailbox() {
 
-            const btn = document.getElementById('btnSyncMailbox');
-            const orig = btn.textContent;
-            btn.textContent = "⏳ Syncing...";
-            btn.disabled = true;
+                const btn = document.getElementById('btnSyncMailbox');
+                const orig = btn.textContent;
+                btn.textContent = "⏳ Syncing...";
+                btn.disabled = true;
 
-            try {
-                const res = await fetch('/api/outreach/sync', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account_id: 'default' })
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    alert(`Mailbox sync complete! Fetched: ${data.total_fetched}, Matched recruiter replies: ${data.matched_count}`);
-                    loadOutreachData();
-                } else {
-                    alert(`Mailbox sync failed: ${data.error || 'Provider communication error'}`);
+                try {
+                    const res = await fetch('/api/outreach/sync', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_id: 'default' })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        alert(`Mailbox sync complete! Fetched: ${data.total_fetched}, Matched recruiter replies: ${data.matched_count}`);
+                        loadOutreachData();
+                    } else {
+                        alert(`Mailbox sync failed: ${data.error || 'Provider communication error'}`);
+                    }
+                } catch (err) {
+                    alert(`Sync error: ${err.message}`);
+                } finally {
+                    btn.textContent = orig;
+                    btn.disabled = false;
                 }
-            } catch (err) {
-                alert(`Sync error: ${err.message}`);
-            } finally {
-                btn.textContent = orig;
-                btn.disabled = false;
             }
-        }
 
-        async function refreshDueFollowups() {
-            try {
-                const res = await fetch('/api/outreach/followups/refresh', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    loadOutreachData();
-                    alert(`Cadences refreshed! ${data.message || ''}`);
+            async function refreshDueFollowups() {
+                try {
+                    const res = await fetch('/api/outreach/followups/refresh', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        loadOutreachData();
+                        alert(`Cadences refreshed! ${data.message || ''}`);
+                    }
+                } catch (err) {
+                    console.error("Error refreshing follow-ups:", err);
                 }
-            } catch (err) {
-                console.error("Error refreshing follow-ups:", err);
             }
-        }
 
-        async function testOutreachConnection() {
-            try {
-                const res = await fetch('/api/outreach/provider/test', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ account_id: 'default' })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert(`✅ Email Provider Connected!\n\nProvider: ${data.provider_name}\nStatus: ${data.message}\nAccount: ${data.account_email || 'Active'}`);
-                } else {
-                    alert(`❌ Provider Connection Error:\n\n${data.message}`);
+            async function testOutreachConnection() {
+                try {
+                    const res = await fetch('/api/outreach/provider/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ account_id: 'default' })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        alert(`✅ Email Provider Connected!\n\nProvider: ${data.provider_name}\nStatus: ${data.message}\nAccount: ${data.account_email || 'Active'}`);
+                    } else {
+                        alert(`❌ Provider Connection Error:\n\n${data.message}`);
+                    }
+                } catch (err) {
+                    alert(`Connection check failed: ${err.message}`);
                 }
-            } catch (err) {
-                alert(`Connection check failed: ${err.message}`);
             }
-        }
 
-        function refreshData() {
-            loadNaukriStats();
-            loadUnifiedApplications();
-            loadLegacyLinkedInJobs();
-            loadOutreachData();
-        }
+            function refreshData() {
+                loadNaukriStats();
+                loadUnifiedApplications();
+                loadLegacyLinkedInJobs();
+                loadOutreachData();
+            }
 
-        // Initialize dashboard
-        refreshData();
+            // Initialize dashboard
+            refreshData();
     </script>
 </body>
+
 </html>

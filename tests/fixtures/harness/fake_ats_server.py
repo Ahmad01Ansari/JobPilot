@@ -348,6 +348,114 @@ HTML_LEVER = """<!DOCTYPE html>
 </html>
 """
 
+HTML_WORKDAY_JOB = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trane Technologies — Agentic AI Automation Developer (Workday)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; padding: 40px; margin: 0; }
+    .job-card { max-width: 720px; margin: 0 auto; background: white; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { margin-top: 0; color: #111827; font-size: 24px; }
+    .apply-btn { background: #5c068c; color: white; border: none; padding: 12px 28px; border-radius: 20px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; margin-bottom: 24px; }
+    .apply-btn:hover { background: #47046e; }
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-content { background: white; border-radius: 10px; width: 440px; padding: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+    .modal-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 6px; font-weight: 600; text-align: center; text-decoration: none; box-sizing: border-box; cursor: pointer; }
+    .modal-btn-purple { background: #5c068c; color: white; border: none; }
+    .modal-btn-outline { background: white; color: #111827; border: 1px solid #111827; }
+  </style>
+</head>
+<body>
+  <div class="job-card">
+    <h1>Agentic AI Automation Developer</h1>
+    <a role="button" data-automation-id="adventureButton" id="workday-landing-apply" class="apply-btn" href="javascript:void(0)" onclick="document.getElementById('start-modal').style.display='flex'">Apply</a>
+    <p>Join Trane Technologies as an Agentic AI Automation Developer working on enterprise RPA, generative AI, and intelligent workflows.</p>
+  </div>
+
+  <div id="start-modal" class="modal-overlay" role="dialog">
+    <div class="modal-content">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="margin:0; font-size:18px;">Start Your Application</h3>
+        <button onclick="document.getElementById('start-modal').style.display='none'" style="border:none; background:transparent; font-size:20px; cursor:pointer;">&times;</button>
+      </div>
+      <p style="font-size:14px; color:#4b5563; margin-bottom:20px;">Please choose how you would like to complete the job application.</p>
+      <button data-automation-id="authOption-autofillWithResume" class="modal-btn modal-btn-purple">Autofill with Resume</button>
+      <a role="button" data-automation-id="authOption-applyManually" id="workday-apply-manually-opt" class="modal-btn modal-btn-outline" href="/workday/applyManually">Apply Manually</a>
+      <button data-automation-id="authOption-useMyLastApplication" class="modal-btn modal-btn-outline">Use My Last Application</button>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+HTML_WORKDAY_APPLY_MANUALLY = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trane Technologies — Create Account / Sign In (Workday)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; padding: 40px; }
+    .container { max-width: 520px; margin: 0 auto; background: white; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .step-indicator { font-size: 13px; font-weight: bold; color: #5c068c; text-transform: uppercase; margin-bottom: 8px; }
+    h2 { margin-top: 0; color: #111827; }
+    .field-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #374151; }
+    input[type="email"], input[type="password"] { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; }
+    .btn { background: #5c068c; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; width: 100%; font-size: 15px; }
+    .btn:hover { background: #47046e; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="step-indicator">Create Account/Sign In</div>
+    <h2>Create Account</h2>
+    <form method="POST" action="/workday/applyManually">
+      <div class="field-group">
+        <label for="email">Email Address *</label>
+        <input type="email" id="email" name="email" data-automation-id="email" required aria-required="true">
+      </div>
+      <div class="field-group">
+        <label for="password">Password *</label>
+        <input type="password" id="password" name="password" data-automation-id="password" required aria-required="true">
+      </div>
+      <div class="field-group">
+        <label for="verifyPassword">Verify Password *</label>
+        <input type="password" id="verifyPassword" name="verifyPassword" data-automation-id="verifyPassword" required aria-required="true">
+      </div>
+      <div class="field-group" style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="agreementCheckbox" name="terms" data-automation-id="agreementCheckbox" required aria-required="true">
+        <label for="agreementCheckbox" style="margin:0; font-weight:normal; font-size:12px;">I agree to the Terms of Use and Privacy Notice *</label>
+      </div>
+      <button type="submit" id="workday-create-account-btn" data-automation-id="createAccountSubmitButton" class="btn">Create Account</button>
+      <div style="margin-top:12px; text-align:center;">
+        <a href="javascript:void(0)" id="sign-in-toggle-link" data-automation-id="signInLink" style="font-size:13px; color:#5c068c;">Already have an account? Sign In</a>
+      </div>
+    </form>
+    <script>
+      const link = document.querySelector('[data-automation-id="signInLink"]');
+      if (link) {
+        link.addEventListener('click', () => {
+          const vp = document.querySelector('#verifyPassword');
+          if (vp) vp.closest('.field-group').remove();
+          const cb = document.querySelector('#agreementCheckbox');
+          if (cb) cb.closest('.field-group').remove();
+          const btn = document.querySelector('#workday-create-account-btn');
+          if (btn) {
+            btn.innerText = 'Sign In';
+            btn.setAttribute('data-automation-id', 'signInSubmitButton');
+            btn.id = 'workday-signin-btn';
+          }
+          const h2 = document.querySelector('h2');
+          if (h2) h2.innerText = 'Sign In to Your Account';
+        });
+      }
+    </script>
+  </div>
+</body>
+</html>
+"""
+
 HTML_WORKDAY_STEP1 = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -799,6 +907,10 @@ class FakeATSHandler(BaseHTTPRequestHandler):
             self._send_html(HTML_GREENHOUSE.replace("<!-- ERROR_BANNER_PLACEHOLDER -->", ""))
         elif path == "/lever":
             self._send_html(HTML_LEVER.replace("<!-- ERROR_BANNER_PLACEHOLDER -->", ""))
+        elif path == "/workday/job":
+            self._send_html(HTML_WORKDAY_JOB)
+        elif path == "/workday/applyManually":
+            self._send_html(HTML_WORKDAY_APPLY_MANUALLY)
         elif path == "/workday/step1":
             self._send_html(HTML_WORKDAY_STEP1.replace("<!-- ERROR_BANNER_PLACEHOLDER -->", ""))
         elif path == "/workday/step2":
@@ -928,6 +1040,16 @@ class FakeATSHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(303)
                 self.send_header("Location", "/thank-you?status=success&ref=LEV-CONF-67890")
+                self.end_headers()
+
+        elif path == "/workday/applyManually":
+            required_fields = ["email", "password", "verifyPassword"]
+            missing = [f for f in required_fields if not form_data.get(f)]
+            if missing:
+                self._send_html(HTML_WORKDAY_APPLY_MANUALLY, status=400)
+            else:
+                self.send_response(303)
+                self.send_header("Location", "/workday/step1")
                 self.end_headers()
 
         elif path == "/workday/step1":

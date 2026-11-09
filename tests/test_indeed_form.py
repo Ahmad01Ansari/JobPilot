@@ -87,6 +87,43 @@ class TestIndeedForm(unittest.TestCase):
         self.assertEqual(answered[0]["answer"], "550000")
         mock_input.send_keys.assert_called_with("550000")
 
+    def test_answer_screening_questions_numeric_experience_sanitized_to_integer(self):
+        # Mock standalone input for numeric experience question
+        mock_input = MagicMock()
+        mock_input.is_displayed.return_value = True
+        mock_input.tag_name = "input"
+        mock_input.get_attribute.side_effect = lambda a: "exp_inp" if a == "id" else ("text" if a == "type" else None)
+
+        mock_label = MagicMock()
+        mock_label.text = "How many years of RPA Developer experience do you have? *"
+
+        def mock_driver_find_elements(by, val):
+            if by == By.TAG_NAME and val == "fieldset":
+                return []
+            elif by == By.XPATH and "input" in val:
+                return [mock_input]
+            elif by == By.CSS_SELECTOR and "label[for='exp_inp']" in val:
+                return [mock_label]
+            return []
+
+        self.mock_driver.find_elements.side_effect = mock_driver_find_elements
+
+        answered = self.form.answer_screening_questions(job_title="RPA Developer", company_name="Gupta Traders")
+        self.assertEqual(len(answered), 1)
+        # Must be pure integer string without text like '1-4 YEARS' or decimals
+        ans_val = answered[0]["answer"]
+        self.assertTrue(ans_val.isdigit(), f"Answer '{ans_val}' should be pure digits")
+        self.assertEqual(ans_val, "2")
+        mock_input.send_keys.assert_called_with("2")
+
+    def test_work_authorization_without_sponsorship_answers_yes(self):
+        ans, opt = self.mock_qna.resolve_choice_answer(
+            "Are you authorised to work in India without visa sponsorship?",
+            available_options=["Yes", "No"]
+        )
+        self.assertEqual(ans.value, "Yes")
+        self.assertEqual(opt, "Yes")
+
 
 if __name__ == "__main__":
     unittest.main()

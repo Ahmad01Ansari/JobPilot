@@ -214,12 +214,14 @@ class LiveActivityStream(QFrame):
         color = tokens.get(color_key, tokens.get("text", "#F0F6FC"))
         ts_color = tokens.get("text_muted", "#8B949E")
         bg_chip = tokens.get("surface_alt", "#1C2128")
+        import html
+        escaped_msg = html.escape(message)
 
         return (
             f"<div style='margin-bottom: 5px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; font-size: 12px;'>"
             f"<span style='color: {ts_color}; font-weight: 500;'>[{timestamp}]</span> &nbsp;"
             f"<span style='color: {color}; background-color: {bg_chip}; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 700;'>{category.upper()}</span> &nbsp;"
-            f"<span style='color: {tokens.get('text', '#F0F6FC')};'>{message}</span>"
+            f"<span style='color: {tokens.get('text', '#F0F6FC')};'>{escaped_msg}</span>"
             f"</div>"
         )
 

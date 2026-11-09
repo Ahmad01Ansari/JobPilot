@@ -36,6 +36,12 @@ from app.ui.main_window import MainWindow
 
 def main() -> int:
     """Initializes and runs the JobPilot Desktop Application."""
+    try:
+        from modules.open_chrome import ensure_ssl_certificates
+        ensure_ssl_certificates()
+    except Exception:
+        pass
+
     # Install centralized log sanitizer and global crash handler
     try:
         from app.services.sanitizer_service import install_root_sanitizer
@@ -84,11 +90,28 @@ def main() -> int:
     # Apply centralized dark theme
     ThemeManager.apply_dark_theme(app)
 
+    # Startup Splash Screen (displayed during database initialization in desktop mode)
+    splash = None
+    is_offscreen = os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "--offscreen" in sys.argv
+    if not is_offscreen and "--test-run" not in sys.argv:
+        splash_pix = ThemeManager.get_splash_pixmap()
+        if not splash_pix.isNull():
+            from PySide6.QtWidgets import QSplashScreen
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QColor
+            splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+            splash.showMessage("JobPilot Autopilot initializing...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#94A3B8"))
+            splash.show()
+            app.processEvents()
+
     # Initialize and diagnose database connection safely
     from app.db import init_db, check_connection
     from app.ui.state import AppState
 
     state = AppState()
+    if splash:
+        splash.showMessage("Connecting to database...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#94A3B8"))
+        app.processEvents()
     try:
         success, err = init_db()
         if success:
@@ -123,6 +146,8 @@ def main() -> int:
 
     # Instantiate Main Window
     window = MainWindow(state=state)
+    if splash:
+        splash.finish(window)
     if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
         window.showMaximized()
 

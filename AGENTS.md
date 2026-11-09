@@ -26,6 +26,8 @@ The complete engineering standards and architectural boundaries are defined in t
 - 🧪 **Testing & Verification:** [`docs/ai/TESTING_RULES.md`](docs/ai/TESTING_RULES.md)
 - 📦 **Git, CI/CD & Releases:** [`docs/ai/GIT_AND_RELEASE_RULES.md`](docs/ai/GIT_AND_RELEASE_RULES.md)
 - 💻 **Cross-Platform & Contributor Rules:** [`.agents/rules/cross-platform-rules.md`](.agents/rules/cross-platform-rules.md)
+- ⚡ **Token-Efficient Navigation & Codebase Exploration:** [`.agents/rules/token-efficient-exploration.md`](.agents/rules/token-efficient-exploration.md)
+- 🛡️ **Code Standards & Anti-AI Slop:** [`.agents/rules/code-standards-and-anti-slop.md`](.agents/rules/code-standards-and-anti-slop.md)
 
 ### Development Templates
 - 📋 **Feature Template:** [`docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md`](docs/ai/FEATURE_DEVELOPMENT_TEMPLATE.md)
@@ -45,6 +47,9 @@ The complete engineering standards and architectural boundaries are defined in t
 4. **Protect Working Automation:** Existing LinkedIn, Naukri, Indeed, Glassdoor, and Universal engines are protected assets. Do not refactor them unnecessarily.
 5. **Zero Hallucination & Zero Fake Data:** Candidate answers must originate from verified sources (`PROFILE_FACT`, `RESUME_FACT`, `QNA_RULE`). Never guess or mock production results.
 6. **No Silent Error Swallowing:** `except: pass` is strictly prohibited. Distinguish `FAILED` from `STATUS_UNKNOWN` and `MANUAL_REQUIRED`.
+7. **NEVER Commit or Push Without Explicit User Permission:** Never run `git commit` or `git push` unless the user explicitly gives permission in their prompt (e.g. "commit this", "push the code"). All changes must remain uncommitted in the local working tree for user inspection.
+8. **Token-Efficient & Graph-First Navigation:** In this large codebase (>750 files, 1.1M+ words), NEVER read whole files line-by-line or dump uncontrolled command outputs into context. Follow the 4-tier navigation hierarchy: use `graphify explain "<concept>"`, `graphify path "<A>" "<B>"`, and targeted line-numbered grep first. Read only bounded line ranges (`StartLine`/`EndLine`) to preserve context budget and avoid wasting tokens. Run `graphify update .` after code edits to keep the graph current.
+9. **Anti-AI Slop & Production Code Hygiene:** All code, comments, docstrings, and log statements must meet enterprise production standards. Strictly prohibited: emojis/icons in source code or log messages (e.g. 🚀, ✅, ⚠️), performative/chatty AI comments, syntax-restating comments, incomplete mock stubs (`# TODO: implement later`), and informal conversational filler. Code must be fully implemented, strictly typed, and cleanly structured.
 
 ---
 
@@ -244,7 +249,7 @@ All AI agents working on JobPilot must strictly adhere to these 10 Git, CI/CD, a
 1. **Mandatory Commit Author Identity:** Every git commit executed by an AI agent must explicitly attribute the repository author:
    `git commit --author="Ahmad Raza <rjaahmad60@gmail.com>"`
 2. **Conventional Commits Standard:** Use descriptive conventional commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `perf:`.
-3. **Commit Frequently to `main`, Release Deliberately:** Regular bug fixes, internal refactorings, and documentation updates should be committed and pushed directly to `main` without triggering release builds. Do NOT create git tags or GitHub releases for every individual incremental fix.
+3. **Explicit User Permission Mandatory for Commits & Pushes:** All code changes and bug fixes must remain uncommitted in the local working directory. AI agents are STRICTLY PROHIBITED from running `git commit` or `git push` unless the user explicitly grants permission in their prompt (e.g., "commit this", "push the code"). Never push to `main` or any remote branch on your own initiative.
 4. **Preserve GitHub Actions CI Minutes:** Pushing a release tag (`v*`) triggers resource-intensive cross-platform matrix builds (Windows & Linux PyInstaller workflows). Only push release tags when explicitly instructed by the user or when shipping an approved beta/production milestone.
 5. **Always Pull/Rebase Before Pushing:** Always verify remote branch alignment using `git pull --rebase origin main` before pushing to eliminate merge conflicts and stray merge commits.
 6. **Single Source of Truth for Versions:** When preparing an authorized release, maintain strict version synchronization across:

@@ -50,6 +50,14 @@ class TestAppPaths(unittest.TestCase):
             success = AppPaths.safe_set_permissions(p, mode=0o600)
             self.assertTrue(success)
 
+    def test_get_profile_dir_resolution(self):
+        """Verifies browser_lock.get_profile_dir resolves deterministic profile paths without throwing exceptions."""
+        from modules.browser_lock import get_profile_dir
+        for plat in ("linkedin", "naukri", "indeed", "foundit", "glassdoor"):
+            prof = get_profile_dir(plat)
+            self.assertIsInstance(prof, str)
+            self.assertTrue(len(prof) > 0)
+
 
 class TestSystemService(unittest.TestCase):
     """Verifies system diagnostics and cross-platform file opening."""
@@ -97,6 +105,20 @@ class TestProcessManager(unittest.TestCase):
 
         ProcessManager.safe_terminate_process(proc, timeout_seconds=1.0)
         self.assertFalse(ProcessManager.is_pid_alive(proc.pid))
+
+    def test_suspend_and_resume_process(self):
+        """Verifies suspend_process and resume_process methods execute without unhandled exceptions."""
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        try:
+            self.assertTrue(ProcessManager.is_pid_alive(proc.pid))
+            # Test suspend
+            res_suspend = ProcessManager.suspend_process(proc.pid)
+            self.assertIsInstance(res_suspend, bool)
+            # Test resume
+            res_resume = ProcessManager.resume_process(proc.pid)
+            self.assertIsInstance(res_resume, bool)
+        finally:
+            ProcessManager.safe_terminate_process(proc, timeout_seconds=1.0)
 
 
 class TestCrashReporter(unittest.TestCase):

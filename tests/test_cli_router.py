@@ -62,6 +62,12 @@ class TestPlatformRouterAndCLI(unittest.TestCase):
         with patch.object(sys, "argv", ["runAiBot.py", "--platform", "glassdoor"]):
             self.assertTrue(_should_skip_linkedin_chrome_init())
 
+        with patch.object(sys, "argv", ["runAiBot.py", "--platform", "universal"]):
+            self.assertTrue(_should_skip_linkedin_chrome_init())
+
+        with patch.object(sys, "argv", ["run_desktop.py"]):
+            self.assertTrue(_should_skip_linkedin_chrome_init())
+
         with patch.object(sys, "argv", ["runAiBot.py", "--platform", "linkedin"]):
             self.assertFalse(_should_skip_linkedin_chrome_init())
 
@@ -305,6 +311,37 @@ class TestPlatformRouterAndCLI(unittest.TestCase):
             self.assertEqual(stats["jobs_applied"], 2)
 
             fo_plat.close()
+            mock_browser.close.assert_called_once()
+
+    def test_linkedin_platform_lifecycle(self):
+        mock_browser = MagicMock()
+        mock_browser.is_logged_in.return_value = True
+
+        mock_tracker = MagicMock()
+        li_plat = LinkedInPlatform(
+            browser=mock_browser,
+            tracker=mock_tracker,
+        )
+
+        with patch("platforms.linkedin.rotator.LinkedInRotator") as mock_rot_cls:
+            mock_rot_instance = MagicMock()
+            mock_rot_instance.run.return_value = {
+                "platform": "linkedin",
+                "status": "completed",
+                "jobs_applied": 3,
+            }
+            mock_rot_cls.return_value = mock_rot_instance
+
+            li_plat.initialize()
+            logged_in = li_plat.login()
+            self.assertTrue(logged_in)
+            mock_browser.navigate.assert_called_with("https://www.linkedin.com/feed/")
+
+            stats = li_plat.search_and_apply()
+            self.assertEqual(stats["platform"], "linkedin")
+            self.assertEqual(stats["jobs_applied"], 3)
+
+            li_plat.close()
             mock_browser.close.assert_called_once()
 
 

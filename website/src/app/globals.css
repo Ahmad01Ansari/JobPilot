@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0F1117;
+  --foreground: #F8FAFC;
+  --dr-bg-0: #020308;
+  --dr-bg-1: #05070d;
+  --dr-bg-2: #0a1020;
+  --dr-calm: #00f2fe;
+  --dr-mid: #38bdf8;
+  --dr-hot: #ff7a00;
+  --dr-core: #eafcff;
+  --dr-vignette: 0.55;
+  --dr-grain: 0.04;
+  --dr-bloom-blur: 10px;
+  --dr-bloom-opacity: 0.7;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  overflow-x: hidden;
+}
+
+/* Data Rain Background Engine Classes */
+.dr-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.dr-root--contained {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+.dr-bloom {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  filter: blur(var(--dr-bloom-blur, 10px));
+  opacity: var(--dr-bloom-opacity, 0.7);
+  transform: translateZ(0);
+}
+
+.dr-main {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
+.dr-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(2, 3, 8, var(--dr-vignette, 0.55)) 100%);
+}
+
+.dr-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--dr-grain, 0.04);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.15) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+/* Cockpit Grid & Subtle Radar Animation */
+.cockpit-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.radar-sweep {
+  animation: radarSweep 6s linear infinite;
+}
+
+@keyframes radarSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.glow-orange {
+  box-shadow: 0 0 30px -5px rgba(255, 95, 21, 0.3);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 30px -5px rgba(14, 165, 233, 0.25);
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+

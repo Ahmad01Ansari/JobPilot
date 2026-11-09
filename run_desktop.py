@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 """JobPilot Desktop Application root launcher."""
 
+import os
+os.environ["JOBPILOT_DESKTOP"] = "1"
+
+# Ensure valid CA bundle for Python SSL/TLS
+try:
+    import certifi
+    if not os.environ.get("SSL_CERT_FILE"):
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+    if not os.environ.get("REQUESTS_CA_BUNDLE"):
+        os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+except Exception:
+    pass
+
 import sys
 import os
 import io

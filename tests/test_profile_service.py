@@ -262,6 +262,63 @@ class TestProfileView(unittest.TestCase):
         self.assertTrue(view.notification_bar.isVisible())
         self.assertIn("Readiness", view.notification_bar.message_label.text())
 
+    def test_work_experience_and_education_persistence(self):
+        """Verifies multi-entry work experience and education save and retrieve from database."""
+        user, profile, pro = self.service.get_primary_user_profile()
+
+        exp_data = [
+            {
+                "title": "RPA Developer",
+                "company": "AventIQ AI",
+                "location": "Delhi, India",
+                "is_current": True,
+                "start_date": "Nov 2024",
+                "end_date": "Present",
+                "description": "Automated SAP financial reporting for 42+ plants.",
+            },
+            {
+                "title": "Junior Python Intern",
+                "company": "Tech Innovators",
+                "location": "Noida, India",
+                "is_current": False,
+                "start_date": "Jan 2024",
+                "end_date": "Oct 2024",
+                "description": "Built web automation crawlers.",
+            },
+        ]
+        edu_data = [
+            {
+                "degree": "Bachelor of Technology",
+                "institution": "Dr. A.P.J. Abdul Kalam Technical University",
+                "field_of_study": "Computer Science & Engineering",
+                "start_year": "2021",
+                "end_year": "2025",
+                "gpa": "8.0",
+            }
+        ]
+
+        ok, err = self.service.save_profile(
+            user_id=user.id,
+            personal_data={"first_name": "Mohd", "last_name": "Raza", "email": "raza@example.com"},
+            professional_data={
+                "title": "RPA Developer",
+                "years_of_experience": 2.0,
+                "skills": ["Automation Anywhere", "Python", "SQL"],
+                "work_experiences": exp_data,
+                "education_history": edu_data,
+            },
+        )
+        self.assertTrue(ok, f"Failed to save profile: {err}")
+
+        # Retrieve and verify from DB
+        _, _, reloaded_pro = self.service.get_profile_by_user_id(user.id)
+        self.assertIsNotNone(reloaded_pro)
+        self.assertEqual(len(reloaded_pro.work_experiences), 2)
+        self.assertEqual(reloaded_pro.work_experiences[0]["company"], "AventIQ AI")
+        self.assertEqual(reloaded_pro.work_experiences[1]["company"], "Tech Innovators")
+        self.assertEqual(len(reloaded_pro.education_history), 1)
+        self.assertEqual(reloaded_pro.education_history[0]["degree"], "Bachelor of Technology")
+
 
 if __name__ == "__main__":
     unittest.main()

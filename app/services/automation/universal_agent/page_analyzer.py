@@ -28,6 +28,7 @@ class FormFieldInfo:
     aria_label: Optional[str] = None
     has_autocomplete: bool = False
     autocomplete_type: Optional[str] = None
+    is_custom_dropdown: bool = False
 
 
 @dataclass
@@ -97,9 +98,23 @@ _DOM_EXTRACTION_JS = """(() => {
     const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
     const isOtpChallenge = (!!otpInput && (/enter\s+(?:the\s+)?code|verification\s+code|when\s+you\s+get\s+the\s+code|one-time|passcode|check\s+your\s+email|security\s+code|sent\s+a\s+code|enter\s+otp/i.test(bodyText) || (visibleAppInputCount <= 6 && /code|otp|pin/i.test(bodyText)))) || /confirm\s+your\s+identity/i.test(bodyText) || !!document.querySelector('.pin-code-input__input, [class*="pin-code"]');
 
+    const isAccountCreation = !!document.querySelector(
+        'input[data-automation-id="verifyPassword"], input[name*="verify" i], input[id*="verify" i], ' +
+        '[data-automation-id*="createAccount" i], [data-automation-id="agreementCheckbox"], ' +
+        'button[data-automation-id="createAccountSubmitButton"], [data-automation-id="signInLink"]'
+    ) || /create\s*account|register\s*to\s*apply|sign\s*in\s*to\s*apply/i.test(bodyText);
+
+    const isEmailVerificationLinkScreen = (
+        visibleAppInputCount === 0 && (
+            /confirm\s+your\s+email|verify\s+your\s+(?:candidate\s+)?account|sent\s+(?:a\s+)?verification\s+link|sent\s+an\s+email\s+to\s+verify|click\s+(?:on\s+)?(?:the|this)\s+link\s+to\s+(?:confirm|verify|activate)|activation\s+link/i.test(bodyText)
+        )
+    );
+
     if ((hasCaptchaIframe || hasCaptchaContainer || hasCaptchaText) && visibleAppInputCount === 0) {
         challenge = "CAPTCHA_CHALLENGE";
-    } else if (hasPassword) {
+    } else if (isEmailVerificationLinkScreen) {
+        challenge = "EMAIL_VERIFICATION_REQUIRED";
+    } else if (hasPassword && !isAccountCreation) {
         challenge = "LOGIN_REQUIRED";
     } else if (isOtpChallenge) {
         challenge = "TWO_FACTOR_AUTH";
@@ -174,9 +189,9 @@ _DOM_EXTRACTION_JS = """(() => {
                 labelText = ariaVal;
             }
         }
-        // 5b. Direct element attributes (data-name, data-field-name, data-label, placeholder)
+        // 5b. Direct element attributes (data-automation-id, data-name, data-field-name, data-label, placeholder)
         if (!labelText || /^(yes|no|true|false|your answer|answer)$/i.test(labelText.trim())) {
-            const attrLabel = el.getAttribute('data-name') || el.getAttribute('data-field-name') || el.getAttribute('data-label') || el.placeholder || '';
+            const attrLabel = el.getAttribute('data-automation-id') || el.getAttribute('data-name') || el.getAttribute('data-field-name') || el.getAttribute('data-label') || el.placeholder || '';
             if (attrLabel && attrLabel.trim().length > 1 && !/^(your answer|answer|short answer text|long answer text)$/i.test(attrLabel.trim())) {
                 labelText = attrLabel;
             }
@@ -350,8 +365,11 @@ _DOM_EXTRACTION_JS = """(() => {
             }
         }
 
-        const isCustomInput = type === 'checkbox' || type === 'radio' || type === 'file';
-        if (!isCustomInput) {
+        const isCustomInput = type === 'checkbox' || type === 'radio';
+        if (type === 'file') {
+            // File inputs in modern ATSs (Workday, Greenhouse, etc.) are frequently opacity:0, display:none, or inside dropzone wrappers
+            // We ALWAYS collect them so file_uploader can set files on them.
+        } else if (!isCustomInput) {
             if (rect.width === 0 || rect.height === 0) continue;
             if (style.opacity === '0') continue;
             if (typeof el.checkVisibility === 'function' && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) continue;
@@ -375,10 +393,11 @@ _DOM_EXTRACTION_JS = """(() => {
         const id = el.id || '';
         const name = el.name || '';
         const placeholder = el.placeholder || '';
-        const lowerAll = (id + ' ' + name + ' ' + placeholder + ' ' + (el.className || '')).toLowerCase();
+        const autoId = (el.getAttribute('data-automation-id') || '').toLowerCase();
+        const lowerAll = (id + ' ' + name + ' ' + placeholder + ' ' + autoId + ' ' + ariaLabel + ' ' + (el.className || '')).toLowerCase();
 
-        // Ignore global site search, newsletter subscription, feedback, language selector
-        if (type === 'search' || /search|keyword|nav-search|global-search|newsletter|subscribe|feedback|job-alert|alert-email/i.test(lowerAll)) {
+        // Ignore global site search, newsletter subscription, feedback, language selector, honeypots
+        if (type === 'search' || /search|keyword|nav-search|global-search|newsletter|subscribe|feedback|job-alert|alert-email|beecatcher|honeypot|bot-check|robot/i.test(lowerAll)) {
             continue;
         }
 
@@ -523,18 +542,88 @@ _DOM_EXTRACTION_JS = """(() => {
             continue;
         }
 
-        // Standard text, email, tel, file, textarea, checkbox
+        // Standard text, email, tel, file, textarea, checkbox, password
         let selector;
         const tag = el.tagName.toLowerCase();
-        if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
+        const rawAutoId = el.getAttribute('data-automation-id');
+        const isGenericAutoId = /^(checkbox|radio|text|input|select|button|searchBox)$/i.test(rawAutoId || '');
+        if (id && /^[a-zA-Z0-9_-]+$/.test(id) && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
             selector = `#${id}`;
-        } else if (name) {
+        } else if (rawAutoId && !isGenericAutoId && document.querySelectorAll(`[data-automation-id="${CSS.escape(rawAutoId)}"]`).length === 1) {
+            selector = `[data-automation-id="${rawAutoId.replace(/"/g, '\\"')}"]`;
+        } else if (name && document.querySelectorAll(`${tag}[name="${CSS.escape(name)}"]`).length === 1) {
             selector = `${tag}[name="${name.replace(/"/g, '\\"')}"]`;
-        } else if (id) {
-            selector = `${tag}[id="${id.replace(/"/g, '\\"')}"]`;
         } else {
-            selector = tag;
+            selector = getUniqueSelector(el);
         }
+
+        const isWorkdayPrompt = Boolean(
+            el.closest('[data-automation-id="multiselectInputContainer"], [data-automation-id="monikerSearchBox"]') ||
+            rawAutoId === 'searchBox' ||
+            (id && id.includes('source--source')) ||
+            el.getAttribute('data-uxi-widget-type') === 'selectinput'
+        );
+
+        if (isWorkdayPrompt) {
+            const parentFormField = el.closest('[data-automation-id^="formField-"], [class*="formField" i], .form-group, .field-group');
+            if (parentFormField && (!label || /^(search|select|\s*)$/i.test(label))) {
+                const ffLabel = parentFormField.querySelector('label, [data-automation-id="formLabel"], [class*="label" i], span, legend');
+                if (ffLabel && ffLabel !== el && !ffLabel.contains(el)) {
+                    label = (ffLabel.innerText || ffLabel.textContent || '').replace(/[*:]/g, '').trim();
+                }
+                if (!label) {
+                    const ffAuto = parentFormField.getAttribute('data-automation-id') || '';
+                    if (ffAuto.startsWith('formField-')) {
+                        label = ffAuto.replace('formField-', '').replace(/([A-Z])/g, ' $1').trim();
+                    }
+                }
+            }
+        }
+
+        if (type === 'checkbox') {
+            if (!label || /^(yes|no|true|false|\s*)$/i.test(label.trim())) {
+                let p = el.parentElement;
+                for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                    const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], legend, h3, h4, h5, p, span');
+                    if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
+                        const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
+                        if (txt && txt.length > 3 && !/^(yes|no|true|false|\s*)$/i.test(txt)) {
+                            label = txt;
+                            break;
+                        }
+                    }
+                    let prev = p.previousElementSibling;
+                    while (prev) {
+                        const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                        if (prevLbl) {
+                            const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
+                            if (txt && txt.length > 3 && !/^(yes|no|true|false|\s*)$/i.test(txt)) {
+                                label = txt;
+                                break;
+                            }
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                    if (label && !/^(yes|no|true|false|\s*)$/i.test(label.trim())) break;
+
+                    const pAuto = (p.getAttribute('data-automation-id') || p.id || '').toLowerCase();
+                    if (pAuto.includes('consent') || pAuto.includes('privacy') || pAuto.includes('terms') || pAuto.includes('agreement')) {
+                        label = 'Terms and Privacy Policy Consent';
+                        break;
+                    }
+                }
+            }
+            if (!required) {
+                let p = el.parentElement;
+                for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                    if (p.querySelector('.required, [class*="required" i], [class*="asterisk" i]') !== null || (p.innerText || '').includes('*')) {
+                        required = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         const isCheckbox = type === 'checkbox';
         const autoAttr = (el.getAttribute('autocomplete') || '').toLowerCase();
         const roleAttr = (el.getAttribute('role') || '').toLowerCase();
@@ -548,20 +637,22 @@ _DOM_EXTRACTION_JS = """(() => {
             el.classList.contains('typeahead') ||
             el.classList.contains('tt-input') ||
             el.classList.contains('ui-autocomplete-input') ||
-            (el.getAttribute('data-provides') === 'typeahead')
+            (el.getAttribute('data-provides') === 'typeahead') ||
+            isWorkdayPrompt
         );
         elementsData.push({
-            field_id: id,
+            field_id: id || rawAutoId || ('input_' + Math.random().toString(36).substring(2, 9)),
             name: name,
             selector: selector,
-            input_type: type === 'file' ? 'file' : (tag === 'textarea' ? 'textarea' : (type || 'text')),
+            input_type: isWorkdayPrompt ? 'select' : (type === 'file' ? 'file' : (tag === 'textarea' ? 'textarea' : (type || 'text'))),
             label: label,
             placeholder: placeholder,
             required: required,
             options: [],
             current_value: isCheckbox ? (el.checked ? (el.value || 'true') : '') : currentVal,
             has_autocomplete: hasAuto,
-            autocomplete_type: autoAttr || null,
+            autocomplete_type: isWorkdayPrompt ? 'combobox' : (autoAttr || null),
+            is_custom_dropdown: isWorkdayPrompt,
         });
     }
 
@@ -615,19 +706,175 @@ _DOM_EXTRACTION_JS = """(() => {
         });
     }
 
+    // 3c. Scan custom comboboxes, prompt buttons, and custom dropdowns (Workday, Oracle JET, etc.)
+    const customDropdownElements = Array.from(document.querySelectorAll(
+        'button[data-automation-id*="dropdown" i], div[data-automation-id*="dropdown" i], ' +
+        'button[data-automation-id*="prompt" i], div[data-automation-id*="prompt" i], ' +
+        'button[data-automation-id*="select" i], [data-automation-id*="select-one" i], [data-automation-id*="selectOne" i], ' +
+        'button[data-automation-id*="combobox" i], button[data-automation-id*="option" i], ' +
+        'button[aria-haspopup], [role="combobox"], ' +
+        '[data-automation-id="sourceDropdown"], [data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], ' +
+        '[data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phone" i], button[data-automation-id*="device" i], ' +
+        '[data-automation-id*="phone-device" i], [data-automation-id*="phoneDevice" i], ' +
+        'button[data-automation-id*="gender" i], div[data-automation-id*="gender" i], ' +
+        'button[data-automation-id*="disability" i], div[data-automation-id*="disability" i], ' +
+        '[data-automation-id="addressSection_countryRegion"], [data-automation-id="stateDropdown"], ' +
+        '#address--countryRegion, #phoneNumber--phoneType, [id*="countryRegion" i], [id*="phoneType" i]'
+    )).map(el => {
+        if (el.tagName.toLowerCase() !== 'button') {
+            const innerBtn = el.querySelector('button[data-automation-id], button[aria-haspopup], button');
+            if (innerBtn) return innerBtn;
+        }
+        return el;
+    });
+
+    for (const el of customDropdownElements) {
+        const s = window.getComputedStyle(el);
+        if (s.display === 'none' || s.visibility === 'hidden') continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+
+        if (el.closest('header, nav, footer, .header, .footer, .navbar, .nav, #header, #footer, #search, .search-form, [class*="alert" i], [id*="alert" i]')) {
+            continue;
+        }
+
+        const rawAutoId = el.getAttribute('data-automation-id') || '';
+        const id = el.id || '';
+        const name = el.name || '';
+        const alreadyAdded = elementsData.some(f => (id && f.field_id === id) || (rawAutoId && f.field_id === rawAutoId) || (name && f.name === name));
+        if (alreadyAdded) continue;
+
+        let label = getCleanLabel(el);
+        const isGenericLabel = !label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim());
+        if (isGenericLabel) {
+            let p = el.parentElement;
+            for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], legend, h3, h4, h5, p');
+                if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
+                    const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
+                    if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(txt)) {
+                        label = txt;
+                        break;
+                    }
+                }
+                let prev = p.previousElementSibling;
+                while (prev) {
+                    const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                    if (prevLbl) {
+                        const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
+                        if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|\s*)$/i.test(txt)) {
+                            label = txt;
+                            break;
+                        }
+                    }
+                    prev = prev.previousElementSibling;
+                }
+                if (label && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) break;
+
+                const pAuto = (p.getAttribute('data-automation-id') || p.id || '').toLowerCase();
+                if (pAuto.includes('gender') || pAuto.includes('sex')) { label = 'Gender'; break; }
+                if (pAuto.includes('disability')) { label = 'Disability'; break; }
+                if (pAuto.includes('phonedevice') || pAuto.includes('phone-device')) { label = 'Phone Device Type'; break; }
+                if (pAuto.includes('source') || pAuto.includes('hear')) { label = 'How Did You Hear About Us'; break; }
+                if (pAuto.includes('veteran')) { label = 'Veteran Status'; break; }
+                if (pAuto.includes('ethnicity') || pAuto.includes('race')) { label = 'Ethnicity'; break; }
+                if (pAuto.includes('countryregion')) { label = 'State'; break; }
+            }
+        }
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
+            const parentFormField = el.closest('[data-automation-id^="formField-"], [class*="formField" i], .form-group, .field-group');
+            if (parentFormField) {
+                const ffLabel = parentFormField.querySelector('label, [data-automation-id="formLabel"], [class*="label" i], span, legend');
+                if (ffLabel && ffLabel !== el && !ffLabel.contains(el)) {
+                    label = (ffLabel.innerText || ffLabel.textContent || '').replace(/[*:]/g, '').trim();
+                }
+                if (!label || /^(select|choose|search|select\s*one|\s*)$/i.test(label.trim())) {
+                    const ffAuto = parentFormField.getAttribute('data-automation-id') || '';
+                    if (ffAuto.startsWith('formField-')) {
+                        label = ffAuto.replace('formField-', '').replace(/([A-Z])/g, ' $1').trim();
+                    }
+                }
+            }
+        }
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
+            if (rawAutoId) {
+                if (rawAutoId.includes('countryRegion')) label = 'State';
+                else if (rawAutoId.includes('phoneDevice') || rawAutoId.includes('phone') || rawAutoId.includes('device')) label = 'Phone Device Type';
+                else if (rawAutoId.includes('gender') || rawAutoId.includes('sex')) label = 'Gender';
+                else if (rawAutoId.includes('disability')) label = 'Disability';
+                else if (rawAutoId.includes('source') || rawAutoId.includes('hear')) label = 'How Did You Hear About Us';
+                else if (rawAutoId.includes('countryDropdown')) label = 'Country';
+                else if (!/^(select-one-button|selectOne|dropdown|prompt|promptOption|menuItem|button)$/i.test(rawAutoId)) {
+                    label = rawAutoId.replace(/dropdown|prompt/i, '').replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').trim();
+                }
+            }
+        }
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) {
+            if (id) {
+                if (id.includes('countryRegion')) label = 'State';
+                else if (id.includes('phoneType') || id.includes('phone') || id.includes('device')) label = 'Phone Device Type';
+                else if (id.includes('gender') || id.includes('sex')) label = 'Gender';
+                else if (id.includes('disability')) label = 'Disability';
+                else if (id.includes('source') || id.includes('hear')) label = 'How Did You Hear About Us';
+                else label = id.replace(/[-_]/g, ' ').replace(/([A-Z])/g, ' $1').trim();
+            }
+        }
+        if (!label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) continue;
+
+        let required = el.getAttribute('aria-required') === 'true' || el.required;
+        if (!required) {
+            const container = el.closest('[data-automation-id^="formField-"], .form-group, .field-group, [class*="form-group" i], [class*="field" i], [class*="question" i]');
+            if (container && (container.querySelector('.required, [class*="required" i], [class*="asterisk" i]') || (container.innerText || '').includes('*'))) {
+                required = true;
+            }
+        }
+
+        const innerText = (el.innerText || el.textContent || '').trim();
+        const isPlaceholderText = /^(select|choose|search|select an option|\s*)$/i.test(innerText);
+        const currentVal = isPlaceholderText ? '' : innerText;
+
+        let selector;
+        const isGenericAuto = /^(select-one-button|selectOne|dropdown|prompt|promptOption|menuItem|button)$/i.test(rawAutoId || '');
+        if (id && /^[a-zA-Z0-9_-]+$/.test(id) && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
+            selector = `#${id}`;
+        } else if (rawAutoId && !isGenericAuto && document.querySelectorAll(`[data-automation-id="${CSS.escape(rawAutoId)}"]`).length === 1) {
+            selector = `[data-automation-id="${rawAutoId.replace(/"/g, '\\"')}"]`;
+        } else {
+            selector = getUniqueSelector(el);
+        }
+
+        elementsData.push({
+            field_id: rawAutoId || id || ('custom_dropdown_' + Math.random().toString(36).substring(2, 9)),
+            name: name || rawAutoId || id,
+            selector: selector,
+            input_type: 'select',
+            label: label,
+            placeholder: isPlaceholderText ? innerText : '',
+            required: required,
+            options: [],
+            current_value: currentVal,
+            has_autocomplete: true,
+            autocomplete_type: 'combobox',
+            is_custom_dropdown: true,
+        });
+    }
+
     // Merge radio groups into elementsData
     for (const group of Object.values(radioGroups)) {
         elementsData.push(group);
     }
 
-    // Check if the gathered fields contain real candidate application fields
+    // Check if the gathered fields contain real candidate application or account creation fields
+    const currentLoc = (window.location ? window.location.href : '').toLowerCase();
+    const isApplyUrl = /apply|application|candidate|register/i.test(currentLoc);
     const hasCandidateFields = elementsData.some(f => {
-        const str = (f.name + ' ' + f.label + ' ' + f.field_id + ' ' + f.placeholder).toLowerCase();
-        return f.input_type === 'file' || f.input_type === 'radio_group' || /name|first|last|email|phone|mobile|tel|resume|cv|address|city|country|state|postal|zip|salary|ctc|notice|experience|education|university|degree|linkedin|github|portfolio|authorization|authorized|sponsorship|relocate|travel|schedule|flexible|gender|race|veteran|disability|privacy|consent|agree/i.test(str);
+        const str = (f.name + ' ' + f.label + ' ' + f.field_id + ' ' + f.placeholder + ' ' + (f.selector || '')).toLowerCase();
+        return f.input_type === 'file' || f.input_type === 'password' || f.input_type === 'radio_group' || f.is_custom_dropdown ||
+               /name|first|last|email|phone|mobile|tel|resume|cv|address|city|country|state|postal|zip|salary|ctc|notice|experience|education|university|degree|linkedin|github|portfolio|authorization|authorized|sponsorship|relocate|travel|schedule|flexible|gender|race|veteran|disability|privacy|consent|agree|password|account|sign.?in|source|hear|device/i.test(str);
     });
 
-    // If there are no candidate application fields, this is an overview page, NOT an application form!
-    const isActualApplicationForm = hasCandidateFields && elementsData.length > 0;
+    // If there are no candidate application fields (and not an active application URL with inputs), clear elementsData
+    const isActualApplicationForm = (hasCandidateFields || (isApplyUrl && elementsData.length > 0)) && elementsData.length > 0;
     if (!isActualApplicationForm) {
         // Clear non-form inputs so the orchestrator knows this is an overview page
         elementsData.length = 0;
@@ -641,6 +888,22 @@ _DOM_EXTRACTION_JS = """(() => {
                 if (document.querySelectorAll(sel).length === 1) return sel;
             } catch(e) {}
         }
+        if (el.getAttribute('data-automation-id')) {
+            try {
+                const autoVal = el.getAttribute('data-automation-id');
+                const sel = `[data-automation-id="${CSS.escape(autoVal)}"]`;
+                const matched = document.querySelectorAll(sel);
+                if (matched.length === 1) return sel;
+                if (matched.length > 1) {
+                    for (let i = 0; i < matched.length; i++) {
+                        if (matched[i] === el) {
+                            return `${sel}:nth-of-type(${i + 1})`;
+                        }
+                    }
+                    return `${sel}:first-of-type`;
+                }
+            } catch(e) {}
+        }
         if (el.tagName.toLowerCase() === 'a' && el.getAttribute('href')) {
             const href = el.getAttribute('href');
             if (href !== '#' && !href.startsWith('javascript:')) {
@@ -649,12 +912,6 @@ _DOM_EXTRACTION_JS = """(() => {
                     if (document.querySelectorAll(sel).length === 1) return sel;
                 } catch(e) {}
             }
-        }
-        if (el.getAttribute('data-automation-id')) {
-            try {
-                const sel = `[data-automation-id="${CSS.escape(el.getAttribute('data-automation-id'))}"]`;
-                if (document.querySelectorAll(sel).length === 1) return sel;
-            } catch(e) {}
         }
         if (el.getAttribute('data-qa')) {
             try {
@@ -711,12 +968,13 @@ _DOM_EXTRACTION_JS = """(() => {
     const foundElements = new Set();
     const queried = document.querySelectorAll(
         'button, input[type="submit"], input[type="button"], a, [role="button"], div[role="button"], span[role="button"], ' +
-        'oj-button, oj-c-button, [data-qa*="apply" i], [data-automation-id*="apply" i], [class*="apply" i], [id*="apply" i], ' +
-        '[aria-label*="apply" i], [aria-label*="next" i], [aria-label*="continue" i]'
+        'oj-button, oj-c-button, [data-qa*="apply" i], [data-automation-id*="apply" i], [data-automation-id*="adventure" i], ' +
+        '[data-automation-id*="authoption" i], [data-automation-id*="createaccount" i], [data-automation-id*="signin" i], ' +
+        '[class*="apply" i], [id*="apply" i], [aria-label*="apply" i], [aria-label*="next" i], [aria-label*="continue" i]'
     );
     for (const el of queried) foundElements.add(el);
 
-    // Scan all leaf elements for exact or prominent "Apply", "Apply Now", "Next", "Continue"
+    // Scan all leaf elements for exact or prominent "Apply", "Apply Now", "Next", "Continue", "Apply Manually"
     const allLeafs = document.querySelectorAll('*:not(script):not(style)');
     for (const el of allLeafs) {
         if (el.shadowRoot) {
@@ -725,9 +983,9 @@ _DOM_EXTRACTION_JS = """(() => {
         }
         if (el.children.length === 0) {
             const t = (el.innerText || el.textContent || '').trim();
-            if (/^(apply\s+now|apply|continue|next\s*[›»▸▶>]?|submit\s+application|submit)$/i.test(t)) {
+            if (/^(apply\s+now|apply\s+manually|apply|continue|next\s*[›»▸▶>]?|submit\s+application|submit|create\s+account)$/i.test(t)) {
                 foundElements.add(el);
-                const p = el.closest('button, a, [role="button"], oj-button, oj-c-button, div, span');
+                const p = el.closest('button, a, [role="button"], oj-button, oj-c-button, input[type="submit"], input[type="button"]');
                 if (p) foundElements.add(p);
             }
         }
@@ -740,7 +998,14 @@ _DOM_EXTRACTION_JS = """(() => {
     const hasInputFields = isActualApplicationForm;
 
     for (const btn of candidates) {
+        // Exclude container wrappers (e.g. div[data-automation-id="applyFlowPage"])
+        if (btn.querySelector('input, select, textarea, form') || btn.querySelectorAll('button, a').length > 1) {
+            continue;
+        }
+
         const text = (btn.innerText || btn.value || btn.getAttribute('aria-label') || btn.textContent || '').trim();
+        if (text.length > 80) continue;
+
         const lower = text.toLowerCase();
         const cleanLower = lower.replace(/[\s\u25b6\u25b8\u203a\u00bb>]+/g, ' ').trim();
         const href = (btn.getAttribute('href') || '').toLowerCase();
@@ -748,7 +1013,7 @@ _DOM_EXTRACTION_JS = """(() => {
         const dataQa = (btn.getAttribute('data-qa') || '').toLowerCase();
         const dataAuto = (btn.getAttribute('data-automation-id') || '').toLowerCase();
 
-        const isExplicitApply = /apply/i.test(lower) || /apply/i.test(href) || /apply/i.test(dataQa) || /apply/i.test(dataAuto);
+        const isExplicitApply = /apply/i.test(lower) || /apply/i.test(href) || /apply/i.test(dataQa) || /apply/i.test(dataAuto) || dataAuto.includes('adventure');
 
         // Exclude header, navigation, footer, menus, search modal, but NEVER exclude explicit apply buttons
         if (!isExplicitApply && btn.closest('header, nav, footer, #header, #footer, #mainMenu, .main-menu, .menu, .dropdown-menu, .navigation, .site-header, .site-footer, .header-extras, .mega-menu, #search, .search-form, .search-suggestion, [class*="navbar" i], [id*="mainmenu" i], [class*="dropdown-menu" i]')) {
@@ -769,24 +1034,35 @@ _DOM_EXTRACTION_JS = """(() => {
         const style = window.getComputedStyle(btn);
         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
 
-        // Filter false-positive non-application buttons (cart, filters, cancellation, cookies, social share)
-        if (/filter|refine|coupon|promo|discount|newsletter|share|save|bookmark|report|flag|sign\s*in|log\s*in|login|cart|add-to-cart|view-cart|shopping|cancel|reset|clear|close|dismiss|back\b/i.test(cleanLower)) {
+        // Exclude headings, title bars, and banners misclassified as buttons
+        if (/heading|title|header|banner/i.test(btn.id + ' ' + (btn.className || '')) && !['BUTTON', 'A', 'INPUT'].includes(btn.tagName)) {
+            continue;
+        }
+
+        // Filter false-positive non-application buttons (cart, filters, cancellation, cookies, social share, accordion toggles, tab switcher links)
+        const isSaveAndContinue = /save\s*(and|&)\s*continue/i.test(cleanLower);
+        if (!isSaveAndContinue && (
+            /filter|refine|coupon|promo|discount|newsletter|share|save\b|bookmark|report|flag|cart|add-to-cart|view-cart|shopping|cancel|reset|clear|close|dismiss|back\b|read\s*more|read\s*less|show\s*more|show\s*less|view\s*more|view\s*less|expand|collapse/i.test(cleanLower) ||
+            /filter|expand|toggle|collapse|accordion|legalnotice|createaccountlink|signinlink|forgotpassword/i.test(dataAuto)
+        )) {
             continue;
         }
 
         const selector = getUniqueSelector(btn);
 
-        const isNextPattern = cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') || cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') || /^(next|continue|proceed)(\s|$)/i.test(cleanLower);
-        const isSubmitPattern = cleanLower === 'submit' || cleanLower.includes('submit application') || cleanLower.includes('send application') || cleanLower.includes('complete application') || cleanLower.includes('finish application') || (btnType === 'submit' && !/cancel|reset|search|close|filter|back/i.test(cleanLower + ' ' + (btn.id || '') + ' ' + (btn.name || '')));
+        const isNextPattern = isSaveAndContinue || cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') || cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') || /^(next|continue|proceed)(\s|$)/i.test(cleanLower) || cleanLower === 'create account' || cleanLower.startsWith('create account') || dataAuto === 'createaccountsubmitbutton' || dataAuto.includes('createaccountsubmit') || cleanLower === 'sign in' || cleanLower.startsWith('sign in') || dataAuto.includes('signinsubmit');
+        const isSubmitPattern = !isSaveAndContinue && !cleanLower.includes('continue') && (cleanLower === 'submit' || cleanLower.includes('submit application') || cleanLower.includes('send application') || cleanLower.includes('complete application') || cleanLower.includes('finish application') || (btnType === 'submit' && !/cancel|reset|search|close|filter|back/i.test(cleanLower + ' ' + (btn.id || '') + ' ' + (btn.name || ''))));
         const isModalTrigger = btn.getAttribute('data-bs-toggle') === 'modal' || btn.getAttribute('data-toggle') === 'modal' || btn.hasAttribute('data-bs-target') || btn.hasAttribute('data-target') || btn.getAttribute('aria-haspopup') === 'dialog';
-        const isApplyPattern = isModalTrigger || cleanLower === 'apply' || cleanLower.startsWith('apply now') || cleanLower.includes('apply online') || cleanLower.includes('apply on') || cleanLower.includes('start application') || cleanLower.includes('register to apply') || href.includes('resume-registration') || href.includes('/apply') || href.includes('action=apply') || href.includes('job-apply') || (cleanLower.includes('apply') && !/services|solutions|portfolio|integration|architecture|consulting|outsourcing/i.test(cleanLower));
+        const isApplyPattern = isModalTrigger || cleanLower === 'apply' || cleanLower.startsWith('apply now') || cleanLower.includes('apply online') || cleanLower.includes('apply on') || cleanLower.includes('start application') || cleanLower.includes('register to apply') || cleanLower.includes('apply manually') || dataAuto.includes('adventure') || dataAuto.includes('applymanually') || href.includes('resume-registration') || href.includes('/apply') || href.includes('action=apply') || href.includes('job-apply') || (cleanLower.includes('apply') && !/services|solutions|portfolio|integration|architecture|consulting|outsourcing/i.test(cleanLower));
 
         let score = 0;
         if (isModalTrigger) {
             score += 120;
         }
-        if (cleanLower === 'apply' || cleanLower === 'apply now' || cleanLower.startsWith('apply now') || cleanLower === 'apply online' || cleanLower === 'apply for this job') {
-            score += 150;
+        if (cleanLower === 'apply manually' || dataAuto.includes('applymanually')) {
+            score += 200;
+        } else if (cleanLower === 'apply' || cleanLower === 'apply now' || cleanLower.startsWith('apply now') || cleanLower === 'apply online' || cleanLower === 'apply for this job' || dataAuto.includes('adventure')) {
+            score += 160;
         } else if (cleanLower.startsWith('apply') || cleanLower.includes('apply on')) {
             score += 90;
         } else if (cleanLower.includes('apply') || cleanLower.includes('submit application') || cleanLower.includes('submit resume')) {
@@ -808,7 +1084,9 @@ _DOM_EXTRACTION_JS = """(() => {
         if (isNextPattern) {
             let nextScore = 150;
             if (cleanLower.startsWith('next') || cleanLower.startsWith('continue')) nextScore += 50;
-            if (btn.classList.contains('btn-primary') || /primary/i.test(btn.className || '')) nextScore += 30;
+            if (cleanLower === 'create account' || dataAuto.includes('createaccountsubmit') || cleanLower === 'sign in' || dataAuto.includes('signinsubmit')) nextScore += 100;
+            if (btn.tagName === 'BUTTON' || (btn.tagName === 'INPUT' && btn.type === 'submit')) nextScore += 40;
+            if (btn.classList.contains('btn-primary') || /primary|submit|action/i.test(btn.className || '')) nextScore += 30;
             nextBtns.push({ selector: selector, text: text || 'Next', top: rect.top, score: nextScore });
         } else if (isModalTrigger || !hasInputFields) {
             // Modal trigger buttons or buttons on landing pages lead to application forms
@@ -818,7 +1096,7 @@ _DOM_EXTRACTION_JS = """(() => {
         } else {
             // ON ACTUAL APPLICATION FORM PAGES:
             // Check if this is an email identification / entry step (only 1 or 2 fields, all email/phone, no resume)
-            const isEmailIdentificationStep = elementsData.length <= 2 && !elementsData.some(f => f.input_type === 'file') && elementsData.every(f => /email|phone|tel/i.test(f.name + ' ' + f.label + ' ' + f.field_id));
+            const isEmailIdentificationStep = elementsData.length >= 1 && elementsData.length <= 2 && !elementsData.some(f => f.input_type === 'file') && elementsData.every(f => /email|phone|tel/i.test(f.name + ' ' + f.label + ' ' + f.field_id));
             if (isEmailIdentificationStep && !/back|cancel|close|dismiss|save|reset/i.test(cleanLower)) {
                 let emailNextScore = 100;
                 if (/primary|submit/i.test(btn.className + ' ' + btnType)) emailNextScore += 40;
@@ -913,6 +1191,7 @@ class PageAnalyzer:
                 current_value=f_data.get("current_value"),
                 has_autocomplete=bool(f_data.get("has_autocomplete", False)),
                 autocomplete_type=f_data.get("autocomplete_type"),
+                is_custom_dropdown=bool(f_data.get("is_custom_dropdown", False)),
             )
             fields.append(field_info)
             if field_info.input_type == "file":

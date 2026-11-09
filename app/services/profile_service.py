@@ -52,6 +52,24 @@ class ProfileService:
 
             profile = repo.get_profile(user.id)
             pro_profile = repo.get_professional_profile(user.id)
+
+            if pro_profile:
+                needs_update = False
+                if not pro_profile.work_experiences or not pro_profile.education_history:
+                    try:
+                        from modules.config_loader import get_professional
+                        pcfg = get_professional() or {}
+                        if not pro_profile.work_experiences and pcfg.get("work_experiences"):
+                            pro_profile.work_experiences = pcfg.get("work_experiences")
+                            needs_update = True
+                        if not pro_profile.education_history and pcfg.get("education"):
+                            pro_profile.education_history = pcfg.get("education")
+                            needs_update = True
+                    except Exception:
+                        pass
+                if needs_update:
+                    session.commit()
+
             return user, profile, pro_profile
 
     def get_profile_by_user_id(
@@ -168,6 +186,9 @@ class ProfileService:
                 )
                 repo.save_profile(user_id, profile_dto)
 
+                work_exp = professional_data.get("work_experiences")
+                edu_hist = professional_data.get("education_history")
+
                 # Update Professional Profile
                 prof_dto = ProfessionalProfileUpdateDTO(
                     current_title=title,
@@ -183,6 +204,8 @@ class ProfileService:
                     headline=professional_data.get("headline"),
                     summary=professional_data.get("summary"),
                     cover_letter=professional_data.get("cover_letter"),
+                    work_experiences=work_exp,
+                    education_history=edu_hist,
                 )
                 repo.save_professional_profile(user_id, prof_dto)
                 session.commit()
@@ -281,6 +304,15 @@ class ProfileService:
                 data["professional"]["summary"] = professional_data["summary"] or ""
             if "cover_letter" in professional_data:
                 data["professional"]["cover_letter"] = professional_data["cover_letter"] or ""
+            if "skills" in professional_data:
+                skills_val = professional_data["skills"]
+                if isinstance(skills_val, str):
+                    skills_val = [s.strip() for s in skills_val.split(",") if s.strip()]
+                data["professional"]["skills"] = skills_val
+            if "work_experiences" in professional_data and professional_data["work_experiences"] is not None:
+                data["professional"]["work_experiences"] = professional_data["work_experiences"]
+            if "education_history" in professional_data and professional_data["education_history"] is not None:
+                data["professional"]["education"] = professional_data["education_history"]
 
             with open(profile_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -400,6 +432,7 @@ class ProfileService:
                 "portfolio_url": prof.get("portfolio_url") or pers.get("portfolio_url", "").strip() or None,
                 "headline": prof.get("headline") or prof.get("current_title", "").strip() or None,
                 "summary": prof.get("summary", "").strip() or None,
+                "cover_letter": prof.get("cover_letter", "").strip() or None,
             }
 
             # Save in database using the Dict-based save_profile
@@ -598,4 +631,302 @@ class ProfileService:
             return True, None
         except Exception as exc:
             return False, f"Failed to import profile: {exc}"
+
+    @staticmethod
+    def render_cover_letter(
+        template: str,
+        company: Optional[str] = None,
+        job_title: Optional[str] = None,
+        candidate_name: Optional[str] = None,
+    ) -> str:
+        """Renders cover letter template by replacing placeholders with runtime job facts.
+
+        Handles:
+        - [Target Position] / [Job Title] / [Position] / [Role] -> Scraped target position
+        - [Company Name] / [Company] -> Scraped company name (multiple occurrences supported)
+        - [Candidate Name] / [Your Name] -> Candidate name
+        - Graceful grammatical fallbacks if company or position is confidential or unlisted.
+        """
+        import re
+
+        if not template:
+            return ""
+
+        text = str(template)
+
+        # 1. Target Position / Role Substitution
+        clean_title = (job_title or "").strip()
+        if clean_title:
+            clean_title = re.sub(r"(?i)\s*[\(\[\{]\s*(?:immediate|urgent|hiring|fresher|\d+\+?\s*years?)[^\)\]\}]*[\)\]\}]", "", clean_title).strip()
+            clean_title = re.sub(r"\s*[-–|]\s*(?:Remote|Hybrid|On-site|India|USA|UK|Full-?time|Part-?time)\b", "", clean_title, flags=re.IGNORECASE).strip()
+
+        if clean_title:
+            lower_title = clean_title.lower()
+            # If title already ends in "position", "role", "job", "internship", don't duplicate suffix
+            suffix = "" if any(lower_title.endswith(w) for w in ["position", "role", "job", "opening", "internship"]) else " position"
+
+            # Replace "the [Target Position]" with "the <clean_title> position"
+            text = re.sub(
+                r"(?i)\bthe\s+\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                f"the {clean_title}{suffix}",
+                text,
+            )
+            # Replace standalone [Target Position]
+            text = re.sub(
+                r"\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                clean_title,
+                text,
+            )
+            text = re.sub(
+                r"\{(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\}",
+                clean_title,
+                text,
+            )
+            text = re.sub(
+                r"<(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)>",
+                clean_title,
+                text,
+            )
+        else:
+            # Fallback when job title is missing or unlisted
+            text = re.sub(
+                r"(?i)\b(?:in|for)\s+the\s+\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                "for this opening",
+                text,
+            )
+            text = re.sub(
+                r"\[(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\]",
+                "this position",
+                text,
+            )
+            text = re.sub(
+                r"\{(?i:target[\s_-]*position|position|job[\s_-]*title|target[\s_-]*role|role)\}",
+                "this position",
+                text,
+            )
+
+        # 2. Company Name Substitution (Handles multiple occurrences throughout text)
+        clean_company = (company or "").strip()
+        if clean_company and clean_company.lower() in ["confidential", "confidential company", "unknown", "n/a", "none"]:
+            clean_company = ""
+
+        if clean_company:
+            # Replace [Company Name], [Company], {company_name}, etc.
+            text = re.sub(r"\[(?i:company[\s_-]*name|company)\]", clean_company, text)
+            text = re.sub(r"\{(?i:company[\s_-]*name|company)\}", clean_company, text)
+            text = re.sub(r"<(?i:company[\s_-]*name|company)>", clean_company, text)
+        else:
+            # Grammatical fallbacks when company is confidential / unlisted
+            text = re.sub(r"(?i)\bat\s+\[(?i:company[\s_-]*name|company)\]", "with your organization", text)
+            text = re.sub(r"(?i)\bfor\s+\[(?i:company[\s_-]*name|company)\]", "for your company", text)
+            text = re.sub(r"(?i)\bto\s+\[(?i:company[\s_-]*name|company)\]", "to your organization", text)
+            text = re.sub(r"(?i)\bof\s+\[(?i:company[\s_-]*name|company)\]", "of your team", text)
+            text = re.sub(r"\[(?i:company[\s_-]*name|company)\]", "your organization", text)
+            text = re.sub(r"\{(?i:company[\s_-]*name|company)\}", "your organization", text)
+
+        # 3. Candidate Name Substitution
+        clean_cand = (candidate_name or "").strip()
+        if clean_cand:
+            text = re.sub(r"\[(?i:candidate[\s_-]*name|your[\s_-]*name|name)\]", clean_cand, text)
+            text = re.sub(r"\{(?i:candidate[\s_-]*name|your[\s_-]*name|name)\}", clean_cand, text)
+
+        # 4. Hiring Manager Greeting
+        text = re.sub(r"\[(?i:hiring[\s_-]*manager[\s_-]*name|hiring[\s_-]*manager|recruiter[\s_-]*name)\]", "Hiring Team", text)
+
+        return text.strip()
+
+    def generate_narrative_content(
+        self,
+        field_type: str = "all",
+        context: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        ai_service: Optional[Any] = None,
+    ) -> Dict[str, str]:
+        """Generates AI-tailored headline, summary, or cover letter based on stored candidate data.
+
+        Args:
+            field_type: Target field to generate ("headline", "summary", "cover_letter", or "all")
+            context: Optional dictionary containing user-edited field values (e.g. from current UI inputs)
+            user_id: User identifier (defaults to primary user)
+            ai_service: Optional UniversalAIService instance (for dependency injection or testing)
+
+        Returns:
+            Dictionary with generated content for requested fields:
+            e.g. {"headline": "...", "summary": "...", "cover_letter": "..."}
+        """
+        import json
+        import re
+
+        ctx = dict(context or {})
+        try:
+            if user_id:
+                user, profile, pro_profile = self.get_profile_by_user_id(user_id)
+            else:
+                user, profile, pro_profile = self.get_primary_user_profile()
+        except Exception:
+            user, profile, pro_profile = None, None, None
+
+        # Resolve candidate name
+        first_name = ctx.get("first_name") or (profile.first_name if profile else "")
+        last_name = ctx.get("last_name") or (profile.last_name if profile else "")
+        name = ctx.get("name") or f"{first_name} {last_name}".strip()
+        if not name and user and user.name:
+            name = user.name
+        name = name or "Candidate"
+
+        # Resolve title / headline
+        title = ctx.get("title") or ctx.get("current_title") or ctx.get("headline")
+        if not title and pro_profile:
+            title = pro_profile.current_title or pro_profile.headline
+        title = (title or "").strip()
+
+        # Resolve employer
+        employer = ctx.get("current_employer")
+        if not employer and pro_profile:
+            employer = pro_profile.current_employer
+        employer = (employer or "").strip()
+
+        # Resolve years of experience
+        exp_years = ctx.get("years_of_experience")
+        if exp_years is None and pro_profile:
+            exp_years = pro_profile.years_of_experience
+        try:
+            exp_val = float(exp_years) if exp_years is not None and str(exp_years).strip() != "" else 2.0
+        except (ValueError, TypeError):
+            exp_val = 2.0
+
+        # Resolve skills
+        skills_raw = ctx.get("skills")
+        if skills_raw is None and pro_profile:
+            skills_raw = pro_profile.skills or []
+        if isinstance(skills_raw, str):
+            skills_list = [s.strip() for s in re.split(r"[,;\n]", skills_raw) if s.strip()]
+        elif isinstance(skills_raw, list):
+            skills_list = [str(s).strip() for s in skills_raw if str(s).strip()]
+        else:
+            skills_list = []
+        skills_str = ", ".join(skills_list[:15]) if skills_list else ""
+
+        # Resolve location
+        location = ctx.get("location") or ctx.get("current_city")
+        if not location and profile:
+            location = f"{profile.current_city or ''}, {profile.country or ''}".strip(", ")
+        location = (location or "").strip()
+
+        # Minimum required context check
+        if not title and not skills_str and exp_val == 0:
+            raise ValueError(
+                "Insufficient profile data to generate content. Please provide at least a job title, skills, or experience."
+            )
+
+        # Fallback default title if still blank
+        effective_title = title or "Software Professional"
+
+        # Initialize AI service
+        ai = ai_service
+        if not ai:
+            from app.services.ai_service import UniversalAIService
+            ai = UniversalAIService(session_factory=self._session_factory)
+
+        # Verify AI is configured and enabled
+        cfg = ai.get_config()
+        if not cfg.get("enabled"):
+            raise RuntimeError(
+                "AI Engine is disabled in settings. Please enable and configure an AI provider in Settings or Setup Step 2."
+            )
+
+        facts_block = (
+            f"Candidate Name: {name}\n"
+            f"Professional Title / Role: {effective_title}\n"
+            f"Current Employer: {employer or 'Confidential'}\n"
+            f"Total Experience: {exp_val:g} years\n"
+            f"Core Technical Skills: {skills_str or 'Engineering & Problem Solving'}\n"
+            f"Location: {location or 'Open / Remote'}\n"
+        )
+
+        sys_prompt = (
+            "You are an expert executive resume strategist and career coach. "
+            "Write high-impact, professional, ATS-optimized candidate narrative content "
+            "strictly grounded in the provided candidate facts. "
+            "Never invent fictitious employers, universities, certifications, or false metrics."
+        )
+
+        target_field = (field_type or "all").lower()
+
+        if target_field == "headline":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Generate a single-line, punchy, ATS-friendly LinkedIn / Resume headline for this candidate.\n"
+                "Format: [Primary Role] | [Core Technologies / Specialties] | [Years Experience or Value Prop]\n"
+                "Constraints:\n"
+                "- Keep length between 50 and 110 characters.\n"
+                "- Output ONLY the clean headline text. Do not include quotes, prefixes, or markdown formatting."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            clean = raw.strip('"').strip("'").strip()
+            return {"headline": clean}
+
+        elif target_field == "summary":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Write a concise, compelling 3-4 sentence professional summary / bio for this candidate.\n"
+                "Constraints:\n"
+                "- Highlight depth of experience, key technical competencies, domain strengths, and problem-solving impact.\n"
+                "- Professional and direct; no buzzword salad or conversational preamble.\n"
+                "- Output ONLY the summary paragraph text. Do not include markdown code fences or quotes."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            return {"summary": raw}
+
+        elif target_field == "cover_letter":
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Write a polished, versatile default cover letter template for this candidate (200 to 300 words).\n"
+                "Structure:\n"
+                "- Salutation: 'Dear Hiring Team,'\n"
+                "- Opening paragraph: Introduce role enthusiasm and summarize years of experience.\n"
+                "- 1-2 Body paragraphs: Highlight core technical proficiencies, problem-solving, and team impact based on provided skills.\n"
+                "- Closing paragraph: Express enthusiasm to contribute to company goals and request an interview.\n"
+                "- Use placeholders '[Company Name]' and '[Target Position]' for future customization.\n"
+                f"- Formal Sign-off: 'Sincerely,\\n{name}'\n"
+                "Constraints:\n"
+                "- Output ONLY the cover letter body. Do not include markdown headers or commentary."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            return {"cover_letter": raw}
+
+        else:
+            # "all" - Generate headline, summary, and cover letter
+            prompt = (
+                f"{facts_block}\n"
+                "Task: Generate three cohesive narrative elements for this candidate in valid JSON format:\n"
+                "1. 'headline': 1-line punchy ATS headline (max 110 characters)\n"
+                "2. 'summary': 3-4 sentence impactful career summary\n"
+                "3. 'cover_letter': 200-300 word versatile default cover letter template with '[Company Name]' and '[Target Position]' placeholders and 'Sincerely, [Candidate Name]' sign-off\n\n"
+                "Output ONLY a raw JSON object with keys 'headline', 'summary', and 'cover_letter'."
+            )
+            raw = ai.generate_text(prompt=prompt, system_prompt=sys_prompt, temperature=0.3).strip()
+            clean_json = raw
+            if "```json" in clean_json:
+                clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean_json:
+                clean_json = clean_json.split("```")[1].split("```")[0].strip()
+
+            try:
+                parsed = json.loads(clean_json)
+                return {
+                    "headline": str(parsed.get("headline", "")).strip().strip('"').strip("'"),
+                    "summary": str(parsed.get("summary", "")).strip(),
+                    "cover_letter": str(parsed.get("cover_letter", "")).strip(),
+                }
+            except Exception:
+                # If JSON parsing failed, fallback to individual generation
+                h = self.generate_narrative_content("headline", context=context, user_id=user_id, ai_service=ai)
+                s = self.generate_narrative_content("summary", context=context, user_id=user_id, ai_service=ai)
+                c = self.generate_narrative_content("cover_letter", context=context, user_id=user_id, ai_service=ai)
+                return {
+                    "headline": h.get("headline", ""),
+                    "summary": s.get("summary", ""),
+                    "cover_letter": c.get("cover_letter", ""),
+                }
 

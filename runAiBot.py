@@ -45,6 +45,12 @@ try:
 except Exception:
     pass
 
+try:
+    from modules.open_chrome import ensure_ssl_certificates
+    ensure_ssl_certificates()
+except Exception:
+    pass
+
 if use_AI:
     from modules.ai.openaiConnections import ai_create_openai_client, ai_extract_skills, ai_answer_question, ai_close_openai_client
     from modules.ai.deepseekConnections import deepseek_create_client, deepseek_extract_skills, deepseek_answer_question
@@ -903,19 +909,86 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
     '''
     skip = False
     is_already_applied = False
-    job_details_button = job.find_element(By.TAG_NAME, 'a')  # job.find_element(By.CLASS_NAME, "job-card-list__title")  # Problem in India
-    scroll_to_view(driver, job_details_button, True)
-    job_id = job.get_dom_attribute('data-occludable-job-id')
-    title = job_details_button.text
-    title = title[:title.find("\n")]
-    # company = job.find_element(By.CLASS_NAME, "job-card-container__primary-description").text
-    # work_location = job.find_element(By.CLASS_NAME, "job-card-container__metadata-item").text
-    other_details = job.find_element(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle').text
-    index = other_details.find(' · ')
-    company = other_details[:index]
-    work_location = other_details[index+3:]
-    work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
-    work_location = work_location[:work_location.rfind('(')].strip()
+    
+    # Locate title link using multi-selector fallback (avoids clicking company logo avatar)
+    job_details_button = None
+    for a_sel in [
+        "a.job-card-list__title",
+        "a.job-card-container__link",
+        "a[href*='/jobs/view/']",
+        "a[href*='currentJobId=']",
+        ".artdeco-entity-lockup__title a",
+        "h2 a",
+        "h3 a",
+        "a[data-control-name='job_card_click']",
+    ]:
+        try:
+            elems = job.find_elements(By.CSS_SELECTOR, a_sel)
+            if elems and any(getattr(e, "is_displayed", lambda: True)() for e in elems):
+                job_details_button = elems[0]
+                break
+        except Exception:
+            continue
+
+    if not job_details_button:
+        try:
+            all_a = job.find_elements(By.TAG_NAME, 'a')
+            for a in all_a:
+                href = a.get_attribute("href") or ""
+                if "/jobs/" in href or (a.text and len(a.text.strip()) > 3):
+                    job_details_button = a
+                    break
+            if not job_details_button and all_a:
+                job_details_button = all_a[0]
+        except Exception:
+            job_details_button = None
+
+    if job_details_button:
+        scroll_to_view(driver, job_details_button, True)
+        title = job_details_button.text.strip()
+        title = title.split("\n")[0].strip() if title else "Unknown Title"
+    else:
+        title = "Unknown Title"
+
+    # Robust Job ID extraction
+    job_id = job.get_dom_attribute('data-occludable-job-id') or job.get_dom_attribute('data-job-id')
+    if not job_id:
+        try:
+            from platforms.linkedin.parser import LinkedInJobParser
+            job_id = LinkedInJobParser.extract_job_id_from_card(job)
+        except Exception:
+            pass
+
+    # Extract company and location safely without crashing on missing sub-elements
+    company = "Unknown"
+    work_location = "Unknown"
+    work_style = ""
+    try:
+        subtitles = job.find_elements(By.CLASS_NAME, 'artdeco-entity-lockup__subtitle')
+        if subtitles and subtitles[0].text.strip():
+            other_details = subtitles[0].text.strip()
+            index = other_details.find(' · ')
+            if index != -1:
+                company = other_details[:index].strip()
+                work_location = other_details[index+3:].strip()
+            else:
+                company = other_details
+        else:
+            for c_sel in [".job-card-container__company-name", ".artdeco-entity-lockup__subtitle", ".job-card-container__primary-description"]:
+                c_elems = job.find_elements(By.CSS_SELECTOR, c_sel)
+                if c_elems and c_elems[0].text.strip():
+                    company = c_elems[0].text.strip()
+                    break
+            for l_sel in [".job-card-container__metadata-item", ".artdeco-entity-lockup__caption"]:
+                l_elems = job.find_elements(By.CSS_SELECTOR, l_sel)
+                if l_elems and l_elems[0].text.strip():
+                    work_location = l_elems[0].text.strip()
+                    break
+        if '(' in work_location and ')' in work_location:
+            work_style = work_location[work_location.rfind('(')+1:work_location.rfind(')')]
+            work_location = work_location[:work_location.rfind('(')].strip()
+    except Exception:
+        pass
 
     # Emit DISCOVERED telemetry for live desktop playground
     try:
@@ -1129,29 +1202,311 @@ def answer_common_questions(label: str, answer: str) -> str:
     return answer
 
 
+def answer_radio_groups(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None) -> set:
+    """
+    Discovers all radio button groups inside the modal (by name or shared container),
+    determines the question title and options, chooses the best answer,
+    and reliably clicks/selects the option with full React synthetic event dispatch.
+    """
+    try:
+        all_radios = modal.find_elements(By.XPATH, ".//input[@type='radio']")
+        if not all_radios:
+            return questions_list
+
+        radio_groups = {}
+        for r in all_radios:
+            try:
+                name = r.get_attribute("name")
+                if not name:
+                    try:
+                        parent_el = r.find_element(By.XPATH, "./ancestor::div[.//input[@type='radio']][last()]")
+                        name = str(id(parent_el))
+                    except Exception:
+                        name = "unnamed_group"
+                radio_groups.setdefault(name, []).append(r)
+            except Exception:
+                continue
+
+        for group_name, r_list in radio_groups.items():
+            try:
+                # Check if an option in this radio group is already selected
+                is_selected = any(r.is_selected() or (r.get_attribute("checked") in ["true", "checked", "True"]) for r in r_list)
+                if is_selected and not overwrite_previous_answers:
+                    continue
+
+                # 1. Determine question title
+                question_title = ""
+                ancestor = None
+                for anc_xpath in [
+                    "./ancestor::fieldset[1]",
+                    "./ancestor::div[@role='radiogroup'][1]",
+                    "./ancestor::div[contains(@class, 'form-element') or contains(@class, 'group') or contains(@class, 'field')][1]",
+                    "./ancestor::div[.//p or .//h3 or .//legend or .//label][1]",
+                    "./ancestor::div[2]",
+                    "./ancestor::div[3]",
+                    "./ancestor::div[4]",
+                ]:
+                    try:
+                        cand = r_list[0].find_element(By.XPATH, anc_xpath)
+                        if cand and (cand.find_elements(By.XPATH, ".//p | .//legend | .//h3 | .//span[contains(@class, 'title')]")):
+                            ancestor = cand
+                            break
+                    except Exception:
+                        continue
+
+                if ancestor:
+                    for p_xpath in [".//legend", ".//span[contains(@class, 'title')]", ".//p", ".//h3", ".//div[contains(@class, 'title')]"]:
+                        try:
+                            titles = ancestor.find_elements(By.XPATH, p_xpath)
+                            for t in titles:
+                                if t.is_displayed() and t.text.strip():
+                                    question_title = t.text.strip()
+                                    break
+                            if question_title:
+                                break
+                        except Exception:
+                            continue
+
+                if not question_title:
+                    try:
+                        question_title = r_list[0].get_attribute("aria-label") or ""
+                    except Exception:
+                        pass
+                if not question_title:
+                    question_title = "Radio Question"
+
+                # 2. Extract options info
+                options_info = []  # (opt_text, r_elem, label_elem)
+                for r_el in r_list:
+                    r_id = r_el.get_attribute("id")
+                    opt_lbl_el = None
+                    opt_text = ""
+                    if r_id:
+                        try:
+                            lbls = modal.find_elements(By.XPATH, f".//label[@for='{r_id}']")
+                            if lbls and lbls[0].text.strip():
+                                opt_text = lbls[0].text.strip()
+                                opt_lbl_el = lbls[0]
+                        except Exception:
+                            pass
+                    if not opt_text:
+                        for lbl_xpath in ["./following-sibling::label", "./parent::label", "./ancestor::label[1]", "./following-sibling::*[1]", "./.."]:
+                            try:
+                                cand_lbl = r_el.find_element(By.XPATH, lbl_xpath)
+                                if cand_lbl and cand_lbl.text.strip():
+                                    opt_text = cand_lbl.text.strip()
+                                    opt_lbl_el = cand_lbl
+                                    break
+                            except Exception:
+                                continue
+                    if not opt_text:
+                        opt_text = r_el.get_attribute("aria-label") or r_el.get_attribute("value") or "Option"
+
+                    options_info.append((opt_text, r_el, opt_lbl_el))
+
+                # 3. Determine best answer
+                q_lower = question_title.lower()
+                clean_opt_names = [o[0] for o in options_info]
+                answer = "Yes"
+
+                # Domain heuristics for standard application screening
+                if any(w in q_lower for w in ["hybrid", "remote", "on-site", "onsite", "commute", "relocat", "travel"]):
+                    answer = "Yes"
+                elif any(w in q_lower for w in ["require visa", "need visa", "visa sponsorship", "future sponsorship"]):
+                    answer = "No"
+                elif any(w in q_lower for w in ["authorized", "eligib", "legal", "citizen"]):
+                    answer = us_citizenship if 'us_citizenship' in globals() else "Yes"
+                elif any(w in q_lower for w in ["background check", "drug"]):
+                    answer = "Yes"
+                elif any(w in q_lower for w in ["comfortable", "willing", "able to", "agree", "accept"]):
+                    answer = "Yes"
+                elif any(w in q_lower for w in ["veteran", "military"]):
+                    answer = veteran_status if 'veteran_status' in globals() else "No"
+                elif any(w in q_lower for w in ["disability"]):
+                    answer = disability_status if 'disability_status' in globals() else "Decline"
+                else:
+                    if 'qna_engine' in globals():
+                        clean_opts_only = [lbl.split('"<')[0].strip('"') for lbl in clean_opt_names]
+                        q_target, ai_choice = qna_engine.answer_select_or_radio(question_title, clean_opts_only, work_location)
+                        if q_target:
+                            answer = q_target
+                        elif ai_choice:
+                            answer = ai_choice
+
+                # 4. Match target option
+                target_choice = None
+                ans_lower = answer.lower()
+                for opt_text, r_el, lbl_el in options_info:
+                    if opt_text.lower().strip() == ans_lower:
+                        target_choice = (opt_text, r_el, lbl_el)
+                        break
+                if not target_choice:
+                    for opt_text, r_el, lbl_el in options_info:
+                        if ans_lower in opt_text.lower() or opt_text.lower() in ans_lower:
+                            target_choice = (opt_text, r_el, lbl_el)
+                            break
+                if not target_choice and options_info:
+                    target_choice = options_info[0]
+
+                # 5. Robust Selection Execution (Selenium + JS Click + React Synthetic Event)
+                if target_choice:
+                    chosen_text, chosen_r, chosen_lbl = target_choice
+                    if chosen_lbl:
+                        try:
+                            scroll_to_view(driver, chosen_lbl)
+                            chosen_lbl.click()
+                        except Exception:
+                            pass
+                    try:
+                        scroll_to_view(driver, chosen_r)
+                        chosen_r.click()
+                    except Exception:
+                        pass
+                    try:
+                        driver.execute_script("""
+                            const r = arguments[0];
+                            const lbl = arguments[1];
+                            r.scrollIntoView({ block: 'center', behavior: 'instant' });
+                            if (lbl) {
+                                try { lbl.click(); } catch(e) {}
+                            }
+                            try { r.click(); } catch(e) {}
+                            if (!r.checked) {
+                                r.checked = true;
+                            }
+                            r.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                            r.dispatchEvent(new Event('input', { bubbles: true }));
+                            r.dispatchEvent(new Event('change', { bubbles: true }));
+                        """, chosen_r, chosen_lbl)
+                    except Exception:
+                        pass
+
+                    questions_list.add((f"{question_title} [ {', '.join(clean_opt_names)} ]", chosen_text, "radio", None))
+                    print_lg(f"Selected radio '{chosen_text}' for '{question_title}'")
+            except Exception as e:
+                print_lg("Notice handling radio group:", e)
+    except Exception as e:
+        print_lg("Notice discovering radio groups:", e)
+
+    return questions_list
+
+
+def answer_custom_dropdowns(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None) -> set:
+    """
+    Discovers custom dropdowns (role='combobox', button[aria-haspopup='listbox'], or basic typeahead)
+    and selects the matching option.
+    """
+    try:
+        comboboxes = modal.find_elements(By.XPATH, ".//div[@role='combobox'] | .//input[@role='combobox'] | .//button[@aria-haspopup='listbox']")
+        for cb in comboboxes:
+            if not cb.is_displayed():
+                continue
+            try:
+                cb_label = cb.get_attribute("aria-label") or ""
+                if not cb_label:
+                    try:
+                        lbl = cb.find_element(By.XPATH, "./ancestor::div[.//label or .//p][1]//(label|p)[1]")
+                        cb_label = lbl.text.strip()
+                    except Exception:
+                        pass
+                if not cb_label:
+                    cb_label = "Dropdown Question"
+
+                curr_val = cb.get_attribute("value") or cb.text or ""
+                if curr_val.strip() and curr_val.strip().lower() not in ["select an option", "choose an option"]:
+                    continue
+
+                answer = "Yes"
+                if 'qna_engine' in globals():
+                    ans = qna_engine.answer_text_question(cb_label, job_description=job_description, work_location=work_location)
+                    if ans:
+                        answer = ans
+
+                try:
+                    cb.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", cb)
+                buffer(0.4)
+
+                options_xpath = "//div[@role='listbox']//*[@role='option'] | //ul[contains(@class, 'typeahead')]//li | //ul[@role='listbox']//li | //div[contains(@class, 'basic-typeahead')]//li"
+                options = driver.find_elements(By.XPATH, options_xpath)
+                clicked_opt = False
+                for opt in options:
+                    if opt.is_displayed():
+                        opt_text = opt.text.strip()
+                        if opt_text and (answer.lower() in opt_text.lower() or opt_text.lower() in answer.lower()):
+                            try:
+                                opt.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", opt)
+                            clicked_opt = True
+                            questions_list.add((cb_label, opt_text, "custom_dropdown", None))
+                            break
+                if not clicked_opt and options:
+                    for opt in options:
+                        if opt.is_displayed():
+                            try:
+                                opt.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", opt)
+                            break
+            except Exception as e:
+                print_lg("Notice handling custom dropdown:", e)
+    except Exception as e:
+        print_lg("Notice discovering custom dropdowns:", e)
+    return questions_list
+
+
 # Function to answer the questions for Easy Apply
 def answer_questions(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
-    # Get all questions from the page
-     
+    # 1. First process all radio groups on the modal step
+    questions_list = answer_radio_groups(modal, questions_list, work_location, job_description=job_description)
+
+    # 2. Process any custom comboboxes or dropdown buttons
+    questions_list = answer_custom_dropdowns(modal, questions_list, work_location, job_description=job_description)
+
+    # 3. Get all standard questions from the page
     all_questions = modal.find_elements(
         By.XPATH,
         ".//div[@data-test-form-element] | "
         ".//div[contains(@class, 'jobs-easy-apply-form-element')] | "
         ".//div[contains(@class, 'fb-dash-form-element')] | "
-        ".//div[contains(@data-test-form-builder, 'form-component')]"
+        ".//div[contains(@data-test-form-builder, 'form-component')] | "
+        ".//div[contains(@componentkey, 'easyApplyFieldFocus')] | "
+        ".//div[.//p and .//input] | "
+        ".//div[.//label and (.//input or .//select or .//textarea)]"
     )
     if not all_questions:
         all_questions = modal.find_elements(By.XPATH, ".//div[contains(@class, 'jobs-easy-apply-form-section__grouping')]")
+    if not all_questions:
+        all_questions = modal.find_elements(By.XPATH, ".//fieldset | .//div[contains(@class, 'gvyl')]//input/.. | .//div[contains(@class, 'gvyl')]//select/..")
 
     for Question in all_questions:
         # Check if it's a select Question
         select = try_xp(Question, ".//select", False)
         if select:
-            label_org = "Unknown"
+            label_org = ""
             try:
-                label = Question.find_element(By.TAG_NAME, "label")
-                label_org = label.find_element(By.TAG_NAME, "span").text
-            except: pass
+                aria = select.get_attribute("aria-label")
+                if aria and aria.strip():
+                    label_org = aria.strip()
+            except Exception:
+                pass
+            if not label_org:
+                try:
+                    label_el = Question.find_element(By.TAG_NAME, "label")
+                    label_org = label_el.text.strip()
+                except Exception:
+                    pass
+            if not label_org:
+                try:
+                    p_el = Question.find_element(By.XPATH, ".//p | .//h3")
+                    label_org = p_el.text.strip()
+                except Exception:
+                    pass
+            if not label_org:
+                label_org = "Unknown"
+
             answer = 'Yes'
             label = label_org.lower()
             select = Select(select)
@@ -1249,13 +1604,25 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             continue
         
         # Check if it's a radio Question
-        radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"]', False)
+        radio = try_xp(Question, './/fieldset[@data-test-form-builder-radio-button-form-component="true"] | .//fieldset | .//div[@role="radiogroup"]', False)
         if radio:
             prev_answer = None
-            label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
-            try: label = find_by_class(label, "visually-hidden", 2.0)
-            except: pass
-            label_org = label.text if label else "Unknown"
+            label_org = ""
+            for l_sel in ['.//span[@data-test-form-builder-radio-button-form-component__title]', './/legend', './/p', './/label']:
+                try:
+                    l_node = try_xp(radio, l_sel, False)
+                    if l_node and l_node.text.strip():
+                        label_org = l_node.text.strip()
+                        break
+                except Exception:
+                    continue
+            if not label_org:
+                try:
+                    label_org = radio.get_attribute("aria-label") or ""
+                except Exception:
+                    pass
+            if not label_org:
+                label_org = "Unknown"
             answer = 'Yes'
             label = label_org.lower()
 
@@ -1266,7 +1633,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             for option in options:
                 id = option.get_attribute("id")
                 option_label = try_xp(radio, f'.//label[@for="{id}"]', False)
-                options_labels.append( f'"{option_label.text if option_label else "Unknown"}"<{option.get_attribute("value")}>' ) # Saving option as "label <value>"
+                opt_text = option_label.text.strip() if option_label else (option.get_attribute("aria-label") or "Unknown")
+                options_labels.append( f'"{opt_text}"<{option.get_attribute("value")}>' ) # Saving option as "label <value>"
                 if option.is_selected(): prev_answer = options_labels[-1]
                 label_org += f' {options_labels[-1]},'
 
@@ -1289,8 +1657,8 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                     actions.move_to_element(foundOption).click().perform()
                 else:    
                     possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if answer == 'Decline' else [answer]
-                    ele = options[0]
-                    answer = options_labels[0]
+                    ele = options[0] if options else None
+                    answer = options_labels[0] if options_labels else "Unknown"
                     for phrase in possible_answer_phrases:
                         for i, option_label in enumerate(options_labels):
                             if phrase in option_label:
@@ -1309,20 +1677,45 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                                     foundOption = ele
                                     answer = options_labels[i]
                                     break
-                    actions.move_to_element(ele).click().perform()
+                    if ele:
+                        try:
+                            actions.move_to_element(ele).click().perform()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", ele)
                     if not foundOption: randomly_answered_questions.add((f'{label_org} ]',"radio"))
             else: answer = prev_answer
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
             continue
         
         # Check if it's a text question (including number, email, tel, or unspecified type)
-        text = try_xp(Question, ".//input[not(@type) or @type='text' or @type='number' or @type='tel' or @type='email']", False)
+        text = try_xp(Question, ".//input[not(@type) or @type='text' or @type='number' or @type='tel' or @type='email'] | .//textarea", False)
         if text: 
             do_actions = False
-            label = try_xp(Question, ".//label[@for]", False)
-            try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
-            except: pass
-            label_org = label.text if label else "Unknown"
+            label_org = ""
+            try:
+                aria_val = text.get_attribute("aria-label")
+                if aria_val and aria_val.strip():
+                    label_org = aria_val.strip()
+            except Exception:
+                pass
+            if not label_org:
+                try:
+                    label = try_xp(Question, ".//label[@for] | .//label", False)
+                    if label and label.text.strip():
+                        label_org = label.text.strip()
+                except Exception:
+                    pass
+            if not label_org:
+                try:
+                    p_nodes = Question.find_elements(By.XPATH, ".//p | .//h3 | .//span[contains(@class, 'title')]")
+                    for p_n in p_nodes:
+                        if p_n.text.strip():
+                            label_org = p_n.text.strip()
+                            break
+                except Exception:
+                    pass
+            if not label_org:
+                label_org = "Unknown"
             answer = "" # years_of_experience
             label = label_org.lower()
 
@@ -1540,21 +1933,42 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
 
                 try:
                     driver.execute_script("""
-                        arguments[0].focus();
-                        arguments[0].value = '';
-                        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                        arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                        const el = arguments[0];
+                        el.focus();
+                        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+                                       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                        if (setter) {
+                            setter.call(el, '');
+                        } else {
+                            el.value = '';
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
                     """, text)
                 except Exception:
                     pass
-                text.send_keys(Keys.CONTROL + "a", Keys.BACKSPACE)
-                text.send_keys(final_ans)
+                try:
+                    text.send_keys(Keys.CONTROL + "a", Keys.BACKSPACE)
+                    text.send_keys(final_ans)
+                except Exception:
+                    pass
                 try:
                     driver.execute_script("""
-                        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                        arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-                        arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
-                    """, text)
+                        const el = arguments[0];
+                        const val = arguments[1];
+                        if (!el.value || el.value !== val) {
+                            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+                                           Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                            if (setter) {
+                                setter.call(el, val);
+                            } else {
+                                el.value = val;
+                            }
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    """, text, final_ans)
                 except Exception:
                     pass
                 if do_actions:
@@ -1702,12 +2116,30 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             continue
 
 
+    # Final Safety Check: ensure no radio group or required checkbox remains unselected
+    try:
+        unselected_radios = modal.find_elements(By.XPATH, ".//input[@type='radio']")
+        groups = {}
+        for r in unselected_radios:
+            gname = r.get_attribute("name") or "default"
+            groups.setdefault(gname, []).append(r)
+        for gname, r_items in groups.items():
+            if not any(r.is_selected() for r in r_items):
+                first_r = r_items[0]
+                driver.execute_script("""
+                    const r = arguments[0];
+                    r.scrollIntoView({ block: 'center', behavior: 'instant' });
+                    r.checked = true;
+                    r.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    r.dispatchEvent(new Event('input', { bubbles: true }));
+                    r.dispatchEvent(new Event('change', { bubbles: true }));
+                """, first_r)
+                print_lg(f"Safety fallback selected first option for radio group '{gname}'")
+    except Exception:
+        pass
+
     # Select todays date
     try_xp(driver, "//button[contains(@aria-label, 'This is today')]")
-
-    # Collect important skills
-    # if 'do you have' in label and 'experience' in label and ' in ' in label -> Get word (skill) after ' in ' from label
-    # if 'how many years of experience do you have in ' in label -> Get word (skill) after ' in '
 
     return questions_list
 
@@ -1982,18 +2414,21 @@ def dismiss_post_apply_modal(drv, timeout: float = 6.0) -> bool:
 
     while time.time() - start < timeout:
         dismiss_xpaths = [
-            # 1. "Not now" button on the post-apply upsell modal
+            # 1. Modern Genesis SDUI dialog buttons
+            "//dialog[@open]//button[@aria-label='Dismiss' or @aria-label='Close']",
+            "//dialog[@open]//button[contains(normalize-space(.), 'Done') or contains(normalize-space(.), 'Not now')]",
+            # 2. "Not now" button on the post-apply upsell modal
             "//button[contains(normalize-space(.), 'Not now')]",
             ".//span[normalize-space(.)='Not now']/ancestor::button",
-            # 2. "Done" button on post-apply dialogs
+            # 3. "Done" button on post-apply dialogs
             "//button[contains(normalize-space(.), 'Done')]",
             ".//span[normalize-space(.)='Done']/ancestor::button",
-            # 3. Modal close / dismiss 'X' button
+            # 4. Modal close / dismiss 'X' button
             "//button[@aria-label='Dismiss']",
             "//button[@aria-label='Close']",
             "//button[contains(@class, 'artdeco-modal__dismiss')]",
             "//button[@data-test-modal-close-btn]",
-            # 4. Any button inside post-apply modal container
+            # 5. Any button inside post-apply modal container
             "//div[contains(@class, 'artdeco-modal')]//button[@aria-label='Dismiss']",
             "//div[contains(@role, 'dialog')]//button[@aria-label='Dismiss']",
         ]
@@ -2020,7 +2455,7 @@ def dismiss_post_apply_modal(drv, timeout: float = 6.0) -> bool:
 
         # If dismissed, verify visible modals
         try:
-            open_modals = drv.find_elements(By.XPATH, "//div[contains(@class, 'artdeco-modal') and @role='dialog']")
+            open_modals = drv.find_elements(By.XPATH, "//div[contains(@class, 'artdeco-modal') and @role='dialog'] | //dialog[@open]")
             visible_modals = [m for m in open_modals if m.is_displayed()]
             if not visible_modals:
                 break
@@ -2049,6 +2484,25 @@ def dismiss_post_apply_modal(drv, timeout: float = 6.0) -> bool:
 
 # Function to discard the job application and close any leftover modals
 def discard_job() -> None:
+    # Try clicking modal dismiss/close button first to trigger discard confirmation
+    for dismiss_sel in [
+        "//dialog[@open]//button[@aria-label='Dismiss' or @aria-label='Close']",
+        "//button[@aria-label='Dismiss']",
+        "//button[contains(@class, 'artdeco-modal__dismiss')]",
+    ]:
+        try:
+            d_btns = driver.find_elements(By.XPATH, dismiss_sel)
+            for d_btn in d_btns:
+                if d_btn.is_displayed():
+                    try:
+                        d_btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", d_btn)
+                    buffer(0.5)
+                    break
+        except Exception:
+            pass
+
     try:
         actions.send_keys(Keys.ESCAPE).perform()
     except Exception:
@@ -2057,6 +2511,7 @@ def discard_job() -> None:
 
     # Click 'Discard' button on confirmation popups if visible
     discard_selectors = [
+        "//dialog[@open]//button[normalize-space(.)='Discard']",
         "//button[@data-control-name='discard_application_confirm_btn']",
         "//button[contains(@class, 'artdeco-modal__confirm-dialog-btn') and contains(., 'Discard')]",
         "//button[contains(@data-test-dialog-secondary-action, '') and contains(., 'Discard')]",
@@ -2115,11 +2570,44 @@ def apply_to_jobs(search_terms: list[str]) -> None:
         should_switch_term = False
         try:
             while current_count < switch_number and not should_switch_term:
-                # Wait until job listings are loaded
-                wait.until(EC.presence_of_all_elements_located((By.XPATH, "//li[@data-occludable-job-id]")))
+                # Wait until job listings are loaded across modern LinkedIn layouts
+                card_xpaths = [
+                    "//div[@role='button' and contains(@componentkey, 'job-card-component-ref-')]",
+                    "//div[contains(@componentkey, 'job-card')]",
+                    "//li[@data-occludable-job-id]",
+                    "//li[contains(@class, 'jobs-search-results__list-item')]",
+                    "//li[contains(@class, 'scaffold-layout__list-item')]",
+                    "//div[@data-job-id]",
+                    "//div[contains(@class, 'job-card-container')]",
+                    "//div[@data-view-name='job-card']",
+                    "//ul[contains(@class, 'scaffold-layout__list-container')]/li",
+                ]
+                job_listings = []
+                for _ in range(8):
+                    for xp in card_xpaths:
+                        try:
+                            found = driver.find_elements(By.XPATH, xp)
+                            if found and any(getattr(c, "is_displayed", lambda: True)() for c in found):
+                                job_listings = found
+                                break
+                        except Exception:
+                            pass
+                    if job_listings:
+                        break
+                    time.sleep(1)
 
                 # Scroll container to hydrate all occludable job cards and pagination controls
                 scroll_job_list(driver)
+
+                # Re-query hydrated cards
+                for xp in card_xpaths:
+                    try:
+                        found = driver.find_elements(By.XPATH, xp)
+                        if len(found) > len(job_listings):
+                            job_listings = found
+                            break
+                    except Exception:
+                        pass
 
                 pagination_element, current_page = get_page_info()
                 if current_page is None:
@@ -2127,9 +2615,9 @@ def apply_to_jobs(search_terms: list[str]) -> None:
 
                 page_applied_count = 0
 
-                # Find all job listings in current page
-                buffer(2)
-                job_listings = driver.find_elements(By.XPATH, "//li[@data-occludable-job-id]")  
+                if not job_listings:
+                    print_lg(f"No job cards found on page {current_page} for '{searchTerm}'.")
+                    break  
 
             
                 for job in job_listings:
@@ -2328,10 +2816,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                         try: 
                             try:
                                 errored = ""
-                                modal = find_by_class(driver, "jobs-easy-apply-modal")
-                                wait_span_click(modal, "Next", 1)
-                                # if description != "Unknown":
-                                #     resume = create_custom_resume(description)
+                                modal = find_easy_apply_modal(driver, timeout=6.0)
                                 resume = "Previous resume"
                                 next_button = True
                                 questions_list = set()
@@ -2350,10 +2835,36 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                         raise Exception("Seems like stuck in a continuous loop of next, probably because of new questions.")
                                     questions_list = answer_questions(modal, questions_list, work_location, job_description=description)
                                     if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
-                                    try: next_button = modal.find_element(By.XPATH, './/span[normalize-space(.)="Review"]') 
-                                    except NoSuchElementException:  next_button = modal.find_element(By.XPATH, './/button[contains(span, "Next")]')
-                                    try: next_button.click()
-                                    except ElementClickInterceptedException: break    # Happens when it tries to click Next button in About Company photos section
+                                    next_button = None
+                                    for next_sel in [
+                                        './/button[contains(@aria-label, "Review") or normalize-space(.)="Review" or contains(normalize-space(.), "Review")]',
+                                        './/button[contains(@aria-label, "Continue to next step") or contains(@aria-label, "next step") or normalize-space(.)="Next" or contains(normalize-space(.), "Next")]',
+                                        './/span[normalize-space(.)="Review"]/ancestor::button',
+                                        './/span[normalize-space(.)="Next"]/ancestor::button',
+                                        './/button[contains(span, "Next")]',
+                                    ]:
+                                        try:
+                                            btn = modal.find_element(By.XPATH, next_sel)
+                                            if btn and btn.is_displayed():
+                                                next_button = btn
+                                                break
+                                        except NoSuchElementException:
+                                            continue
+
+                                    if not next_button:
+                                        # Check if Submit button is already visible on the current page
+                                        try:
+                                            sub_chk = modal.find_element(By.XPATH, './/button[contains(@aria-label, "Submit application") or normalize-space(.)="Submit application" or contains(normalize-space(.), "Submit application")]')
+                                            if sub_chk and sub_chk.is_displayed():
+                                                break
+                                        except NoSuchElementException:
+                                            pass
+                                        break
+
+                                    try:
+                                        next_button.click()
+                                    except Exception:
+                                        driver.execute_script("arguments[0].click();", next_button)
                                     buffer(click_gap)
 
                             except NoSuchElementException: errored = "nose"
@@ -2361,15 +2872,47 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                 if questions_list and errored != "stuck": 
                                     print_lg("Answered the following questions...", questions_list)
                                     print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
-                                wait_span_click(driver, "Review", 1, scrollTop=True)
+                                for rev_sel in [
+                                    './/button[contains(@aria-label, "Review") or normalize-space(.)="Review" or contains(normalize-space(.), "Review")]',
+                                    './/span[normalize-space(.)="Review"]/ancestor::button',
+                                ]:
+                                    try:
+                                        r_btn = driver.find_element(By.XPATH, rev_sel)
+                                        if r_btn and r_btn.is_displayed():
+                                            try:
+                                                r_btn.click()
+                                            except Exception:
+                                                driver.execute_script("arguments[0].click();", r_btn)
+                                            sleep(1)
+                                            break
+                                    except Exception:
+                                        continue
                                 cur_pause_before_submit = pause_before_submit
                                 if errored != "stuck" and cur_pause_before_submit:
                                     decision = show_modern_confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information",["Disable Pause", "Discard Application", "Submit Application"])
                                     if decision == "Discard Application": raise Exception("Job application discarded by user!")
                                     pause_before_submit = False if "Disable Pause" == decision else True
-                                    # try_xp(modal, ".//span[normalize-space(.)='Review']")
                                 follow_company(modal)
-                                if wait_span_click(driver, "Submit application", 2, scrollTop=True): 
+                                submitted = False
+                                for sub_sel in [
+                                    './/button[contains(@aria-label, "Submit application") or normalize-space(.)="Submit application" or contains(normalize-space(.), "Submit application")]',
+                                    './/button[contains(., "Submit application") or contains(., "Submit")]',
+                                    './/span[normalize-space(.)="Submit application"]/ancestor::button',
+                                ]:
+                                    try:
+                                        s_btn = driver.find_element(By.XPATH, sub_sel)
+                                        if s_btn and s_btn.is_displayed():
+                                            try:
+                                                s_btn.click()
+                                            except Exception:
+                                                driver.execute_script("arguments[0].click();", s_btn)
+                                            submitted = True
+                                            break
+                                    except Exception:
+                                        continue
+                                if not submitted:
+                                    submitted = bool(wait_span_click(driver, "Submit application", 2, scrollTop=True))
+                                if submitted: 
                                     date_applied = datetime.now()
                                     sleep(1)
                                     dismiss_post_apply_modal(driver, timeout=6.0)
@@ -2379,9 +2922,7 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                                     dismiss_post_apply_modal(driver, timeout=6.0)
                                 else:
                                     print_lg("Since, Submit Application failed, discarding the job application...")
-                                    # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
-                                    # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    if errored == "nose": raise Exception("Failed to click Submit application 😑")
+                                    if errored == "nose": raise Exception("Failed to click Submit application")
 
 
                         except Exception as e:
@@ -2512,12 +3053,15 @@ linkedIn_tab = False
 def main() -> None:
     total_runs = 1
     try:
-        global linkedIn_tab, tabs_count, useNewResume, aiClient
+        global linkedIn_tab, tabs_count, useNewResume, aiClient, driver, options, actions, wait
         alert_title = "Error Occurred. Closing Browser!"
         validate_config()
         
         if not os.path.exists(default_resume_path):
             show_modern_alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
+        if driver is None:
+            from modules.open_chrome import get_chrome_session
+            options, driver, actions, wait = get_chrome_session()
         if driver is None:
             print_lg("[CRITICAL] Chrome driver was not initialized. Aborting automation.")
             show_modern_alert(

@@ -151,3 +151,57 @@ class ProcessManager:
                     pass
         except Exception as exc:
             logger.debug("Notice during safe_terminate_process: %s", exc)
+
+    @classmethod
+    def suspend_process(cls, pid: int) -> bool:
+        """Suspends/pauses process execution cooperatively across platforms.
+
+        On POSIX: Uses signal.SIGSTOP.
+        On Windows: Uses kernel32 DebugActiveProcess or silently fails gracefully if unsupported.
+        """
+        if not cls.is_pid_alive(pid):
+            return False
+
+        if sys.platform == "win32" or os.name == "nt":
+            try:
+                import ctypes
+                return bool(ctypes.windll.kernel32.DebugActiveProcess(pid))
+            except Exception as exc:
+                logger.debug("Windows process suspension not available for PID %s: %s", pid, exc)
+                return False
+
+        # POSIX (Linux / macOS)
+        try:
+            if hasattr(signal, "SIGSTOP") and hasattr(os, "kill"):
+                os.kill(pid, signal.SIGSTOP)
+                return True
+        except Exception as exc:
+            logger.debug("Failed sending SIGSTOP to PID %s: %s", pid, exc)
+        return False
+
+    @classmethod
+    def resume_process(cls, pid: int) -> bool:
+        """Resumes a suspended process across platforms.
+
+        On POSIX: Uses signal.SIGCONT.
+        On Windows: Uses kernel32 DebugActiveProcessStop.
+        """
+        if not cls.is_pid_alive(pid):
+            return False
+
+        if sys.platform == "win32" or os.name == "nt":
+            try:
+                import ctypes
+                return bool(ctypes.windll.kernel32.DebugActiveProcessStop(pid))
+            except Exception as exc:
+                logger.debug("Windows process resume not available for PID %s: %s", pid, exc)
+                return False
+
+        # POSIX (Linux / macOS)
+        try:
+            if hasattr(signal, "SIGCONT") and hasattr(os, "kill"):
+                os.kill(pid, signal.SIGCONT)
+                return True
+        except Exception as exc:
+            logger.debug("Failed sending SIGCONT to PID %s: %s", pid, exc)
+        return False

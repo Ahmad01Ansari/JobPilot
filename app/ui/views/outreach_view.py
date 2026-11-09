@@ -187,7 +187,8 @@ class OutreachComposerDialog(QDialog):
         self._send_worker: Optional[OutreachSendWorker] = None
 
         self.setWindowTitle("Direct Recruiter Outreach")
-        self.setFixedSize(760, 800)
+        self.setMinimumSize(700, 680)
+        self.resize(780, 800)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {COLORS['surface']};

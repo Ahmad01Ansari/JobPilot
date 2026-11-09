@@ -331,3 +331,21 @@ def validate_glassdoor_config() -> bool:
 
     return True
 
+
+def get_workday_credentials() -> Dict[str, Optional[str]]:
+    """Returns Workday credentials (username, password) dynamically from SecretsService or profile config."""
+    try:
+        from app.services.secrets_service import SecretsService
+        user, pwd = SecretsService().get_platform_credentials("workday")
+        if user or pwd:
+            return {"username": user, "password": pwd}
+    except Exception:
+        pass
+
+    plat = get_platform("workday")
+    email = get_personal().get("email", "")
+    return {
+        "username": plat.get("username") or email,
+        "password": plat.get("password") or None,
+    }
+

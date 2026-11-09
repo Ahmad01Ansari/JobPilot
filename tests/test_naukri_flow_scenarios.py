@@ -363,6 +363,44 @@ class TestNaukriFlowScenarios(unittest.TestCase):
         except Exception:
             pass
 
+    def test_apply_to_job_restores_window_when_current_window_handle_raises_error(self):
+        """Verifies that if current_window_handle raises NoSuchWindowException in finally, search window is still restored."""
+        from selenium.common.exceptions import NoSuchWindowException
+        applier = NaukriApplier(browser=self.mock_browser)
+        applier.tracker = MagicMock()
+        applier.flow_detector.is_already_applied = MagicMock(return_value=False)
+
+        apply_btn = MagicMock()
+        apply_btn.is_displayed.return_value = True
+        apply_btn.is_enabled.return_value = True
+        apply_btn.text = "Apply"
+        apply_btn.get_attribute.return_value = ""
+        applier.flow_detector.find_apply_button = MagicMock(return_value=apply_btn)
+        applier.flow_detector.detect_flow_after_click = MagicMock(return_value=("DIRECT", "1-click apply confirmed"))
+        applier.submitter.find_submit_button = MagicMock(return_value=None)
+        applier.submitter.verify_submission = MagicMock(return_value=(True, "Application submitted"))
+
+        self.mock_driver.window_handles = ["search_win_0", "detail_tab_1"]
+        # Calls during setup and flow return "search_win_0"; call in finally throws NoSuchWindowException
+        call_count = 0
+        def get_current_window_handle(drv_self):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return "search_win_0"
+            raise NoSuchWindowException("target window already closed")
+
+        type(self.mock_driver).current_window_handle = property(get_current_window_handle)
+
+        try:
+            res = applier.apply_to_job(self.mock_job)
+            self.assertEqual(res["status"], "SUBMITTED")
+            # Must have called switch_to.window("search_win_0")
+            self.mock_driver.switch_to.window.assert_called_with("search_win_0")
+        finally:
+            # Restore normal current_window_handle property
+            del type(self.mock_driver).current_window_handle
+
 
 if __name__ == "__main__":
     unittest.main()

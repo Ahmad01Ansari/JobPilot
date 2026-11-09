@@ -52,7 +52,8 @@ class JobPickerModal(QDialog):
         self._jobs_page: List[Job] = []
 
         self.setWindowTitle("Select Tracked Job Opportunity")
-        self.setFixedSize(820, 580)
+        self.setMinimumSize(780, 520)
+        self.resize(840, 600)
         self.setModal(True)
 
         self._search_timer = QTimer(self)

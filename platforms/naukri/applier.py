@@ -204,17 +204,24 @@ class NaukriFlowDetector:
                 finally:
                     # Close the spawned external window so background tabs don't accumulate
                     try:
-                        curr_handle = getattr(self.driver, "current_window_handle", None)
+                        curr_handle = None
+                        try:
+                            curr_handle = self.driver.current_window_handle
+                        except Exception:
+                            curr_handle = None
                         if curr_handle == new_window:
                             self.driver.close()
                     except Exception:
                         pass
                     # Switch back to the active job tab
                     try:
-                        if target_tab and target_tab in getattr(self.driver, "window_handles", []):
+                        handles_now = list(getattr(self.driver, "window_handles", []))
+                        if target_tab and target_tab in handles_now:
                             self.driver.switch_to.window(target_tab)
-                        elif initial_windows:
+                        elif initial_windows and initial_windows[-1] in handles_now:
                             self.driver.switch_to.window(initial_windows[-1])
+                        elif handles_now:
+                            self.driver.switch_to.window(handles_now[0])
                     except Exception:
                         pass
 
@@ -619,10 +626,13 @@ class NaukriApplier:
                             pass
                         # Switch back to the original Naukri tab
                         try:
-                            if active_handle and active_handle in getattr(self.driver, "window_handles", []):
+                            handles_now = list(getattr(self.driver, "window_handles", []))
+                            if active_handle and active_handle in handles_now:
                                 self.driver.switch_to.window(active_handle)
-                            elif handles_before:
+                            elif handles_before and handles_before[0] in handles_now:
                                 self.driver.switch_to.window(handles_before[0])
+                            elif handles_now:
+                                self.driver.switch_to.window(handles_now[0])
                         except Exception:
                             pass
                     break
@@ -1125,15 +1135,27 @@ class NaukriApplier:
                 try:
                     handles = list(getattr(self.driver, "window_handles", []))
                     if search_window in handles:
-                        curr = getattr(self.driver, "current_window_handle", None)
+                        curr = None
+                        try:
+                            curr = self.driver.current_window_handle
+                        except Exception:
+                            curr = None
+
                         if curr and curr != search_window:
                             try:
                                 self.driver.close()
                             except Exception:
                                 pass
-                        self.driver.switch_to.window(search_window)
+                        # Ensure we always switch back to search_window
+                        try:
+                            self.driver.switch_to.window(search_window)
+                        except Exception as sw_err:
+                            print_lg(f"[NaukriApplier] Notice switching to search window: {sw_err}")
                     elif handles:
-                        self.driver.switch_to.window(handles[0])
+                        try:
+                            self.driver.switch_to.window(handles[0])
+                        except Exception:
+                            pass
                 except Exception as tab_err:
                     print_lg(f"[NaukriApplier] Notice restoring search window: {tab_err}")
 

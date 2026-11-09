@@ -54,6 +54,39 @@ class LinkedInPlatform(BasePlatformApplier):
         if self.browser:
             from platforms.linkedin.applier import LinkedInApplier
             from platforms.linkedin.rotator import LinkedInRotator
+            ln_cfg = self.platform_config or {}
+            search_terms = ln_cfg.get("search_terms")
+            search_location = ln_cfg.get("search_location") or ln_cfg.get("default_location")
+            easy_apply_only = ln_cfg.get("easy_apply_only", True)
+            if "apply_mode" in ln_cfg:
+                easy_apply_only = (ln_cfg.get("apply_mode") == "EASY_APPLY_ONLY")
+            date_posted = ln_cfg.get("date_posted")
+            distance = ln_cfg.get("distance")
+            sort_by = ln_cfg.get("sort_by")
+            experience_level = ln_cfg.get("experience_level")
+            on_site = ln_cfg.get("on_site")
+            max_pages = ln_cfg.get("max_pages_per_search", 5)
+            consecutive_skips = ln_cfg.get("consecutive_skips_limit", 25)
+
+            if not search_terms:
+                try:
+                    import config.search as sc
+                    search_terms = getattr(sc, "search_terms", None)
+                    if not search_location:
+                        search_location = getattr(sc, "search_location", None)
+                    if date_posted is None:
+                        date_posted = getattr(sc, "date_posted", None)
+                    if distance is None:
+                        distance = getattr(sc, "distance", None)
+                    if sort_by is None:
+                        sort_by = getattr(sc, "sort_by", None)
+                    if not experience_level:
+                        experience_level = getattr(sc, "experience_level", None)
+                    if not on_site:
+                        on_site = getattr(sc, "on_site", None)
+                except Exception:
+                    pass
+
             self.applier = LinkedInApplier(
                 browser=self.browser,
                 tracker=self.tracker,
@@ -65,89 +98,77 @@ class LinkedInPlatform(BasePlatformApplier):
                 tracker=self.tracker,
                 applier=self.applier,
                 automation_bridge=self.automation_bridge,
+                search_terms=search_terms,
+                search_location=search_location,
+                easy_apply_only=easy_apply_only,
+                date_posted=date_posted,
+                distance=distance,
+                sort_by=sort_by,
+                experience_level=experience_level,
+                on_site=on_site,
+                max_pages_per_term=max_pages,
+                consecutive_skips_limit=consecutive_skips,
                 user_id=self.user_id,
             )
 
-    def login(self, stop_check: Optional[Callable[[], bool]] = None) -> bool:
-        """LinkedIn authentication verification and login flow."""
+    def login(self) -> bool:
+        """LinkedIn authentication verification with session check, credential login, and manual intervention."""
         if not self.browser:
             self.initialize()
         elif not getattr(self.browser, "driver", None):
             self.browser.start()
-        if self.browser and getattr(self.browser, "driver", None):
-            from platforms.linkedin.selectors import HOME_URL, LOGIN_URL
-            print_lg("[LinkedInPlatform] Navigating to LinkedIn to verify session...")
-            self.browser.navigate(HOME_URL)
-            time.sleep(2)
-            if self.browser.is_logged_in():
-                print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+
+        if not (self.browser and getattr(self.browser, "driver", None)):
+            return False
+
+        from platforms.linkedin.selectors import HOME_URL
+        print_lg("[LinkedInPlatform] Navigating to LinkedIn feed to verify active session...")
+        self.browser.navigate(HOME_URL)
+        time.sleep(2)
+
+        if self.browser.is_logged_in():
+            print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+            return True
+
+        # Attempt credentials from secrets.py or environment
+        user = None
+        pwd = None
+        try:
+            import config.secrets as secrets
+            user = getattr(secrets, "username", None) or os.environ.get("LINKEDIN_USERNAME")
+            pwd = getattr(secrets, "password", None) or os.environ.get("LINKEDIN_PASSWORD")
+        except Exception:
+            user = os.environ.get("LINKEDIN_USERNAME")
+            pwd = os.environ.get("LINKEDIN_PASSWORD")
+
+        is_placeholder = (
+            not user
+            or not pwd
+            or "example.com" in str(user).lower()
+            or "example_password" in str(pwd).lower()
+        )
+
+        if not is_placeholder:
+            print_lg("[LinkedInPlatform] Attempting login with configured credentials...")
+            success, msg = self.browser.login(user, pwd)
+            if success and self.browser.is_logged_in():
+                print_lg("[LinkedInPlatform] Login successful and authenticated session verified.")
                 return True
+            print_lg(f"[LinkedInPlatform] Automated login notice: {msg}")
 
-            print_lg("[LinkedInPlatform] Session not authenticated. Navigating to login page...")
-            self.browser.navigate(LOGIN_URL)
-            time.sleep(2)
+        # Check if login succeeded after redirect or cookies
+        if self.browser.is_logged_in():
+            print_lg("[LinkedInPlatform] Active authenticated session confirmed.")
+            return True
 
-            # Attempt credential entry if configured
-            try:
-                from config.secrets import get_linkedin_credentials
-                eff_username, eff_password = get_linkedin_credentials()
-            except Exception:
-                try:
-                    import config.secrets as secrets
-                    eff_username = getattr(secrets, "username", None) or os.environ.get("LINKEDIN_USERNAME")
-                    eff_password = getattr(secrets, "password", None) or os.environ.get("LINKEDIN_PASSWORD")
-                except Exception:
-                    eff_username, eff_password = None, None
+        # Fallback to manual authentication gate
+        print_lg("[LinkedInPlatform] Awaiting manual login/OTP in the open Chrome browser window...")
+        if self.browser.ensure_authenticated(max_wait_seconds=180):
+            print_lg("[LinkedInPlatform] Authentication confirmed! Proceeding with session.")
+            return True
 
-            if (
-                eff_username
-                and eff_password
-                and eff_username != "username@example.com"
-                and eff_password != "CHANGE_ME_TO_YOUR_LINKEDIN_PASSWORD"
-            ):
-                try:
-                    driver = self.browser.driver
-                    from selenium.webdriver.common.by import By
-                    for user_sel in ["#username", "#session_key", "input[name='session_key']", "input[type='email']"]:
-                        try:
-                            uf = driver.find_element(By.CSS_SELECTOR, user_sel)
-                            if uf.is_displayed():
-                                uf.clear()
-                                uf.send_keys(eff_username)
-                                time.sleep(0.5)
-                                break
-                        except Exception:
-                            pass
-
-                    for pwd_sel in ["#password", "#session_password", "input[name='session_password']", "input[type='password']"]:
-                        try:
-                            pf = driver.find_element(By.CSS_SELECTOR, pwd_sel)
-                            if pf.is_displayed():
-                                pf.clear()
-                                pf.send_keys(eff_password)
-                                time.sleep(0.5)
-                                break
-                        except Exception:
-                            pass
-
-                    for sub_xp in [
-                        '//button[@type="submit"]',
-                        '//button[contains(@class, "btn__primary")]',
-                        '//button[@data-litms-control-urn="login-submit"]',
-                    ]:
-                        try:
-                            btn = driver.find_element(By.XPATH, sub_xp)
-                            if btn.is_displayed():
-                                driver.execute_script("arguments[0].click();", btn)
-                                time.sleep(3)
-                                break
-                        except Exception:
-                            pass
-                except Exception as e:
-                    print_lg(f"[LinkedInPlatform] Automated credential submission notice: {e}")
-
-            return self.browser.ensure_authenticated(max_wait_seconds=180, stop_check=stop_check)
-        return True
+        print_lg("[LinkedInPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
+        return False
 
     def search_and_apply(
         self,
@@ -423,21 +444,21 @@ class LinkedInPlatform(BasePlatformApplier):
 
     def pause(self) -> None:
         """Freezes subprocess execution on cooperative pause."""
-        if getattr(self, "_active_proc", None) and hasattr(os, "kill"):
+        if getattr(self, "_active_proc", None):
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGSTOP)
-                print_lg("[LinkedInPlatform] Subprocess paused via SIGSTOP.")
+                from app.services.os.process_manager import ProcessManager
+                if ProcessManager.suspend_process(self._active_proc.pid):
+                    print_lg("[LinkedInPlatform] Subprocess paused.")
             except Exception as e:
                 print_lg(f"[LinkedInPlatform] Notice pausing subprocess: {e}")
 
     def resume(self) -> None:
         """Resumes subprocess execution from cooperative pause."""
-        if getattr(self, "_active_proc", None) and hasattr(os, "kill"):
+        if getattr(self, "_active_proc", None):
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGCONT)
-                print_lg("[LinkedInPlatform] Subprocess resumed via SIGCONT.")
+                from app.services.os.process_manager import ProcessManager
+                if ProcessManager.resume_process(self._active_proc.pid):
+                    print_lg("[LinkedInPlatform] Subprocess resumed.")
             except Exception as e:
                 print_lg(f"[LinkedInPlatform] Notice resuming subprocess: {e}")
 
@@ -618,6 +639,11 @@ class NaukriPlatform(BasePlatformApplier):
                 accumulated_stats["consecutive_skips_triggered"] += stats.consecutive_skips_triggered
 
             if not run_non_stop:
+                break
+
+            # Fast check if browser session was closed before sleeping
+            if self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive():
+                print_lg("[NaukriPlatform] Browser session is closed or disconnected. Halting non-stop rotation.")
                 break
 
             goal = getattr(self.config, "daily_application_goal", None)
@@ -894,8 +920,12 @@ class FounditPlatform(BasePlatformApplier):
         if not self.browser:
             self.initialize()
 
-        from platforms.foundit.selectors import HOME_URL
-        self.browser.navigate(HOME_URL)
+        if self.browser.is_logged_in():
+            print_lg("[FounditPlatform] Active authenticated session confirmed.")
+            return True
+
+        from platforms.foundit.selectors import LOGIN_URL
+        self.browser.navigate(LOGIN_URL)
         time.sleep(2)
         self.browser.dismiss_unexpected_popups()
 
@@ -906,11 +936,21 @@ class FounditPlatform(BasePlatformApplier):
         from platforms.foundit.auth import FounditAuth
         auth = FounditAuth(self.browser)
         success, msg = auth.login()
-        if success:
+        if success and self.browser.is_logged_in():
             print_lg(f"[FounditPlatform] {msg}")
             return True
 
+        if self.browser.is_logged_in():
+            print_lg("[FounditPlatform] Active authenticated session confirmed.")
+            return True
+
         print_lg(f"[FounditPlatform] Authentication notice: {msg}")
+        print_lg("[FounditPlatform] Awaiting manual login/OTP/CAPTCHA in the open Chrome browser window...")
+        if self.browser.ensure_authenticated(max_wait_seconds=180):
+            print_lg("[FounditPlatform] Authentication confirmed! Proceeding with session.")
+            return True
+
+        print_lg("[FounditPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
         return False
 
     def search_and_apply(
@@ -1209,6 +1249,17 @@ class UniversalPlatform(BasePlatformApplier):
                 else:
                     orch.confirm_submission("Auto-confirmed by CLI non-interactive execution.")
 
+            if not self.candidate_context.get("workday_password"):
+                try:
+                    from modules.config_loader import get_workday_credentials
+                    wd = get_workday_credentials()
+                    if wd.get("username"):
+                        self.candidate_context.setdefault("workday_username", wd["username"])
+                    if wd.get("password"):
+                        self.candidate_context.setdefault("workday_password", wd["password"])
+                except Exception:
+                    pass
+
             orch = self.orchestrator or UniversalApplicationOrchestrator(
                 candidate_context=self.candidate_context,
                 on_review_requested=_cli_on_review,
@@ -1497,10 +1548,10 @@ class PlatformRouter:
 
     def pause(self) -> None:
         """Freezes subprocess execution on cooperative pause."""
-        if hasattr(self, "_active_proc") and self._active_proc and hasattr(os, "kill"):
+        if hasattr(self, "_active_proc") and self._active_proc:
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGSTOP)
+                from app.services.os.process_manager import ProcessManager
+                ProcessManager.suspend_process(self._active_proc.pid)
             except Exception as e:
                 print_lg(f"[PlatformRouter] Notice pausing subprocess: {e}")
         if hasattr(self, "linkedin_platform") and self.linkedin_platform:
@@ -1512,10 +1563,10 @@ class PlatformRouter:
 
     def resume(self) -> None:
         """Resumes subprocess execution from cooperative pause."""
-        if hasattr(self, "_active_proc") and self._active_proc and hasattr(os, "kill"):
+        if hasattr(self, "_active_proc") and self._active_proc:
             try:
-                import signal
-                os.kill(self._active_proc.pid, signal.SIGCONT)
+                from app.services.os.process_manager import ProcessManager
+                ProcessManager.resume_process(self._active_proc.pid)
             except Exception as e:
                 print_lg(f"[PlatformRouter] Notice resuming subprocess: {e}")
         if hasattr(self, "linkedin_platform") and self.linkedin_platform:

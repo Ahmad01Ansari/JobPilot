@@ -63,6 +63,77 @@ class TestPlatformAndSettingsServices(unittest.TestCase):
         re_seeded = self.platform_service.seed_default_platforms()
         self.assertEqual(len(re_seeded), 6)
 
+    def test_get_account_resilience_to_duplicate_rows(self):
+        """Verifies get_account safely handles multiple existing account rows without raising MultipleResultsFound."""
+        from sqlalchemy import text, create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.repositories.platform_repository import PlatformRepository
+        from app.db.session import ensure_sqlite_schema
+
+        # Use an isolated engine without table-level constraints to simulate a legacy SQLite file
+        legacy_engine = create_engine("sqlite:///:memory:", future=True)
+        with legacy_engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE platforms (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(50) NOT NULL,
+                    display_name VARCHAR(100) NOT NULL,
+                    is_enabled BOOLEAN NOT NULL DEFAULT 1,
+                    description VARCHAR(255),
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE platform_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    platform_id INTEGER NOT NULL,
+                    account_name VARCHAR(100) NOT NULL,
+                    auth_mode VARCHAR(50) DEFAULT 'persistent_profile',
+                    status VARCHAR(50) DEFAULT 'READY',
+                    last_run_at DATETIME,
+                    default_location VARCHAR(255),
+                    experience_years INTEGER,
+                    max_applications INTEGER DEFAULT 30,
+                    daily_application_goal INTEGER DEFAULT 50,
+                    apply_mode VARCHAR(50) DEFAULT 'EASY_APPLY_ONLY',
+                    pause_before_submit BOOLEAN DEFAULT 1,
+                    stealth_mode BOOLEAN DEFAULT 1,
+                    safe_mode BOOLEAN DEFAULT 1,
+                    extra_settings TEXT,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("INSERT INTO platforms (id, name, display_name, is_enabled) VALUES (1, 'linkedin', 'LinkedIn', 1)"))
+            # Insert duplicate accounts for the same platform & account name (as produced in dirty installations)
+            conn.execute(text("""
+                INSERT INTO platform_accounts (id, platform_id, account_name, auth_mode, status, max_applications, daily_application_goal, apply_mode, pause_before_submit, stealth_mode, safe_mode)
+                VALUES (1, 1, 'Default Profile', 'persistent_profile', 'READY', 30, 50, 'EASY_APPLY_ONLY', 1, 1, 1)
+            """))
+            conn.execute(text("""
+                INSERT INTO platform_accounts (id, platform_id, account_name, auth_mode, status, max_applications, daily_application_goal, apply_mode, pause_before_submit, stealth_mode, safe_mode)
+                VALUES (2, 1, 'Default Profile', 'persistent_profile', 'READY', 30, 50, 'EASY_APPLY_ONLY', 1, 1, 1)
+            """))
+            conn.commit()
+
+        LegacySession = sessionmaker(bind=legacy_engine, expire_on_commit=False, future=True)
+
+        # 1. get_account should safely return the first row without throwing MultipleResultsFound
+        with LegacySession() as session:
+            repo = PlatformRepository(session)
+            acc = repo.get_account("linkedin")
+            self.assertIsNotNone(acc)
+            self.assertEqual(acc.account_name, "Default Profile")
+            self.assertEqual(acc.id, 1)
+
+        # 2. ensure_sqlite_schema should clean up duplicate rows and enforce unique index
+        ensure_sqlite_schema(legacy_engine)
+        with legacy_engine.connect() as conn:
+            cnt = conn.execute(text("SELECT COUNT(*) FROM platform_accounts WHERE platform_id = 1")).scalar()
+            self.assertEqual(cnt, 1)
+        legacy_engine.dispose()
+
     def test_toggle_platform(self):
         """Verifies platform enable/disable toggling."""
         self.platform_service.seed_default_platforms()
