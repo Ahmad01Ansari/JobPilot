@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [Unreleased] — 2026-11-09
 
 ### Added
 - **Automatic Virtual Environment Bootstrapping**: Added seamless `.venv` auto-detection in `run_desktop.py`, ensuring that invoking the application via system Python automatically re-executes inside the local project virtual environment without manual interpreter activation.
