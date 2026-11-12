@@ -508,7 +508,7 @@ class JobsView(QWidget):
         )
         self.table.clear_checked_jobs()
         self.refresh()
-        self.data_updated.emit("jobs")
+        self.data_updated.emit("pipeline")
 
     def _on_bulk_mark_skipped(self) -> None:
         jobs = self.table.get_checked_jobs()
@@ -531,7 +531,7 @@ class JobsView(QWidget):
         )
         self.table.clear_checked_jobs()
         self.refresh()
-        self.data_updated.emit("jobs")
+        self.data_updated.emit("pipeline")
 
     def _on_bulk_open_urls(self) -> None:
         jobs = self.table.get_checked_jobs()
@@ -572,7 +572,7 @@ class JobsView(QWidget):
         )
         self.table.clear_checked_jobs()
         self.refresh()
-        self.data_updated.emit("jobs")
+        self.data_updated.emit("pipeline")
 
     def _on_restore_jobs_junk(self, jobs: List[Job]) -> None:
         if not jobs:
@@ -588,7 +588,7 @@ class JobsView(QWidget):
         )
         self.table.clear_checked_jobs()
         self.refresh()
-        self.data_updated.emit("jobs")
+        self.data_updated.emit("pipeline")
 
     def _on_bulk_mark_junk(self) -> None:
         jobs = self.table.get_checked_jobs()
@@ -794,19 +794,21 @@ class JobsView(QWidget):
         in_pipeline = False
         app_status = "NOT_APPLIED"
         try:
+            from app.repositories.validators import normalize_display_status
             if hasattr(job, "applications") and job.applications:
-                app_status = job.applications[0].status
+                app_status = normalize_display_status(job.applications[0].status)
                 in_pipeline = app_status not in ("NOT_APPLIED", "JUNK")
             else:
                 app = self.app_service.get_by_job_id(job.id)
                 if app:
-                    app_status = app.status
+                    app_status = normalize_display_status(app.status)
                     in_pipeline = app_status not in ("NOT_APPLIED", "JUNK")
         except Exception:
             try:
+                from app.repositories.validators import normalize_display_status
                 app = self.app_service.get_by_job_id(job.id)
                 if app:
-                    app_status = app.status
+                    app_status = normalize_display_status(app.status)
                     in_pipeline = app_status not in ("NOT_APPLIED", "JUNK")
             except Exception:
                 in_pipeline = False
@@ -918,7 +920,7 @@ class JobsView(QWidget):
             )
             self.refresh()
             self._on_job_selected(job)
-            self.data_updated.emit("jobs")
+            self.data_updated.emit("pipeline")
         else:
             self.notification_bar.show_message("danger", f"Failed to track: {err}")
 
@@ -990,9 +992,6 @@ class JobsView(QWidget):
         selected_job = self.table.get_selected_job()
         if selected_job:
             self._on_job_selected(selected_job)
-        self.data_updated.emit("jobs")
-        self.data_updated.emit("applications")
-        self.data_updated.emit("interviews")
         self.data_updated.emit("pipeline")
 
     def _on_refresh_clicked(self) -> None:
@@ -1067,10 +1066,11 @@ class JobsView(QWidget):
                     "Listing URL",
                     "Discovered Date",
                 ])
+                from app.repositories.validators import normalize_display_status
                 for j in all_matching_jobs:
                     app_status = "NOT_APPLIED"
                     if hasattr(j, "applications") and j.applications:
-                        app_status = j.applications[0].status
+                        app_status = normalize_display_status(j.applications[0].status)
                     writer.writerow([
                         j.title,
                         j.company_raw,

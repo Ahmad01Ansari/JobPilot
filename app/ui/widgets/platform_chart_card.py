@@ -30,6 +30,7 @@ PLATFORM_COLORS = {
     "indeed": "#8B5CF6",   # Purple
     "foundit": "#6E00BE",  # Foundit purple
     "glassdoor": "#0CAA41", # Glassdoor green
+    "universal": "#14B8A6", # Teal
     "manual": "#FF5F15",   # Safety orange
     "other": "#10B981",    # Emerald
 }

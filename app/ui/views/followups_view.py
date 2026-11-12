@@ -82,49 +82,49 @@ class AddFollowUpDialog(QDialog):
                 border-left: 1px solid {COLORS['border']};
             }}
             QComboBox QAbstractItemView {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 6px;
                 padding: 4px;
-                selection-background-color: #FF5F15;
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
                 min-height: 60px;
             }}
             QCalendarWidget {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
             }}
             QCalendarWidget QWidget#qt_calendar_navigationbar {{
-                background-color: #0F1117;
-                border-bottom: 1px solid #262C36;
+                background-color: {COLORS['background']};
+                border-bottom: 1px solid {COLORS['border']};
             }}
             QCalendarWidget QToolButton {{
-                color: #F0F6FC;
+                color: {COLORS['text']};
                 background-color: transparent;
                 border: none;
                 font-weight: bold;
                 padding: 4px;
             }}
             QCalendarWidget QToolButton:hover {{
-                background-color: #262C36;
+                background-color: {COLORS['surface_hover']};
                 border-radius: 4px;
             }}
             QCalendarWidget QMenu {{
-                background-color: #161B22;
-                color: #F0F6FC;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
             }}
             QCalendarWidget QSpinBox {{
-                background-color: #0F1117;
-                color: #F0F6FC;
+                background-color: {COLORS['background']};
+                color: {COLORS['text']};
             }}
             QCalendarWidget QTableView {{
-                background-color: #161B22;
-                selection-background-color: #FF5F15;
+                background-color: {COLORS['surface']};
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
-                alternate-background-color: #1F242C;
+                alternate-background-color: {COLORS['surface_alt']};
             }}
         """)
 
@@ -134,10 +134,10 @@ class AddFollowUpDialog(QDialog):
 
         # 1. Header Card
         hdr_card = QFrame()
-        hdr_card.setStyleSheet("""
+        hdr_card.setStyleSheet(f"""
             QFrame {{
-                background-color: #161B22;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 12px 14px;
             }}

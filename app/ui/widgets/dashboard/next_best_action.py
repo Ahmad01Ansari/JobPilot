@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from app.services.dto.dashboard_dto import NextBestActionDTO
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 from app.ui.widgets.status_badge import StatusBadge
 
 
@@ -25,6 +26,7 @@ class NextBestActionWidget(QFrame):
     """Prominent Hero Card guiding the candidate toward their single highest-leverage action."""
 
     action_triggered = Signal(str, dict)  # (action_type, payload)
+    see_all_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -43,8 +45,9 @@ class NextBestActionWidget(QFrame):
         top_bar = QHBoxLayout()
         top_bar.setSpacing(8)
 
-        lbl_star = QLabel("★")
-        lbl_star.setStyleSheet(f"color: {COLORS['primary']}; font-size: 13px; font-weight: 900; background: transparent; border: none;")
+        lbl_star = QLabel()
+        lbl_star.setPixmap(render_vector_pixmap("star", COLORS["primary"], 14))
+        lbl_star.setStyleSheet("background: transparent; border: none;")
         top_bar.addWidget(lbl_star)
 
         lbl_tag = QLabel("NEXT BEST ACTION")
@@ -66,6 +69,29 @@ class NextBestActionWidget(QFrame):
         top_bar.addWidget(self.action_category_lbl)
 
         top_bar.addStretch(1)
+
+        self.btn_see_all = QPushButton("See All Actions →")
+        self.btn_see_all.setCursor(Qt.PointingHandCursor)
+        self.btn_see_all.setToolTip("View and act on all upcoming interviews, follow-ups, manual checks, and opportunities")
+        self.btn_see_all.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface_alt']};
+                color: {COLORS['primary']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['surface_hover']};
+                border-color: {COLORS['primary']};
+                color: {COLORS['primary_hover']};
+            }}
+        """)
+        self.btn_see_all.clicked.connect(self.see_all_requested.emit)
+        top_bar.addWidget(self.btn_see_all)
+
         main_layout.addLayout(top_bar)
 
         # 2. Body Area (Horizontal: Content left, Action buttons right)
@@ -136,7 +162,7 @@ class NextBestActionWidget(QFrame):
         self.btn_more.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['surface_elevated']};
-                color: #FFFFFF;
+                color: {COLORS['text']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 6px;
                 padding: 0px;
@@ -189,6 +215,13 @@ class NextBestActionWidget(QFrame):
                 border-radius: 12px;
             }}
         """)
+
+    def set_total_actions_count(self, count: int) -> None:
+        """Updates the See All Actions button badge count."""
+        if count > 0:
+            self.btn_see_all.setText(f"See All Actions ({count}) →")
+        else:
+            self.btn_see_all.setText("See All Actions →")
 
     def set_action(self, action: Optional[NextBestActionDTO]) -> None:
         """Binds NextBestActionDTO to hero card. Uses DTO fields directly."""
@@ -293,14 +326,31 @@ class NextBestActionWidget(QFrame):
             }}
         """)
 
+        def _build_dismiss_payload():
+            aid = self._action.action_id or ""
+            payload = {
+                "item_id": aid,
+                "application_id": self._action.action_payload.get("application_id"),
+            }
+            if ":" in aid:
+                prefix, raw_id = aid.split(":", 1)
+                try:
+                    num_id = int(raw_id)
+                except ValueError:
+                    num_id = None
+                if prefix == "NBA_INTERVIEW" and num_id:
+                    payload["source_type"] = "interview"
+                    payload["source_id"] = num_id
+                elif prefix in ("NBA_OVERDUE_FU", "NBA_TODAY_FU") and num_id:
+                    payload["source_type"] = "followup"
+                    payload["source_id"] = num_id
+            return payload
+
         # Option 1: Mark Handled
         act_done = menu.addAction("✓ Mark as Done / Handled")
         act_done.triggered.connect(lambda: self.action_triggered.emit(
             "DISMISS_ITEM",
-            {
-                "item_id": self._action.action_id,
-                "application_id": self._action.action_payload.get("application_id"),
-            }
+            _build_dismiss_payload(),
         ))
 
         # Option 2: Change Status
@@ -332,10 +382,7 @@ class NextBestActionWidget(QFrame):
         act_dismiss = menu.addAction("🚫 Dismiss from Hero Card")
         act_dismiss.triggered.connect(lambda: self.action_triggered.emit(
             "DISMISS_ITEM",
-            {
-                "item_id": self._action.action_id,
-                "application_id": self._action.action_payload.get("application_id"),
-            }
+            _build_dismiss_payload(),
         ))
 
         menu.exec_(self.btn_more.mapToGlobal(QPoint(0, self.btn_more.height() + 2)))

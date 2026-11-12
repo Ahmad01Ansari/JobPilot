@@ -144,10 +144,24 @@ class PlatformMetricBarRow(QWidget):
         """)
         layout.addWidget(lbl_rate)
 
-        # 5. IV Pill if any
-        if m.interview_count > 0:
+        # 5. IV / Offer Pill if any
+        if m.offer_count > 0:
+            lbl_off = QLabel(f"{m.offer_count} Off")
+            lbl_off.setFixedWidth(40)
+            lbl_off.setAlignment(Qt.AlignCenter)
+            lbl_off.setStyleSheet(f"""
+                background-color: {COLORS.get('success', '#34D399')}25;
+                color: {COLORS.get('success', '#34D399')};
+                font-size: 10px;
+                font-weight: 800;
+                border-radius: 4px;
+                padding: 1px 4px;
+                border: 1px solid {COLORS.get('success', '#34D399')}50;
+            """)
+            layout.addWidget(lbl_off)
+        elif m.interview_count > 0:
             lbl_iv = QLabel(f"{m.interview_count} IV")
-            lbl_iv.setFixedWidth(36)
+            lbl_iv.setFixedWidth(40)
             lbl_iv.setAlignment(Qt.AlignCenter)
             lbl_iv.setStyleSheet(f"""
                 background-color: {COLORS.get('purple', '#A78BFA')}25;
@@ -161,7 +175,7 @@ class PlatformMetricBarRow(QWidget):
             layout.addWidget(lbl_iv)
         else:
             sp = QLabel("")
-            sp.setFixedWidth(36)
+            sp.setFixedWidth(40)
             layout.addWidget(sp)
 
 
@@ -323,7 +337,7 @@ class SearchPerformanceWidget(QFrame):
 
         # Stacked Visualizations (Bars vs Donut Share)
         self.stacked_charts = QStackedWidget()
-        self.stacked_charts.setFixedHeight(185)
+        self.stacked_charts.setMinimumHeight(210)
 
         # View 0: Horizontal Performance Bars
         self.bars_container_widget = QWidget()
@@ -394,8 +408,12 @@ class SearchPerformanceWidget(QFrame):
 
     def set_performance(self, perf: SearchPerformanceDTO) -> None:
         """Binds SearchPerformanceDTO to funnel bars and platform visual analytics."""
+        if perf.preset and self.active_preset != perf.preset:
+            self.active_preset = perf.preset
+            self._update_preset_styles()
+
         # 1. Update Funnel
-        baseline = max(1, perf.total_discovered)
+        baseline = max(1, perf.total_discovered, perf.total_applied)
         self.row_disc.set_data(perf.total_discovered, baseline)
         self.row_qual.set_data(perf.total_qualified, baseline)
         self.row_appl.set_data(perf.total_applied, baseline)

@@ -1,6 +1,6 @@
 import math
 from PySide6.QtCore import QRectF, Qt, QPointF
-from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen
+from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QPixmap, QIcon
 
 ICON_NAME_MAP = {
     "dashboard": "dashboard",
@@ -205,5 +205,75 @@ class SidebarIconPainter:
             path.lineTo(9, 10)
             path.lineTo(16, 5)
             painter.drawPath(path)
+        elif icon_name == "refresh":
+            path = QPainterPath()
+            path.arcMoveTo(QRectF(3, 3, 12, 12), 45)
+            path.arcTo(QRectF(3, 3, 12, 12), 45, 290)
+            painter.drawPath(path)
+            painter.drawPolyline([QPointF(12.2, 3.2), QPointF(14.5, 5.2), QPointF(11.8, 6.4)])
+        elif icon_name == "info":
+            painter.drawEllipse(QRectF(2, 2, 14, 14))
+            painter.drawLine(QPointF(9, 5.4), QPointF(9, 5.6))
+            painter.drawLine(QPointF(9, 8.2), QPointF(9, 12.8))
+        elif icon_name == "alert":
+            path = QPainterPath()
+            path.moveTo(9, 2.8)
+            path.lineTo(15.5, 14.8)
+            path.lineTo(2.5, 14.8)
+            path.closeSubpath()
+            painter.drawPath(path)
+            painter.drawLine(QPointF(9, 7.0), QPointF(9, 10.6))
+            painter.drawLine(QPointF(9, 12.6), QPointF(9, 12.8))
+        elif icon_name == "shield":
+            path = QPainterPath()
+            path.moveTo(9, 2.2)
+            path.lineTo(14.8, 4.6)
+            path.lineTo(14.8, 9.2)
+            path.quadTo(14.8, 13.4, 9, 15.8)
+            path.quadTo(3.2, 13.4, 3.2, 9.2)
+            path.lineTo(3.2, 4.6)
+            path.closeSubpath()
+            painter.drawPath(path)
+        elif icon_name == "star":
+            path = QPainterPath()
+            for i in range(10):
+                angle = math.radians(-90 + i * 36)
+                r = 6.8 if i % 2 == 0 else 3.0
+                pt = QPointF(9 + r * math.cos(angle), 9.2 + r * math.sin(angle))
+                if i == 0:
+                    path.moveTo(pt)
+                else:
+                    path.lineTo(pt)
+            path.closeSubpath()
+            painter.drawPath(path)
+        elif icon_name == "check":
+            path = QPainterPath()
+            path.moveTo(4, 9.5)
+            path.lineTo(7.5, 13)
+            path.lineTo(14, 5.5)
+            painter.drawPath(path)
+        elif icon_name == "location":
+            path = QPainterPath()
+            path.moveTo(9, 15.6)
+            path.quadTo(4.2, 10.6, 4.2, 7.2)
+            path.arcTo(QRectF(4.2, 2.4, 9.6, 9.6), 180, -180)
+            path.quadTo(13.8, 10.6, 9, 15.6)
+            painter.drawPath(path)
+            painter.drawEllipse(QRectF(7.4, 5.6, 3.2, 3.2))
 
         painter.restore()
+
+
+def render_vector_pixmap(icon_name: str, color_hex: str, size: int = 16) -> QPixmap:
+    """Renders a named vector glyph into a crisp transparent QPixmap."""
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    SidebarIconPainter.draw(painter, icon_name, QRectF(0, 0, size, size), QColor(color_hex))
+    painter.end()
+    return pix
+
+
+def render_vector_icon(icon_name: str, color_hex: str, size: int = 16) -> QIcon:
+    """Renders a named vector glyph into a QIcon suitable for buttons and tabs."""
+    return QIcon(render_vector_pixmap(icon_name, color_hex, size))

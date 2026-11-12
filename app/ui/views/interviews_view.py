@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -88,12 +89,12 @@ class ScheduleInterviewDialog(QDialog):
                 border-left: 1px solid {COLORS['border']};
             }}
             QComboBox QAbstractItemView {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 6px;
                 padding: 4px;
-                selection-background-color: #FF5F15;
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
                 min-height: 60px;
             }}
@@ -222,7 +223,7 @@ class InterviewFeedbackDialog(QDialog):
         company = job.company_raw if job else "Company"
         job_title = job.title if job else "Interview Round"
 
-        self.setWindowTitle(f"Interview Feedback — {company}")
+        self.setWindowTitle(f"Update Interview Round — {company}")
         self.setMinimumWidth(520)
         self.setStyleSheet(f"""
             QDialog {{
@@ -251,12 +252,12 @@ class InterviewFeedbackDialog(QDialog):
                 border-left: 1px solid {COLORS['border']};
             }}
             QComboBox QAbstractItemView {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 6px;
                 padding: 4px;
-                selection-background-color: #FF5F15;
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
                 min-height: 60px;
             }}
@@ -268,10 +269,10 @@ class InterviewFeedbackDialog(QDialog):
 
         # 1. Header Card with Round & Company Info
         hdr_card = QFrame()
-        hdr_card.setStyleSheet("""
+        hdr_card.setStyleSheet(f"""
             QFrame {{
-                background-color: #161B22;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 10px 14px;
             }}
@@ -281,7 +282,7 @@ class InterviewFeedbackDialog(QDialog):
         hdr_layout.setSpacing(4)
 
         top_row = QHBoxLayout()
-        lbl_meta = QLabel(f"🏢  {company}   •   🗓️  Round #{interview.round_number}")
+        lbl_meta = QLabel(f"{company}   •   Round #{interview.round_number}")
         lbl_meta.setStyleSheet("color: #FF7A3D; font-size: 12px; font-weight: 700; background: transparent; border: none;")
         top_row.addWidget(lbl_meta)
         top_row.addStretch()
@@ -328,21 +329,21 @@ class InterviewFeedbackDialog(QDialog):
         # Job Stage Transition Option
         current_stage = (app.status if app else "INTERVIEW").upper()
         self.cmb_job_stage = QComboBox()
-        self.cmb_job_stage.addItem(f"Keep Current ({current_stage.title()})", current_stage)
+        self.cmb_job_stage.addItem(f"Keep Current ({current_stage.replace('_', ' ').title()})", current_stage)
         for st_code, st_lbl in [
-            ("INTERVIEW", "🗓️ Interview Stage"),
-            ("OFFER", "🎉 Advance to Offer"),
-            ("REJECTED", "❌ Rejected / Closed"),
-            ("WITHDRAWN", "↩️ Withdrawn"),
-            ("UNDER_REVIEW", "⏳ Under Review"),
-            ("SUBMITTED", "📄 Submitted"),
+            ("INTERVIEW", "Interview (More Rounds)"),
+            ("ASSESSMENT", "Assessment"),
+            ("UNDER_REVIEW", "Under Review (Awaiting Decision)"),
+            ("OFFER", "Offer"),
+            ("REJECTED", "Rejected"),
+            ("WITHDRAWN", "Withdrawn"),
         ]:
             if st_code != current_stage:
                 self.cmb_job_stage.addItem(st_lbl, st_code)
-        form_layout.addRow("Job Stage", self.cmb_job_stage)
+        form_layout.addRow("Next Job Stage", self.cmb_job_stage)
 
         self.txt_feedback = QTextEdit()
-        self.txt_feedback.setPlaceholderText("Detailed round learnings, questions asked, technical topics covered, self-evaluation, next steps...")
+        self.txt_feedback.setPlaceholderText("Round notes, questions asked, topics covered, and next steps...")
         self.txt_feedback.setMinimumHeight(110)
         self.txt_feedback.setMaximumHeight(160)
         if interview.feedback:
@@ -351,7 +352,7 @@ class InterviewFeedbackDialog(QDialog):
 
         layout.addWidget(form_card)
 
-        lbl_hint = QLabel("💡 Recording feedback immediately keeps your recruitment log up to date and aids prep for subsequent rounds.")
+        lbl_hint = QLabel("Marking a round Completed moves it to History. Updating Job Stage moves the application across the pipeline.")
         lbl_hint.setStyleSheet("color: #8B949E; font-size: 11px; font-weight: 500;")
         lbl_hint.setWordWrap(True)
         layout.addWidget(lbl_hint)
@@ -380,7 +381,7 @@ class InterviewFeedbackDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_save = QPushButton("Save Feedback")
+        btn_save = QPushButton("Save & Update")
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setStyleSheet(f"""
             QPushButton {{
@@ -522,6 +523,39 @@ class InterviewsView(QWidget):
         metrics_layout.addWidget(self.lbl_card_cancelled)
         main_layout.addLayout(metrics_layout)
 
+        # 3b. Active vs Completed History Tabs
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: none;
+            }}
+            QTabBar::tab {{
+                background-color: {COLORS['surface_alt']};
+                color: {COLORS['text_muted']};
+                font-weight: 600;
+                font-size: 12px;
+                padding: 7px 16px;
+                margin-right: 6px;
+                border-radius: 8px;
+                border: 1px solid {COLORS['border']};
+            }}
+            QTabBar::tab:selected {{
+                background-color: {COLORS['primary']};
+                color: white;
+                border-color: {COLORS['primary']};
+                font-weight: 700;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {COLORS['surface_hover']};
+                color: {COLORS['text']};
+            }}
+        """)
+        self.tabs.addTab(QWidget(), "Active / Scheduled")
+        self.tabs.addTab(QWidget(), "Completed && History")
+        self.tabs.addTab(QWidget(), "All Rounds")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        main_layout.addWidget(self.tabs)
+
         # 4. Filter Bar
         filter_card = QFrame()
         filter_card.setStyleSheet(f"""
@@ -655,15 +689,41 @@ class InterviewsView(QWidget):
             box.mousePressEvent = lambda e, s=target_status: self._on_metric_card_clicked(s)
         return box
 
+    def _on_tab_changed(self, _idx: int) -> None:
+        """Refreshes interview list when switching between Active, History, and All tabs."""
+        self.refresh()
+
     def _on_metric_card_clicked(self, target_status: str) -> None:
-        """Toggles status filter when an interview metric card is clicked."""
+        """Switches tab and status filter when an interview metric card is clicked."""
+        if target_status == "SCHEDULED":
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(0)
+            self.tabs.blockSignals(False)
+            self.cmb_filter_status.blockSignals(True)
+            self.cmb_filter_status.setCurrentIndex(0)
+            self.cmb_filter_status.blockSignals(False)
+            self.refresh()
+            return
+
+        # Completed or Cancelled live in Completed & History tab
         curr = self.cmb_filter_status.currentText().strip().upper()
-        if curr == target_status:
-            self.cmb_filter_status.setCurrentIndex(0)  # Toggle back to All Statuses
+        if self.tabs.currentIndex() == 1 and curr == target_status:
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(0)
+            self.tabs.blockSignals(False)
+            self.cmb_filter_status.blockSignals(True)
+            self.cmb_filter_status.setCurrentIndex(0)
+            self.cmb_filter_status.blockSignals(False)
         else:
+            self.tabs.blockSignals(True)
+            self.tabs.setCurrentIndex(1)
+            self.tabs.blockSignals(False)
             idx = self.cmb_filter_status.findText(target_status)
             if idx >= 0:
+                self.cmb_filter_status.blockSignals(True)
                 self.cmb_filter_status.setCurrentIndex(idx)
+                self.cmb_filter_status.blockSignals(False)
+        self.refresh()
 
     def _update_metric(self, widget: QWidget, val: int) -> None:
         lbl = widget.findChild(QLabel)
@@ -671,9 +731,15 @@ class InterviewsView(QWidget):
             lbl.setText(str(val))
 
     def refresh(self) -> None:
-        """Reloads interviews matching filter and updates metrics."""
-        all_ivs = self.service.list_interviews(limit=200)
-        c_sched = sum(1 for iv in all_ivs if iv.status == "SCHEDULED")
+        """Reloads interviews matching active tab/filter and updates metrics."""
+        closed_app_statuses = {"OFFER", "REJECTED", "WITHDRAWN", "JUNK"}
+        all_ivs = self.service.list_interviews(limit=1000)
+        c_sched = sum(
+            1
+            for iv in all_ivs
+            if iv.status == "SCHEDULED"
+            and ((iv.application.status if iv.application else "INTERVIEW") or "").upper() not in closed_app_statuses
+        )
         c_comp = sum(1 for iv in all_ivs if iv.status == "COMPLETED")
         c_canc = sum(1 for iv in all_ivs if iv.status in ["CANCELLED", "NO_SHOW"])
 
@@ -681,10 +747,25 @@ class InterviewsView(QWidget):
         self._update_metric(self.lbl_card_completed, c_comp)
         self._update_metric(self.lbl_card_cancelled, c_canc)
 
+        tab_idx = self.tabs.currentIndex() if hasattr(self, "tabs") else 0
         st = self.cmb_filter_status.currentText().strip().upper()
         status = None if st in ["ALL STATUSES", "ALL", ""] else st
 
-        self._current_interviews = self.service.list_interviews(status=status, limit=100)
+        if tab_idx == 0:
+            active_only = True
+            # If user explicitly filtered for COMPLETED/CANCELLED/NO_SHOW while on Active tab, respect All Rounds
+            if status in ("COMPLETED", "CANCELLED", "NO_SHOW"):
+                active_only = None
+        elif tab_idx == 1:
+            active_only = False
+        else:
+            active_only = None
+
+        self._current_interviews = self.service.list_interviews(
+            status=status,
+            active_only=active_only,
+            limit=100,
+        )
         self.lbl_stats.setText(f"{len(self._current_interviews)} rounds")
 
         self.table.clearContents()
@@ -699,10 +780,11 @@ class InterviewsView(QWidget):
             t_item.setToolTip(comp_role)
             self.table.setItem(row, 0, t_item)
 
-            # 1. Round
-            r_item = QTableWidgetItem(f"#{item.round_number} {item.round_name}")
+            # 1. Round + Round Status
+            iv_status_lbl = (item.status or "SCHEDULED").replace("_", " ").title()
+            r_item = QTableWidgetItem(f"#{item.round_number} {item.round_name} ({iv_status_lbl})")
             r_item.setTextAlignment(Qt.AlignCenter)
-            r_item.setToolTip(f"Round #{item.round_number}: {item.round_name}")
+            r_item.setToolTip(f"Round #{item.round_number}: {item.round_name} | Round Status: {iv_status_lbl}")
             self.table.setItem(row, 1, r_item)
 
             # 2. Time
@@ -721,9 +803,22 @@ class InterviewsView(QWidget):
             m_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 4, m_item)
 
-            # 5. Job Stage (1-click interactive ATS status dropdown)
+            # 5. Job Stage (1-click interactive ATS status dropdown scoped to pipeline outcomes)
             app_stage = app.status if app else "INTERVIEW"
-            stage_btn = StatusDropdownButton(app_stage)
+            stage_btn = StatusDropdownButton(
+                app_stage,
+                allowed_statuses=(
+                    "SUBMITTED",
+                    "UNDER_REVIEW",
+                    "SHORTLISTED",
+                    "RECRUITER_CONTACTED",
+                    "ASSESSMENT",
+                    "INTERVIEW",
+                    "OFFER",
+                    "REJECTED",
+                    "WITHDRAWN",
+                ),
+            )
             stage_btn.status_changed.connect(
                 lambda new_st, iv=item: self._on_stage_changed(iv, new_st)
             )
@@ -770,23 +865,23 @@ class InterviewsView(QWidget):
                 btn_link.setEnabled(False)
                 btn_link.setCursor(Qt.ArrowCursor)
                 btn_link.setToolTip("No meeting link provided for this round")
-                btn_link.setStyleSheet("""
-                    QPushButton {
-                        background-color: #161B22;
-                        color: #484F58;
-                        border: 1px solid #21262D;
+                btn_link.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {COLORS['surface']};
+                        color: {COLORS['text_dark']};
+                        border: 1px solid {COLORS['border']};
                         font-size: 11px;
                         font-weight: 600;
                         border-radius: 4px;
                         padding: 0px 4px;
-                    }
+                    }}
                 """)
             act_layout.addWidget(btn_link)
 
-            btn_feedback = QPushButton("Feedback")
+            btn_feedback = QPushButton("Update")
             btn_feedback.setFixedSize(80, 26)
             btn_feedback.setCursor(Qt.PointingHandCursor)
-            btn_feedback.setToolTip("Update round feedback and advance job stage")
+            btn_feedback.setToolTip("Update round status (Completed / Cancelled), notes, and next job stage")
             btn_feedback.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {COLORS['surface_alt']};
@@ -850,9 +945,6 @@ class InterviewsView(QWidget):
                 f"Updated job stage to {clean_name} for {company} — {role}",
             )
             self.refresh()
-            self.data_updated.emit("interviews")
-            self.data_updated.emit("applications")
-            self.data_updated.emit("jobs")
             self.data_updated.emit("pipeline")
         else:
             self.notification_bar.show_message("warning", f"Failed to update stage: {err}")
@@ -913,9 +1005,7 @@ class InterviewsView(QWidget):
         if dialog.exec() == QDialog.Accepted:
             self.notification_bar.show_message("success", "Interview round scheduled successfully.")
             self.refresh()
-            self.data_updated.emit("interviews")
-            self.data_updated.emit("applications")
-            self.data_updated.emit("jobs")
+            self.data_updated.emit("pipeline")
 
     def _on_update_clicked(self, interview: Interview) -> None:
         dialog = InterviewFeedbackDialog(
@@ -927,9 +1017,7 @@ class InterviewsView(QWidget):
         if dialog.exec() == QDialog.Accepted:
             self.notification_bar.show_message("success", "Interview feedback and status updated.")
             self.refresh()
-            self.data_updated.emit("interviews")
-            self.data_updated.emit("applications")
-            self.data_updated.emit("jobs")
+            self.data_updated.emit("pipeline")
 
     def inspect_interview_by_id(self, interview_id: int) -> None:
         """Finds and opens feedback/details dialog for a specific interview by ID."""

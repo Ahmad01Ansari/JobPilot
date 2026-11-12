@@ -1,7 +1,7 @@
 """Floating / dockable bulk action bar for selected jobs."""
 
 from typing import Optional
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon
 
 
 class JobsBulkBar(QFrame):
@@ -76,7 +77,9 @@ class JobsBulkBar(QFrame):
         layout.addWidget(self.btn_pipeline)
 
         # Action: Qualify Fit
-        self.btn_qualify = QPushButton("⚡ Qualify Fit")
+        self.btn_qualify = QPushButton("Qualify Fit")
+        self.btn_qualify.setIconSize(QSize(13, 13))
+        self.btn_qualify.setIcon(render_vector_icon("lightning", COLORS["accent"], 13))
         self.btn_qualify.setCursor(Qt.PointingHandCursor)
         self.btn_qualify.setToolTip("Evaluate qualification match for all selected jobs against your candidate profile")
         self.btn_qualify.setStyleSheet(f"""

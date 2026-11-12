@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -55,13 +55,14 @@ class _DashboardLoadWorker(QThread):
     snapshot_loaded = Signal(object)  # DashboardSnapshotDTO
     load_failed = Signal(str)
 
-    def __init__(self, service: DashboardService):
+    def __init__(self, service: DashboardService, perf_preset: str = "ALL"):
         super().__init__()
         self._service = service
+        self._perf_preset = perf_preset
 
     def run(self) -> None:
         try:
-            snapshot = self._service.get_dashboard_snapshot()
+            snapshot = self._service.get_dashboard_snapshot(perf_preset=self._perf_preset)
             self.snapshot_loaded.emit(snapshot)
         except Exception as e:
             self.load_failed.emit(str(e))
@@ -130,6 +131,11 @@ class DashboardView(QWidget):
         self.automation_manager = None
         self._load_worker: Optional[_DashboardLoadWorker] = None
         self._perf_worker: Optional[_SearchPerfWorker] = None
+        self._pending_refresh: bool = False
+        self._live_refresh_timer = QTimer(self)
+        self._live_refresh_timer.setSingleShot(True)
+        self._live_refresh_timer.setInterval(300)
+        self._live_refresh_timer.timeout.connect(self.refresh)
 
         self._setup_ui()
         self.refresh()
@@ -253,6 +259,7 @@ class DashboardView(QWidget):
         # B. Hero: Next Best Action
         self.nba_widget = NextBestActionWidget(container)
         self.nba_widget.action_triggered.connect(self._on_dashboard_action)
+        self.nba_widget.see_all_requested.connect(self._on_see_all_actions_clicked)
         self.content_layout.addWidget(self.nba_widget)
 
         # C. Today's Job Hunt Work Queue
@@ -274,7 +281,7 @@ class DashboardView(QWidget):
         self.top_opportunities_widget.search_requested.connect(
             lambda: self.navigation_requested.emit("search")
         )
-        self.top_opportunities_widget.action_triggered.connect(self.action_requested.emit)
+        self.top_opportunities_widget.action_triggered.connect(self._on_dashboard_action)
         row3_layout.addWidget(self.top_opportunities_widget, 52)
 
         self.search_perf_widget = SearchPerformanceWidget(container)
@@ -288,7 +295,7 @@ class DashboardView(QWidget):
         row4_layout.setSpacing(14)
 
         self.schedules_card = UpcomingSchedulesCard(container)
-        self.schedules_card.action_triggered.connect(self.action_requested.emit)
+        self.schedules_card.action_triggered.connect(self._on_dashboard_action)
         self.schedules_card.navigation_requested.connect(self.navigation_requested.emit)
         row4_layout.addWidget(self.schedules_card, 1)
 
@@ -371,12 +378,15 @@ class DashboardView(QWidget):
     def refresh(self) -> None:
         """Launches asynchronous load worker to update all dashboard sections."""
         if self._load_worker and self._load_worker.isRunning():
+            self._pending_refresh = True
             return
 
+        self._pending_refresh = False
         self.btn_refresh.setEnabled(False)
         self.btn_refresh.setText("Refreshing...")
 
-        self._load_worker = _DashboardLoadWorker(self.service)
+        preset = getattr(self.search_perf_widget, "active_preset", "ALL") or "ALL"
+        self._load_worker = _DashboardLoadWorker(self.service, perf_preset=preset)
         self._load_worker.snapshot_loaded.connect(self._on_snapshot_loaded)
         self._load_worker.load_failed.connect(self._on_load_failed)
         self._load_worker.start()
@@ -388,6 +398,7 @@ class DashboardView(QWidget):
 
         # 1. Next Best Action Hero Card
         self.nba_widget.set_action(snapshot.next_best_action)
+        self.nba_widget.set_total_actions_count(len(snapshot.hunt_items or []))
 
         # 1. Top KPI Metrics Bar
         sub_count = snapshot.pipeline_summary.get("submitted", 0)
@@ -462,6 +473,10 @@ class DashboardView(QWidget):
         # 9. Recent Activities
         self._render_activities(snapshot.recent_activities)
 
+        if self._pending_refresh:
+            self._pending_refresh = False
+            QTimer.singleShot(0, self.refresh)
+
     def _on_dashboard_action(self, action_type: str, payload: dict) -> None:
         """Handles dashboard actions, status overrides, and dismissals locally or forwards navigation."""
         if action_type == "CHANGE_APPLICATION_STATUS":
@@ -479,9 +494,6 @@ class DashboardView(QWidget):
                     clean_name = new_status.replace("_", " ").title()
                     self.notification_bar.show_message("success", f"Application updated to {clean_name}.")
                     self.refresh()
-                    self.data_updated.emit("applications")
-                    self.data_updated.emit("interviews")
-                    self.data_updated.emit("jobs")
                     self.data_updated.emit("pipeline")
                     return
                 except Exception as e:
@@ -492,27 +504,26 @@ class DashboardView(QWidget):
             app_id = payload.get("application_id")
             source_type = payload.get("source_type")
             source_id = payload.get("source_id")
+            item_id = str(payload.get("item_id") or "")
 
             try:
-                if app_id:
+                if source_type == "followup" and source_id:
+                    self.recruitment_service.complete_follow_up(source_id, status="COMPLETED")
+                elif source_type == "interview" and source_id:
+                    self.recruitment_service.update_interview_status(source_id, status="COMPLETED")
+                elif app_id:
+                    # Move active interview/manual/reply queue items to UNDER_REVIEW rather than wiping to NOT_APPLIED
+                    target_st = "UNDER_REVIEW" if ("INTERVIEW" in item_id or "MANUAL" in item_id or "RECRUITER" in item_id) else "NOT_APPLIED"
                     self.service.application_service.transition_status(
                         application_id=app_id,
-                        new_status="NOT_APPLIED",
+                        new_status=target_st,
                         source="USER",
-                        notes="Dismissed from Dashboard Today's Hunt queue",
+                        notes="Marked handled from Dashboard queue",
                         allow_override=True,
                     )
-                elif source_type == "followup" and source_id:
-                    self.recruitment_service.update_follow_up(source_id, status="COMPLETED")
-                elif source_type == "interview" and source_id:
-                    self.recruitment_service.update_interview(source_id, status="COMPLETED")
 
                 self.notification_bar.show_message("info", "Item dismissed from queue.")
                 self.refresh()
-                self.data_updated.emit("applications")
-                self.data_updated.emit("interviews")
-                self.data_updated.emit("followups")
-                self.data_updated.emit("jobs")
                 self.data_updated.emit("pipeline")
                 return
             except Exception as e:
@@ -531,6 +542,9 @@ class DashboardView(QWidget):
         self.btn_refresh.setEnabled(True)
         self.btn_refresh.setText("↻ Refresh")
         self.notification_bar.show_message("warning", f"Failed to refresh dashboard: {error_msg}")
+        if self._pending_refresh:
+            self._pending_refresh = False
+            QTimer.singleShot(0, self.refresh)
 
     def _render_schedules(self) -> None:
         """Fetches upcoming scheduled interview rounds for the schedules card."""
@@ -552,6 +566,10 @@ class DashboardView(QWidget):
                     "role_company": f"{title} @ {company}",
                     "time_str": time_str,
                     "link": iv.meeting_link,
+                    "payload": {
+                        "interview_id": iv.id,
+                        "application_id": iv.application_id,
+                    },
                 })
             self.schedules_card.set_schedules(schedules)
         except Exception:
@@ -680,6 +698,18 @@ class DashboardView(QWidget):
             self.activity_container.addWidget(row)
             row.show()
 
+    def _on_see_all_actions_clicked(self) -> None:
+        """Opens the modal showing all upcoming and pending actions across all categories."""
+        from app.ui.widgets.dashboard.all_actions_dialog import AllActionsDialog
+        items = self.service.get_all_pending_actions(limit=100)
+        dlg = AllActionsDialog(
+            fetch_items_fn=lambda: self.service.get_all_pending_actions(limit=100),
+            initial_items=items,
+            parent=self,
+        )
+        dlg.action_triggered.connect(self._on_dashboard_action)
+        dlg.exec()
+
     def _show_event_detail(self, event: Any) -> None:
         """Opens detail dialog for an activity record."""
         from app.ui.widgets.activity_dialogs import ActivityDetailDialog
@@ -693,9 +723,23 @@ class DashboardView(QWidget):
         dlg = AllActivityDialog(all_events, session_factory=self.service._session_factory, parent=self)
         dlg.exec()
 
+    def _schedule_live_refresh(self, *_args) -> None:
+        """Coalesces bursts of live automation signals into a smooth dashboard refresh."""
+        if not self._live_refresh_timer.isActive():
+            self._live_refresh_timer.start()
+
     def set_automation_manager(self, manager: Any) -> None:
-        """Preserves automation manager connection for background runner compatibility."""
+        """Connects automation manager live events to real-time dashboard refreshes."""
         self.automation_manager = manager
+        if not manager:
+            return
+        for sig_name in ("job_discovered", "job_evaluated", "application_submitted", "run_finished"):
+            sig = getattr(manager, sig_name, None)
+            if sig is not None and hasattr(sig, "connect"):
+                try:
+                    sig.connect(self._schedule_live_refresh)
+                except Exception:
+                    pass
 
     @property
     def plat_container(self):
@@ -723,6 +767,9 @@ class DashboardView(QWidget):
 
     def stop_workers(self) -> None:
         """Gracefully waits for background loaders to avoid QThread destruction aborts."""
+        if getattr(self, "_live_refresh_timer", None) and self._live_refresh_timer.isActive():
+            self._live_refresh_timer.stop()
+        self._pending_refresh = False
         for worker in (self._load_worker, self._perf_worker):
             if worker and worker.isRunning():
                 worker.requestInterruption()

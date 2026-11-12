@@ -122,13 +122,21 @@ class MainWindow(QMainWindow):
             lambda level, title, msg: self.state.notify(level, f"{title}: {msg}")
         )
 
-        # Wire automation manager signals to notification service and dashboard trigger deck
+        # Wire automation manager signals to notification service and live real-time view updates
         automation_view = self.view_instances.get("automation")
         dashboard_view = self.view_instances.get("dashboard")
         if automation_view and hasattr(automation_view, "manager"):
-            self.notification_service.connect_automation_manager(automation_view.manager)
+            mgr = automation_view.manager
+            self.notification_service.connect_automation_manager(mgr)
             if dashboard_view and hasattr(dashboard_view, "set_automation_manager"):
-                dashboard_view.set_automation_manager(automation_view.manager)
+                dashboard_view.set_automation_manager(mgr)
+            for sig_name in ("application_submitted", "run_finished"):
+                sig = getattr(mgr, sig_name, None)
+                if sig is not None and hasattr(sig, "connect"):
+                    try:
+                        sig.connect(lambda *_: self.state.emit_data_updated("pipeline"))
+                    except Exception:
+                        pass
 
         # Trigger initial reminder scan and start background timer
         self.notification_service.check_reminders()
@@ -372,9 +380,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # If pipeline, applications, interviews, followups, jobs or dashboard updated, ensure related views are refreshed
-        if entity in ["applications", "interviews", "followups", "pipeline", "jobs", "dashboard", "all"]:
-            for v_id in ["applications", "interviews", "followups", "jobs", "analytics", "automation"]:
+        # If pipeline, applications, interviews, followups, jobs, outreach or dashboard updated, ensure related views are refreshed
+        if entity in ["applications", "interviews", "followups", "pipeline", "jobs", "outreach", "dashboard", "general", "all"]:
+            for v_id in ["applications", "interviews", "followups", "jobs", "analytics", "automation", "outreach"]:
                 v = self.view_instances.get(v_id)
                 if v and v != curr and hasattr(v, "refresh"):
                     try:

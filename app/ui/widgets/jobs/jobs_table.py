@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.models import Job
+from app.repositories.validators import normalize_display_status
 from app.ui.theme import COLORS
 from app.ui.widgets.status_badge import (
     STATUS_DISPLAY_LABELS,
@@ -414,7 +415,7 @@ class JobsTable(QTableWidget):
             try:
                 if hasattr(job, "applications") and job.applications:
                     latest_app = max(job.applications, key=lambda a: (a.updated_at or datetime.min, a.id or 0))
-                    app_status = latest_app.status
+                    app_status = normalize_display_status(latest_app.status)
             except Exception:
                 app_status = "NOT_APPLIED"
 

@@ -127,12 +127,12 @@ class StatusTransitionDialog(QDialog):
                 image: url({_CHEVRON_DOWN_HOVER_PATH});
             }}
             QComboBox QAbstractItemView {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 4px;
-                selection-background-color: #FF5F15;
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
                 min-height: 60px;
                 outline: none;
@@ -143,11 +143,11 @@ class StatusTransitionDialog(QDialog):
                 border-radius: 4px;
             }}
             QComboBox QAbstractItemView::item:hover {{
-                background-color: #262C36;
-                color: #F0F6FC;
+                background-color: {COLORS['surface_hover']};
+                color: {COLORS['text']};
             }}
             QComboBox QAbstractItemView::item:selected {{
-                background-color: #FF5F15;
+                background-color: {COLORS['primary']};
                 color: #FFFFFF;
             }}
             QTabWidget::pane {{
@@ -184,10 +184,10 @@ class StatusTransitionDialog(QDialog):
 
         # 1. Header Card with Job & Company Info
         hdr_card = QFrame()
-        hdr_card.setStyleSheet("""
+        hdr_card.setStyleSheet(f"""
             QFrame {{
-                background-color: #161B22;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 10px 14px;
             }}
@@ -197,8 +197,8 @@ class StatusTransitionDialog(QDialog):
         hdr_layout.setSpacing(4)
 
         top_meta = QHBoxLayout()
-        lbl_meta = QLabel(f"🏢  {company}   •   🌐  {platform}")
-        lbl_meta.setStyleSheet("color: #FF7A3D; font-size: 12px; font-weight: 700; background: transparent; border: none;")
+        lbl_meta = QLabel(f"{company}   •   {platform}")
+        lbl_meta.setStyleSheet(f"color: {COLORS['accent']}; font-size: 12px; font-weight: 700; background: transparent; border: none;")
         top_meta.addWidget(lbl_meta)
         top_meta.addStretch()
 
@@ -207,12 +207,12 @@ class StatusTransitionDialog(QDialog):
         hdr_layout.addLayout(top_meta)
 
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet("color: #F0F6FC; font-size: 15px; font-weight: 800; background: transparent; border: none;")
+        lbl_title.setStyleSheet(f"color: {COLORS['text']}; font-size: 15px; font-weight: 800; background: transparent; border: none;")
         hdr_layout.addWidget(lbl_title)
 
         applied_str = format_local_datetime(application.applied_at, "%b %d, %Y") if application.applied_at else "Recently"
         lbl_sub = QLabel(f"Applied: {applied_str}   •   Application ID: #{application.id}")
-        lbl_sub.setStyleSheet("color: #8B949E; font-size: 11px; background: transparent; border: none;")
+        lbl_sub.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; background: transparent; border: none;")
         hdr_layout.addWidget(lbl_sub)
         layout.addWidget(hdr_card)
 
@@ -718,10 +718,10 @@ class ApplicationHistoryDialog(QDialog):
 
         # Header Card
         hdr_card = QFrame()
-        hdr_card.setStyleSheet("""
+        hdr_card.setStyleSheet(f"""
             QFrame {{
-                background-color: #161B22;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 10px 14px;
             }}
@@ -730,8 +730,10 @@ class ApplicationHistoryDialog(QDialog):
         hdr_layout.setContentsMargins(0, 0, 0, 0)
         hdr_layout.setSpacing(12)
 
-        icon_lbl = QLabel("📋")
-        icon_lbl.setStyleSheet("font-size: 20px; background: transparent; border: none;")
+        from app.ui.sidebar_icons import render_vector_pixmap
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(render_vector_pixmap("file_check", COLORS["primary"], 20))
+        icon_lbl.setStyleSheet("background: transparent; border: none;")
         hdr_layout.addWidget(icon_lbl)
 
         info_layout = QVBoxLayout()
@@ -739,11 +741,11 @@ class ApplicationHistoryDialog(QDialog):
         info_layout.setSpacing(2)
 
         lbl_t = QLabel(f"{company} — {title}")
-        lbl_t.setStyleSheet("color: #F0F6FC; font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        lbl_t.setStyleSheet(f"color: {COLORS['text']}; font-size: 14px; font-weight: 700; background: transparent; border: none;")
         info_layout.addWidget(lbl_t)
 
         lbl_sub = QLabel(f"Platform: {platform}   •   Application ID: #{application.id}")
-        lbl_sub.setStyleSheet("color: #8B949E; font-size: 11px; background: transparent; border: none;")
+        lbl_sub.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; background: transparent; border: none;")
         info_layout.addWidget(lbl_sub)
         hdr_layout.addLayout(info_layout, 1)
 
@@ -759,7 +761,7 @@ class ApplicationHistoryDialog(QDialog):
 
         # Tab 0: Graph / Timeline View
         self.graph_view = AuditTimelineGraphWidget(history, application)
-        self.tabs_view.addTab(self.graph_view, "📈 Timeline Graph View")
+        self.tabs_view.addTab(self.graph_view, "Timeline Graph View")
 
         # Tab 1: Tabular Audit View
         table = QTableWidget()
@@ -795,8 +797,8 @@ class ApplicationHistoryDialog(QDialog):
                 color: {COLORS['text']};
             }}
             QTableWidget::item:selected {{
-                background-color: #21262D;
-                color: #F0F6FC;
+                background-color: {COLORS['surface_hover']};
+                color: {COLORS['text']};
             }}
             QHeaderView::section {{
                 background-color: {COLORS['surface_alt']};
@@ -923,17 +925,18 @@ class ApplicationsView(QWidget):
     # UI Tab categories mapped to domain statuses
     UI_STATUS_CATEGORIES = {
         0: None,  # All
-        1: ["APPLYING", "MANUAL_REQUIRED", "UNKNOWN"],  # Active/In-Flight
+        1: ["APPLYING", "MANUAL_REQUIRED", "UNKNOWN", "FAILED"],  # Active/In-Flight & Action Needed
         2: ["SUBMITTED", "UNDER_REVIEW"],  # Submitted
         3: ["SHORTLISTED", "RECRUITER_CONTACTED", "ASSESSMENT", "INTERVIEW"],  # Interview Pipeline
         4: ["OFFER"],  # Offers
-        5: ["REJECTED", "WITHDRAWN"],  # Closed
+        5: ["REJECTED", "WITHDRAWN", "SKIPPED"],  # Closed
     }
 
     STATUS_TO_TAB = {
         "APPLYING": 1,
         "MANUAL_REQUIRED": 1,
         "UNKNOWN": 1,
+        "FAILED": 1,
         "SUBMITTED": 2,
         "UNDER_REVIEW": 2,
         "SHORTLISTED": 3,
@@ -943,6 +946,7 @@ class ApplicationsView(QWidget):
         "OFFER": 4,
         "REJECTED": 5,
         "WITHDRAWN": 5,
+        "SKIPPED": 5,
     }
 
     def __init__(
@@ -1131,12 +1135,15 @@ class ApplicationsView(QWidget):
             "Submitted",
             "Under Review",
             "Shortlisted",
-            "Recruiter Contacted",
+            "Recruiter Call",
             "Assessment",
             "Interview",
             "Offer",
             "Rejected",
             "Withdrawn",
+            "Manual Check",
+            "Failed",
+            "Skipped",
             "Junk",
         ])
         self.cmb_status_filter.currentIndexChanged.connect(self._on_status_filter_changed)
@@ -1316,12 +1323,12 @@ class ApplicationsView(QWidget):
                 image: url({_CHEVRON_DOWN_HOVER_PATH});
             }}
             QComboBox QAbstractItemView {{
-                background-color: #161B22;
-                color: #F0F6FC;
-                border: 1px solid #262C36;
+                background-color: {COLORS['surface']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 padding: 4px;
-                selection-background-color: #FF5F15;
+                selection-background-color: {COLORS['primary']};
                 selection-color: #FFFFFF;
                 outline: none;
             }}
@@ -1331,7 +1338,7 @@ class ApplicationsView(QWidget):
                 border-radius: 4px;
             }}
             QComboBox QAbstractItemView::item:selected {{
-                background-color: #FF5F15;
+                background-color: {COLORS['primary']};
                 color: #FFFFFF;
             }}
         """)
@@ -1568,15 +1575,20 @@ class ApplicationsView(QWidget):
                 self._exact_app_id = None
                 self.exact_filter_chip.clear()
 
-        summary = self.service.get_pipeline_summary()
-
-        # Update metric cards
-        self._update_metric_val(self.lbl_card_submitted, summary.get("SUBMITTED", 0))
-        self._update_metric_val(self.lbl_card_review, summary.get("UNDER_REVIEW", 0))
-        interview_total = summary.get("INTERVIEW", 0) + summary.get("SHORTLISTED", 0) + summary.get("RECRUITER_CONTACTED", 0) + summary.get("ASSESSMENT", 0)
-        self._update_metric_val(self.lbl_card_interview, interview_total)
-        self._update_metric_val(self.lbl_card_offers, summary.get("OFFER", 0))
-        self._update_metric_val(self.lbl_card_rejected, summary.get("REJECTED", 0))
+        if hasattr(self.service, "get_kpi_summary"):
+            kpi = self.service.get_kpi_summary()
+            self._update_metric_val(self.lbl_card_submitted, kpi.get("submitted", 0))
+            self._update_metric_val(self.lbl_card_review, kpi.get("under_review", 0))
+            self._update_metric_val(self.lbl_card_interview, kpi.get("interviews", 0))
+            self._update_metric_val(self.lbl_card_offers, kpi.get("offers", 0))
+            self._update_metric_val(self.lbl_card_rejected, kpi.get("rejected", 0))
+        else:
+            summary = self.service.get_pipeline_summary()
+            self._update_metric_val(self.lbl_card_submitted, summary.get("SUBMITTED", 0))
+            self._update_metric_val(self.lbl_card_review, summary.get("UNDER_REVIEW", 0))
+            self._update_metric_val(self.lbl_card_interview, summary.get("INTERVIEW", 0))
+            self._update_metric_val(self.lbl_card_offers, summary.get("OFFER", 0))
+            self._update_metric_val(self.lbl_card_rejected, summary.get("REJECTED", 0))
 
         # Determine target status list
         tab_idx = self.tabs.currentIndex()
@@ -1585,6 +1597,8 @@ class ApplicationsView(QWidget):
             status_alias_map = {
                 "RECRUITER_CALL": "RECRUITER_CONTACTED",
                 "RECRUITER_CONTACTED": "RECRUITER_CONTACTED",
+                "MANUAL_CHECK": "MANUAL_REQUIRED",
+                "MANUAL_REQUIRED": "MANUAL_REQUIRED",
                 "INTERVIEW": "INTERVIEW",
                 "UNDER_REVIEW": "UNDER_REVIEW",
                 "SUBMITTED": "SUBMITTED",
@@ -1593,6 +1607,8 @@ class ApplicationsView(QWidget):
                 "OFFER": "OFFER",
                 "REJECTED": "REJECTED",
                 "WITHDRAWN": "WITHDRAWN",
+                "FAILED": "FAILED",
+                "SKIPPED": "SKIPPED",
             }
             target_key = status_alias_map.get(specific_status, specific_status)
             status_list = [target_key]
@@ -1656,8 +1672,9 @@ class ApplicationsView(QWidget):
         p_item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row, 2, p_item)
 
-        # Status Badge (145px)
-        st_item = QTableWidgetItem(app.status)
+        # Status Badge (145px) - keep item text empty so nothing bleeds through interactive pill on hover
+        st_item = QTableWidgetItem("")
+        st_item.setData(Qt.UserRole, app.status)
         st_item.setTextAlignment(Qt.AlignCenter)
         self.table.setItem(row, 3, st_item)
 
@@ -1742,7 +1759,7 @@ class ApplicationsView(QWidget):
     def _update_metric_val(self, widget: QWidget, val: int) -> None:
         lbl = widget.findChild(QLabel)
         if lbl:
-            lbl.setText(str(val))
+            lbl.setText(f"{val:,}")
 
     def _on_transition_clicked(self, app: Application) -> None:
         dialog = StatusTransitionDialog(
@@ -1754,9 +1771,7 @@ class ApplicationsView(QWidget):
         if dialog.exec() == QDialog.Accepted:
             self.notification_bar.show_message("success", "Application updated successfully.")
             self.refresh()
-            self.data_updated.emit("applications")
-            self.data_updated.emit("interviews")
-            self.data_updated.emit("followups")
+            self.data_updated.emit("pipeline")
 
     def _on_status_dropdown_changed(self, app: Application, new_status: str) -> None:
         """Handles 1-click inline status dropdown change from the applications table."""
@@ -1773,9 +1788,6 @@ class ApplicationsView(QWidget):
             clean_name = new_status.replace("_", " ").title()
             self.notification_bar.show_message("success", f"Application updated to {clean_name}.")
             self.refresh()
-            self.data_updated.emit("applications")
-            self.data_updated.emit("interviews")
-            self.data_updated.emit("jobs")
             self.data_updated.emit("pipeline")
         else:
             self.notification_bar.show_message("warning", f"Failed to update status: {err}")

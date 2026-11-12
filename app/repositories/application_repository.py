@@ -2,11 +2,11 @@
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.base import utc_now
-from app.db.models import Application, ApplicationStatusHistory, Company, Contact, Job
+from app.db.models import Application, ApplicationStatusHistory, Company, Contact, Interview, Job, Offer
 from app.repositories.base import BaseRepository
 from app.repositories.dto import ApplicationCreateDTO
 from app.repositories.validators import validate_status_transition
@@ -166,20 +166,33 @@ class ApplicationRepository(BaseRepository):
         )
         self.session.add(history)
 
-        # Auto-provision Interview record if transitioning to INTERVIEW and none exists
+        # Auto-provision next SCHEDULED Interview round when entering or re-entering INTERVIEW
+        # unless an active SCHEDULED round already exists for this application.
         if target == "INTERVIEW":
             from app.db.models.interview import Interview
-            has_interview = (
+            has_scheduled_iv = (
                 self.session.execute(
-                    select(Interview).where(Interview.application_id == app.id)
+                    select(Interview.id).where(
+                        Interview.application_id == app.id,
+                        Interview.status == "SCHEDULED",
+                    )
                 ).first()
                 is not None
             )
-            if not has_interview:
+            if not has_scheduled_iv:
+                max_round = (
+                    self.session.scalar(
+                        select(func.max(Interview.round_number)).where(
+                            Interview.application_id == app.id
+                        )
+                    )
+                    or 0
+                )
+                next_round = int(max_round) + 1
                 init_iv = Interview(
                     application_id=app.id,
-                    round_number=1,
-                    round_name="Interview Round 1",
+                    round_number=next_round,
+                    round_name=f"Interview Round {next_round}",
                     scheduled_at=now + timedelta(days=1),
                     mode="VIRTUAL",
                     status="SCHEDULED",
@@ -190,6 +203,7 @@ class ApplicationRepository(BaseRepository):
         # Auto-provision Offer record if transitioning to OFFER and none exists
         elif target == "OFFER":
             from app.db.models.offer import Offer
+            from app.db.models.interview import Interview
             has_offer = (
                 self.session.execute(
                     select(Offer).where(Offer.application_id == app.id)
@@ -204,8 +218,20 @@ class ApplicationRepository(BaseRepository):
                 )
                 self.session.add(init_off)
 
-        # Cancel pending interviews if application is rejected or withdrawn
-        elif target in ("REJECTED", "WITHDRAWN"):
+            pending_ivs = self.session.execute(
+                select(Interview).where(
+                    Interview.application_id == app.id,
+                    Interview.status == "SCHEDULED",
+                )
+            ).scalars().all()
+            for iv in pending_ivs:
+                iv.status = "COMPLETED"
+                if not iv.completed_at:
+                    iv.completed_at = now
+                iv.notes = (iv.notes or "") + " [Auto-completed: application reached Offer]"
+
+        # Cancel pending interviews if application is rejected, withdrawn, junked, or reset
+        elif target in ("REJECTED", "WITHDRAWN", "JUNK", "NOT_APPLIED"):
             from app.db.models.interview import Interview
             pending_ivs = self.session.execute(
                 select(Interview).where(
@@ -460,6 +486,103 @@ class ApplicationRepository(BaseRepository):
             Application.applied_at <= end_dt,
         )
         return self.session.scalar(stmt) or 0
+
+    def get_canonical_kpi_counts(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, int]:
+        """Single source of truth for Dashboard and Applications KPI card counts."""
+        q_jobs = select(func.count(Job.id))
+        if start_date:
+            q_jobs = q_jobs.where(Job.created_at >= start_date)
+        if end_date:
+            q_jobs = q_jobs.where(Job.created_at <= end_date)
+        total_jobs = self.session.scalar(q_jobs) or 0
+
+        q_submitted = select(func.count(Application.id)).where(
+            Application.status == "SUBMITTED"
+        )
+        if start_date:
+            q_submitted = q_submitted.where(Application.created_at >= start_date)
+        if end_date:
+            q_submitted = q_submitted.where(Application.created_at <= end_date)
+        submitted_apps = self.session.scalar(q_submitted) or 0
+
+        q_review = select(func.count(Application.id)).where(
+            Application.status == "UNDER_REVIEW"
+        )
+        if start_date:
+            q_review = q_review.where(Application.created_at >= start_date)
+        if end_date:
+            q_review = q_review.where(Application.created_at <= end_date)
+        under_review_count = self.session.scalar(q_review) or 0
+
+        has_scheduled_iv = exists(
+            select(Interview.id).where(
+                Interview.application_id == Application.id,
+                Interview.status == "SCHEDULED",
+            )
+        )
+        has_any_iv = exists(
+            select(Interview.id).where(Interview.application_id == Application.id)
+        )
+        q_interviews = select(func.count(func.distinct(Application.id))).where(
+            (
+                Application.status.notin_(("OFFER", "REJECTED", "WITHDRAWN", "JUNK"))
+                & has_scheduled_iv
+            )
+            | ((Application.status == "INTERVIEW") & (~has_any_iv))
+        )
+        if start_date:
+            q_interviews = q_interviews.where(Application.created_at >= start_date)
+        if end_date:
+            q_interviews = q_interviews.where(Application.created_at <= end_date)
+        interviews_count = self.session.scalar(q_interviews) or 0
+
+        q_offers = (
+            select(func.count(func.distinct(Application.id)))
+            .outerjoin(Offer, Offer.application_id == Application.id)
+            .where((Application.status == "OFFER") | (Offer.id.is_not(None)))
+        )
+        if start_date:
+            q_offers = q_offers.where(Application.created_at >= start_date)
+        if end_date:
+            q_offers = q_offers.where(Application.created_at <= end_date)
+        offers_count = self.session.scalar(q_offers) or 0
+
+        q_withdrawn = select(func.count(Application.id)).where(
+            Application.status == "WITHDRAWN"
+        )
+        if start_date:
+            q_withdrawn = q_withdrawn.where(Application.created_at >= start_date)
+        if end_date:
+            q_withdrawn = q_withdrawn.where(Application.created_at <= end_date)
+        withdrawn_count = self.session.scalar(q_withdrawn) or 0
+
+        q_rejected = select(func.count(Application.id)).where(
+            Application.status == "REJECTED"
+        )
+        if start_date:
+            q_rejected = q_rejected.where(Application.created_at >= start_date)
+        if end_date:
+            q_rejected = q_rejected.where(Application.created_at <= end_date)
+        rejections_count = self.session.scalar(q_rejected) or 0
+
+        in_pipeline = submitted_apps + under_review_count + interviews_count
+
+        return {
+            "total_jobs": total_jobs,
+            "applications_submitted": submitted_apps,
+            "submitted": submitted_apps,
+            "under_review": under_review_count,
+            "in_pipeline": in_pipeline,
+            "interviews": interviews_count,
+            "offers": offers_count,
+            "withdrawn": withdrawn_count,
+            "rejections": rejections_count,
+            "rejected": rejections_count,
+        }
 
 
 

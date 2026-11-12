@@ -9,12 +9,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from app.services.dto.dashboard_dto import TodaysHuntItemDTO
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 from app.ui.widgets.status_badge import StatusBadge
 
 
@@ -42,8 +44,11 @@ class ActionCard(QFrame):
             }}
         """)
 
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(0)
+
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 7, 12, 7)
+        layout.setContentsMargins(12, 8, 18, 8)
         layout.setSpacing(10)
 
         # 1. Type / Urgency Pill
@@ -58,28 +63,34 @@ class ActionCard(QFrame):
             badge_type = "purple"
 
         pill_text = self.item.item_type.replace("_", " ").title()
-        self.badge = StatusBadge(pill_text, status_type=badge_type, width=115, height=20)
+        self.badge = StatusBadge(pill_text, status_type=badge_type, width=108, height=20)
         layout.addWidget(self.badge, alignment=Qt.AlignVCenter)
 
-        # 2. Contextual Content Column
+        # 2. Contextual Content Column (Ignored horizontal size policy avoids forcing horizontal overflow)
         content_col = QVBoxLayout()
         content_col.setContentsMargins(0, 0, 0, 0)
-        content_col.setSpacing(1)
+        content_col.setSpacing(2)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
         lbl_title = QLabel(self.item.title)
+        lbl_title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        lbl_title.setMinimumWidth(0)
+        lbl_title.setToolTip(self.item.title)
         lbl_title.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLORS['text']}; background: transparent; border: none;")
-        title_row.addWidget(lbl_title)
+        title_row.addWidget(lbl_title, 1)
 
         if self.item.company and self.item.company.strip().lower() not in self.item.title.lower():
             lbl_company = QLabel(f"@ {self.item.company}")
+            lbl_company.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             lbl_company.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {COLORS['text_muted']}; background: transparent; border: none;")
             title_row.addWidget(lbl_company)
-        title_row.addStretch(1)
         content_col.addLayout(title_row)
 
         lbl_sub = QLabel(self.item.subtitle)
+        lbl_sub.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        lbl_sub.setMinimumWidth(0)
+        lbl_sub.setToolTip(self.item.subtitle)
         lbl_sub.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent; border: none;")
         content_col.addWidget(lbl_sub)
 
@@ -94,10 +105,12 @@ class ActionCard(QFrame):
             clean_r = " ".join([line.strip() for line in raw_r.splitlines() if line.strip() and not line.strip().startswith(("#", "0x")) and "<unknown>" not in line])
             if not clean_r or clean_r.startswith("0x") or len(clean_r) < 3:
                 clean_r = "Application paused for manual verification"
-            if len(clean_r) > 115:
-                clean_r = clean_r[:112] + "..."
+            if len(clean_r) > 85:
+                clean_r = clean_r[:82] + "..."
 
             lbl_reason = QLabel(f"• {clean_r}")
+            lbl_reason.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            lbl_reason.setMinimumWidth(0)
             lbl_reason.setStyleSheet(f"font-size: 10px; color: {COLORS['text_dark']}; background: transparent; border: none;")
             lbl_reason.setToolTip(self.item.reason[:400])
             lbl_reason.setWordWrap(False)
@@ -105,14 +118,16 @@ class ActionCard(QFrame):
 
         layout.addLayout(content_col, 1)
 
-        # 3. Action Buttons (Primary CTA + More Options Menu)
+        # 3. Action Buttons (Primary CTA + More Options Menu, kept compact inside viewport)
         btn_box = QHBoxLayout()
+        btn_box.setContentsMargins(4, 0, 4, 0)
         btn_box.setSpacing(6)
-        btn_box.setAlignment(Qt.AlignVCenter)
+        btn_box.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
 
         btn_label = self._format_action_label(self.item.recommended_action)
         is_urgent = self.item.urgency in ("URGENT", "HIGH")
         self.btn_action = QPushButton(btn_label)
+        self.btn_action.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_action.setCursor(Qt.PointingHandCursor)
 
         if is_urgent:
@@ -156,7 +171,7 @@ class ActionCard(QFrame):
         self.btn_more.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['surface_elevated']};
-                color: #FFFFFF;
+                color: {COLORS['text']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 5px;
                 padding: 0px;
@@ -204,7 +219,7 @@ class ActionCard(QFrame):
         """)
 
         # Option 1: Mark as Done / Handled
-        act_done = menu.addAction("✓ Mark as Done / Handled")
+        act_done = menu.addAction("Mark as Done / Handled")
         act_done.triggered.connect(lambda: self.action_triggered.emit(
             "DISMISS_ITEM",
             {
@@ -219,16 +234,16 @@ class ActionCard(QFrame):
         app_id = self.item.action_payload.get("application_id")
         if app_id:
             menu.addSeparator()
-            status_menu = menu.addMenu("🔄 Change Status")
+            status_menu = menu.addMenu("Change Status")
             status_options = [
-                ("SUBMITTED", "📄 Submitted"),
-                ("UNDER_REVIEW", "⏳ Under Review"),
-                ("INTERVIEW", "🎯 Interview"),
-                ("OFFER", "🎉 Offer"),
-                ("REJECTED", "❌ Rejected"),
-                ("WITHDRAWN", "↩️ Withdrawn"),
-                ("NOT_APPLIED", "⚪ Not Applied"),
-                ("JUNK", "🗑 Junk"),
+                ("SUBMITTED", "Submitted"),
+                ("UNDER_REVIEW", "Under Review"),
+                ("INTERVIEW", "Interview"),
+                ("OFFER", "Offer"),
+                ("REJECTED", "Rejected"),
+                ("WITHDRAWN", "Withdrawn"),
+                ("NOT_APPLIED", "Not Applied"),
+                ("JUNK", "Junk"),
             ]
             for code, lbl in status_options:
                 act = status_menu.addAction(lbl)
@@ -241,7 +256,7 @@ class ActionCard(QFrame):
                 ))
 
         menu.addSeparator()
-        act_dismiss = menu.addAction("🚫 Dismiss from Today's Queue")
+        act_dismiss = menu.addAction("Dismiss from Today's Queue")
         act_dismiss.triggered.connect(lambda: self.action_triggered.emit(
             "DISMISS_ITEM",
             {
@@ -256,10 +271,10 @@ class ActionCard(QFrame):
 
     def _format_action_label(self, raw_action: str) -> str:
         mapping = {
-            "PREPARE_INTERVIEW": "Prepare Interview →",
-            "COMPOSE_FOLLOWUP": "Compose Follow-up →",
-            "OPEN_CONVERSATION": "Open Conversation →",
-            "REVIEW_APPLICATION": "Review Application →",
+            "PREPARE_INTERVIEW": "Update Stage →",
+            "COMPOSE_FOLLOWUP": "Follow Up →",
+            "OPEN_CONVERSATION": "Open Chat →",
+            "REVIEW_APPLICATION": "Review App →",
             "REVIEW_JOB": "Review Job →",
         }
         return mapping.get(raw_action, "Review →")
@@ -294,8 +309,9 @@ class TodaysJobHuntWidget(QFrame):
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
 
-        lbl_icon = QLabel("⚡")
-        lbl_icon.setStyleSheet("font-size: 16px; background: transparent; border: none;")
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(render_vector_pixmap("lightning", COLORS["primary"], 16))
+        lbl_icon.setStyleSheet("background: transparent; border: none;")
         header_row.addWidget(lbl_icon)
 
         self.lbl_title = QLabel("TODAY'S JOB HUNT")

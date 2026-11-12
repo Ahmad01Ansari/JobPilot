@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import utc_now
@@ -148,99 +148,14 @@ class DashboardService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> Dict[str, int]:
-        """Calculates current and historical summary metrics."""
+        """Calculates current and historical summary metrics from the single canonical KPI query."""
+        from app.repositories.application_repository import ApplicationRepository
+
         with get_db_session(self._session_factory) as session:
-            # 1. Total Jobs Discovered
-            q_jobs = select(func.count(Job.id))
-            if start_date:
-                q_jobs = q_jobs.where(Job.created_at >= start_date)
-            if end_date:
-                q_jobs = q_jobs.where(Job.created_at <= end_date)
-            total_jobs = session.scalar(q_jobs) or 0
-
-            # 2. Total Applications in SUBMITTED status
-            q_submitted = select(func.count(Application.id)).where(
-                Application.status == "SUBMITTED"
+            return ApplicationRepository(session).get_canonical_kpi_counts(
+                start_date=start_date,
+                end_date=end_date,
             )
-            if start_date:
-                q_submitted = q_submitted.where(Application.created_at >= start_date)
-            if end_date:
-                q_submitted = q_submitted.where(Application.created_at <= end_date)
-            submitted_apps = session.scalar(q_submitted) or 0
-
-            # 3. Under Review (status == 'UNDER_REVIEW')
-            q_review = select(func.count(Application.id)).where(
-                Application.status == "UNDER_REVIEW"
-            )
-            if start_date:
-                q_review = q_review.where(Application.created_at >= start_date)
-            if end_date:
-                q_review = q_review.where(Application.created_at <= end_date)
-            under_review_count = session.scalar(q_review) or 0
-
-            # 4. Interviews / Shortlisted / Assessment
-            interview_statuses = ["SHORTLISTED", "RECRUITER_CONTACTED", "ASSESSMENT", "INTERVIEW"]
-            q_interviews = select(func.count(func.distinct(Application.id))).where(
-                Application.status.in_(interview_statuses)
-            )
-            if start_date:
-                q_interviews = q_interviews.where(Application.created_at >= start_date)
-            if end_date:
-                q_interviews = q_interviews.where(Application.created_at <= end_date)
-            interviews_count = session.scalar(q_interviews) or 0
-
-            q_iv_table = select(func.count(func.distinct(Interview.application_id)))
-            iv_table_count = session.scalar(q_iv_table) or 0
-            interviews_count = max(interviews_count, iv_table_count)
-
-            # 5. Offers (status == 'OFFER' or in Offer table)
-            q_offers = select(func.count(Application.id)).where(
-                Application.status == "OFFER"
-            )
-            if start_date:
-                q_offers = q_offers.where(Application.created_at >= start_date)
-            if end_date:
-                q_offers = q_offers.where(Application.created_at <= end_date)
-            offers_count = session.scalar(q_offers) or 0
-            q_off_table = select(func.count(func.distinct(Offer.application_id)))
-            off_table_count = session.scalar(q_off_table) or 0
-            offers_count = max(offers_count, off_table_count)
-
-            # 6. Withdrawn (status == 'WITHDRAWN')
-            q_withdrawn = select(func.count(Application.id)).where(
-                Application.status == "WITHDRAWN"
-            )
-            if start_date:
-                q_withdrawn = q_withdrawn.where(Application.created_at >= start_date)
-            if end_date:
-                q_withdrawn = q_withdrawn.where(Application.created_at <= end_date)
-            withdrawn_count = session.scalar(q_withdrawn) or 0
-
-            # 7. Rejected (status == 'REJECTED')
-            q_rejected = select(func.count(Application.id)).where(
-                Application.status == "REJECTED"
-            )
-            if start_date:
-                q_rejected = q_rejected.where(Application.created_at >= start_date)
-            if end_date:
-                q_rejected = q_rejected.where(Application.created_at <= end_date)
-            rejections_count = session.scalar(q_rejected) or 0
-
-            # 8. In Active Pipeline (submitted + under review + interviewing)
-            in_pipeline = submitted_apps + under_review_count + interviews_count
-
-            return {
-                "total_jobs": total_jobs,
-                "applications_submitted": submitted_apps,
-                "submitted": submitted_apps,
-                "under_review": under_review_count,
-                "in_pipeline": in_pipeline,
-                "interviews": interviews_count,
-                "offers": offers_count,
-                "withdrawn": withdrawn_count,
-                "rejections": rejections_count,
-                "rejected": rejections_count,
-            }
 
     def get_pipeline_funnel(
         self,
@@ -256,7 +171,7 @@ class DashboardService:
         end_date: Optional[datetime] = None,
     ) -> Dict[str, Dict[str, int]]:
         """Calculates jobs and application metrics grouped by platform."""
-        platforms = ["linkedin", "naukri", "indeed", "foundit", "glassdoor", "manual"]
+        platforms = ["linkedin", "naukri", "indeed", "foundit", "glassdoor", "universal", "manual"]
         breakdown: Dict[str, Dict[str, int]] = {}
 
         APPLIED_STATUSES = [
@@ -625,18 +540,25 @@ class DashboardService:
             return cleaned[:107] + "..."
         return cleaned
 
-    def get_todays_job_hunt_items(self, limit: int = 10) -> List[TodaysHuntItemDTO]:
+    def get_todays_job_hunt_items(
+        self,
+        limit: int = 10,
+        include_opportunities: bool = False,
+    ) -> List[TodaysHuntItemDTO]:
         """Assembles and prioritizes actionable work queue items with strict deduplication.
-        Today's Job Hunt is strictly an operational work queue and NEVER falls back to unapplied jobs.
+        Today's Job Hunt is strictly an operational work queue and only includes qualified
+        opportunities when include_opportunities=True (used by the See All Actions dialog).
         """
         candidates: List[TodaysHuntItemDTO] = []
+        sub_limit = max(20, limit)
         now = utc_now()
         start_of_today, end_of_today = get_local_day_utc_range()
         end_of_week = end_of_today + timedelta(days=7)
 
         # 1. Interviews (Today & Upcoming)
+        seen_interview_app_ids = set()
         try:
-            interviews = self.recruitment_service.list_interviews(status="SCHEDULED", limit=20)
+            interviews = self.recruitment_service.list_interviews(status="SCHEDULED", limit=sub_limit)
             for iv in interviews:
                 if not iv.scheduled_at:
                     continue
@@ -648,6 +570,8 @@ class DashboardService:
                 time_str = format_local_datetime(iv.scheduled_at, "%I:%M %p")
 
                 if start_of_today <= iv.scheduled_at <= end_of_today:
+                    if iv.application_id:
+                        seen_interview_app_ids.add(iv.application_id)
                     candidates.append(
                         TodaysHuntItemDTO(
                             id=f"INTERVIEW:{iv.id}",
@@ -657,7 +581,7 @@ class DashboardService:
                             title=f"Interview Today: {title}",
                             company=company,
                             subtitle=f"{round_name} • {time_str} ({iv.mode})",
-                            reason=f"Scheduled {round_name} round with {company}",
+                            reason=f"Scheduled {round_name} round with {company}. Log outcome or update stage after round.",
                             source_entity_type="interview",
                             source_entity_id=iv.id,
                             recommended_action="PREPARE_INTERVIEW",
@@ -671,6 +595,8 @@ class DashboardService:
                         )
                     )
                 elif end_of_today < iv.scheduled_at <= end_of_week:
+                    if iv.application_id:
+                        seen_interview_app_ids.add(iv.application_id)
                     day_str = format_local_datetime(iv.scheduled_at, "%a, %b %d at %I:%M %p")
                     candidates.append(
                         TodaysHuntItemDTO(
@@ -681,7 +607,7 @@ class DashboardService:
                             title=f"Upcoming: {title}",
                             company=company,
                             subtitle=f"{round_name} on {day_str}",
-                            reason=f"Interview scheduled on {day_str}",
+                            reason=f"Interview scheduled on {day_str}. Come back after round to update stage.",
                             source_entity_type="interview",
                             source_entity_id=iv.id,
                             recommended_action="PREPARE_INTERVIEW",
@@ -829,7 +755,7 @@ class DashboardService:
         except Exception as e:
             logger.warning("Error fetching recruiter contacted apps: %s", e)
 
-        # 4. Applications in Active INTERVIEW Stage
+        # 4. Applications in Active INTERVIEW Stage (only if they have no completed/cancelled-only rounds)
         try:
             from app.services.application_service import ApplicationFilter
             iv_apps = self.application_service.list_applications(
@@ -837,25 +763,35 @@ class DashboardService:
                 limit=10,
             )
             for app in iv_apps:
+                if app.id in seen_interview_app_ids:
+                    continue
+                app_ivs = self.recruitment_service.list_interviews(application_id=app.id, limit=20)
+                scheduled_ivs = [iv for iv in app_ivs if (iv.status or "").upper() == "SCHEDULED"]
+                # If interview rounds exist and ALL of them are already Completed/Cancelled/No-Show,
+                # do not surface a phantom "Interview Today" action when Active/Scheduled Interviews = 0.
+                if app_ivs and not scheduled_ivs:
+                    continue
+
                 job = app.job
                 company = (job.company_raw if job else "Company")
                 title = (job.title if job else "Application")
+                payload = {"application_id": app.id}
+                if scheduled_ivs:
+                    payload["interview_id"] = scheduled_ivs[0].id
                 candidates.append(
                     TodaysHuntItemDTO(
                         id=f"INTERVIEW_STAGE:{app.id}",
-                        item_type="INTERVIEW_TODAY",
+                        item_type="UPCOMING_INTERVIEW" if scheduled_ivs else "INTERVIEW_TODAY",
                         priority=4,
                         urgency="HIGH",
                         title=f"Interview Stage: {company}",
                         company=company,
                         subtitle=f"{title} • Active evaluation",
-                        reason="Application is in active interview stage. Review job notes and interview prep.",
+                        reason="Application is in active interview stage. Update round outcome or move stage.",
                         source_entity_type="application",
                         source_entity_id=app.id,
                         recommended_action="PREPARE_INTERVIEW",
-                        action_payload={
-                            "application_id": app.id,
-                        },
+                        action_payload=payload,
                         due_at=app.updated_at or app.created_at,
                         sort_key=f"4_{app.id}",
                     )
@@ -868,7 +804,7 @@ class DashboardService:
             from app.services.application_service import ApplicationFilter
             manual_apps = self.application_service.list_applications(
                 ApplicationFilter(status_list=["MANUAL_REQUIRED", "FAILED", "CHANGES_REQUESTED"]),
-                limit=10,
+                limit=sub_limit,
             )
             for app in manual_apps:
                 job = app.job
@@ -900,6 +836,41 @@ class DashboardService:
         except Exception as e:
             logger.warning("Error fetching manual review apps: %s", e)
 
+        # 5b. High-Match Qualified Opportunities (when requested by See All Actions modal)
+        if include_opportunities:
+            try:
+                seen_job_ids = {
+                    it.action_payload.get("job_id")
+                    for it in candidates
+                    if it.action_payload.get("job_id")
+                }
+                top_opps = self.job_service.get_top_opportunities(limit=15)
+                for opp in top_opps:
+                    if opp.score < 70 or opp.job_id in seen_job_ids:
+                        continue
+                    seen_job_ids.add(opp.job_id)
+                    skills_preview = ", ".join(opp.matched_skills[:3]) if opp.matched_skills else "Strong qualification match"
+                    candidates.append(
+                        TodaysHuntItemDTO(
+                            id=f"TOP_OPP:{opp.job_id}",
+                            item_type="TOP_OPPORTUNITY",
+                            priority=8,
+                            urgency="INFORMATIONAL",
+                            title=f"{opp.score}% Match: {opp.title}",
+                            company=opp.company,
+                            subtitle=f"{opp.platform.title()} • {opp.decision.replace('_', ' ').title()}",
+                            reason=f"Qualified opportunity: {skills_preview}",
+                            source_entity_type="job",
+                            source_entity_id=opp.job_id,
+                            recommended_action="REVIEW_JOB",
+                            action_payload={"job_id": opp.job_id},
+                            due_at=opp.discovered_at,
+                            sort_key=f"8_{100 - opp.score:03d}_{opp.job_id}",
+                        )
+                    )
+            except Exception as e:
+                logger.warning("Error fetching top opportunities for queue: %s", e)
+
         # 6. Deduplication & Priority Selection
         # Group by unique opportunity key: application_id if present, else item.id
         grouped_by_opp: Dict[str, List[TodaysHuntItemDTO]] = {}
@@ -928,6 +899,10 @@ class DashboardService:
         # Global sort: priority ASC, sort_key ASC
         deduplicated.sort(key=lambda x: (x.priority, x.sort_key))
         return deduplicated[:limit]
+
+    def get_all_pending_actions(self, limit: int = 100) -> List[TodaysHuntItemDTO]:
+        """Returns all upcoming operational actions and high-match opportunities in priority order."""
+        return self.get_todays_job_hunt_items(limit=limit, include_opportunities=True)
 
     def get_next_best_action(self) -> NextBestActionDTO:
         """Determines the single highest-priority operational action right now.
@@ -961,8 +936,8 @@ class DashboardService:
                         title=f"Interview Today: {title}",
                         company=company,
                         subtitle=f"{round_name} • {time_str} ({iv.mode or 'VIRTUAL'})",
-                        reason=f"Scheduled {round_name} interview with {company}. Review candidate notes and meeting details.",
-                        button_label="Prepare Interview",
+                        reason=f"Scheduled {round_name} interview with {company}. Log outcome or update job stage after round.",
+                        button_label="Update Stage",
                         action_name="PREPARE_INTERVIEW",
                         action_payload={
                             "interview_id": iv.id,
@@ -1098,30 +1073,35 @@ class DashboardService:
         except Exception as e:
             logger.warning("Error checking due today followups for NBA: %s", e)
 
-        # 4b. Active Interview Stage Preparation
+        # 4b. Active Interview Stage (skip applications whose rounds are all already Completed/Cancelled)
         try:
             from app.services.application_service import ApplicationFilter
             iv_apps = self.application_service.list_applications(
                 ApplicationFilter(status_list=["INTERVIEW"]),
-                limit=5,
+                limit=10,
             )
-            if iv_apps:
-                app = iv_apps[0]
+            for app in iv_apps:
+                app_ivs = self.recruitment_service.list_interviews(application_id=app.id, limit=20)
+                scheduled_ivs = [iv for iv in app_ivs if (iv.status or "").upper() == "SCHEDULED"]
+                if app_ivs and not scheduled_ivs:
+                    continue
+
                 job = app.job
                 comp = job.company_raw if job else "Company"
                 titl = job.title if job else "Application"
+                payload = {"application_id": app.id}
+                if scheduled_ivs:
+                    payload["interview_id"] = scheduled_ivs[0].id
                 return NextBestActionDTO(
                     action_id=f"NBA_IV_STAGE:{app.id}",
                     action_type="INTERVIEW_TODAY",
                     title=f"Interview Stage: {comp}",
                     company=comp,
                     subtitle=f"{titl} • Active candidate evaluation",
-                    reason="Your application has reached the interview stage. Review job notes and prepare questions.",
-                    button_label="Prepare Interview",
+                    reason="Application is in interview stage. Schedule a round or update the job stage.",
+                    button_label="Update Stage",
                     action_name="PREPARE_INTERVIEW",
-                    action_payload={
-                        "application_id": app.id,
-                    },
+                    action_payload=payload,
                     badge_text="INTERVIEW STAGE",
                     badge_variant="purple",
                     timestamp=app.updated_at or app.created_at,
@@ -1255,14 +1235,13 @@ class DashboardService:
             platform_metrics=platform_metrics,
         )
 
-    def get_dashboard_snapshot(self) -> DashboardSnapshotDTO:
-
+    def get_dashboard_snapshot(self, perf_preset: str = "ALL") -> DashboardSnapshotDTO:
         """Assembles a unified snapshot across all domains."""
         next_best = self.get_next_best_action()
         hunt_items = self.get_todays_job_hunt_items(limit=10)
         top_opps = self.job_service.get_top_opportunities(limit=7)
         progress = self.get_todays_progress()
-        search_perf = self.get_search_performance(preset="30D")
+        search_perf = self.get_search_performance(preset=perf_preset)
         readiness = self.get_readiness_summary()
         pipeline = self.get_summary_metrics()
         activities = self.get_recent_activity(limit=5)

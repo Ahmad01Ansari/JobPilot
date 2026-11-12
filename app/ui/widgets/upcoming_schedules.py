@@ -84,7 +84,7 @@ class ScheduleItemWidget(QFrame):
             btn_action.clicked.connect(self._open_link)
             layout.addWidget(btn_action, alignment=Qt.AlignVCenter)
         else:
-            action_btn_text = "Prepare →" if "INTERVIEW" in self.item_type.upper() else "Review →"
+            action_btn_text = "Update Stage →" if "INTERVIEW" in self.item_type.upper() else "Review →"
             btn_action = QPushButton(action_btn_text)
             btn_action.setCursor(Qt.PointingHandCursor)
             btn_action.setStyleSheet(f"""

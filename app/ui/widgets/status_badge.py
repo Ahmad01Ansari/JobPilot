@@ -4,39 +4,52 @@ Provides uniform geometry, consistent dimensions, and standardized ATS color pal
 across all pages (Jobs, Applications, Interviews, Follow-ups, and Modals).
 """
 
-from typing import Optional
+from typing import List, Optional, Sequence
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import QLabel, QMenu, QPushButton, QWidget
-from app.ui.theme import COLORS
+from app.repositories.validators import CANONICAL_STAGE_LABELS, normalize_display_status
+from app.ui.theme import COLORS, ThemeManager
+
+_DARK_BADGE_MAP = {
+    "success": ("#34D399", "#064E3B", "#059669", "#065F46"),
+    "warning": ("#FBBF24", "#451A03", "#D97706", "#78350F"),
+    "danger": ("#F87171", "#450A0A", "#DC2626", "#7F1D1D"),
+    "primary": ("#FB923C", "#431407", "#EA580C", "#7C2D12"),
+    "info": ("#38BDF8", "#082F49", "#0284C7", "#075985"),
+    "purple": ("#C084FC", "#2E1065", "#7C3AED", "#4C1D95"),
+    "neutral": ("#9CA3AF", "#1F2937", "#374151", "#374151"),
+    "muted": ("#8B949E", "#161B22", "#262C36", "#262C36"),
+    "default": ("#9CA3AF", "#1F2937", "#374151", "#374151"),
+}
+
+_LIGHT_BADGE_MAP = {
+    "success": ("#14532D", "#DCFCE7", "#86EFAC", "#BBF7D0"),
+    "warning": ("#78350F", "#FEF3C7", "#FCD34D", "#FDE68A"),
+    "danger": ("#7F1D1D", "#FEE2E2", "#FCA5A5", "#FECACA"),
+    "primary": ("#9A3412", "#FFEDD5", "#FDBA74", "#FED7AA"),
+    "info": ("#075985", "#E0F2FE", "#7DD3FC", "#BAE6FD"),
+    "purple": ("#581C87", "#F3E8FF", "#D8B4FE", "#E9D5FF"),
+    "neutral": ("#374151", "#F3F4F6", "#D1D5DB", "#E5E7EB"),
+    "muted": ("#4B5563", "#F3F4F6", "#D1D5DB", "#E5E7EB"),
+    "default": ("#374151", "#F3F4F6", "#D1D5DB", "#E5E7EB"),
+}
 
 STATUS_DISPLAY_LABELS = {
-    "SUBMITTED": "Submitted",
-    "UNDER_REVIEW": "Under Review",
-    "SHORTLISTED": "Shortlisted",
-    "RECRUITER_CONTACTED": "Recruiter Call",
-    "ASSESSMENT": "Assessment",
-    "INTERVIEW": "Interview",
-    "OFFER": "Offer",
-    "REJECTED": "Rejected",
-    "WITHDRAWN": "Withdrawn",
-    "APPLYING": "Applying",
-    "MANUAL_REQUIRED": "Manual Check",
-    "FAILED": "Failed",
-    "DISCOVERED": "Discovered",
-    "QUALIFIED": "Qualified",
-    "SKIPPED": "Skipped",
-    "JUNK": "Junk",
+    **CANONICAL_STAGE_LABELS,
     "PENDING": "Pending",
     "COMPLETED": "Completed",
     "CANCELLED": "Cancelled",
+    "NO_SHOW": "No Show",
     "SCHEDULED": "Scheduled",
     "OVERDUE": "Overdue",
-    "NOT_APPLIED": "Not Applied",
     "READY": "Ready",
     "ACTIVE": "Active",
     "IDLE": "Idle",
     "VERIFIED": "Verified",
     "NEEDS_REVIEW": "Needs Review",
+    "DISCOVERED": "Not Applied",
+    "QUALIFIED": "Not Applied",
+    "EXTERNAL": "Not Applied",
 }
 
 
@@ -74,17 +87,7 @@ class StatusBadge(QLabel):
         self.update_style(variant or status_type)
 
     def update_style(self, status_type: str):
-        color_map = {
-            "success": ("#34D399", "#064E3B", "#059669"),
-            "warning": ("#FBBF24", "#451A03", "#D97706"),
-            "danger": ("#F87171", "#450A0A", "#DC2626"),
-            "primary": ("#FB923C", "#431407", "#EA580C"),
-            "info": ("#38BDF8", "#082F49", "#0284C7"),
-            "purple": ("#C084FC", "#2E1065", "#7C3AED"),
-            "neutral": ("#9CA3AF", "#1F2937", "#374151"),
-            "muted": ("#8B949E", "#161B22", "#262C36"),
-            "default": ("#9CA3AF", "#1F2937", "#374151"),
-        }
+        palette = _LIGHT_BADGE_MAP if ThemeManager.current_mode == "light" else _DARK_BADGE_MAP
 
         # Derive variant from raw text if not explicitly provided or if default
         st_upper = self.raw_text.strip().upper()
@@ -104,7 +107,7 @@ class StatusBadge(QLabel):
             elif st_upper in ["WITHDRAWN", "SKIPPED", "NOT_APPLIED", "DISCOVERED", "IDLE"]:
                 status_type = "neutral"
 
-        fg, bg, border = color_map.get(status_type, color_map["default"])
+        fg, bg, border, _ = palette.get(status_type, palette["default"])
         radius = getattr(self, "_h", self.height()) // 2
 
         self.setStyleSheet(f"""
@@ -127,44 +130,45 @@ class StatusDropdownButton(QPushButton):
     status_changed = Signal(str)  # target status string
 
     STATUS_OPTIONS = [
-        ("SUBMITTED", "📄 Submitted", "success"),
-        ("UNDER_REVIEW", "⏳ Under Review", "warning"),
-        ("SHORTLISTED", "🌟 Shortlisted", "primary"),
-        ("ASSESSMENT", "📝 Assessment", "purple"),
-        ("INTERVIEW", "🗓️ Interview", "purple"),
-        ("OFFER", "🎉 Offer", "success"),
-        ("REJECTED", "❌ Rejected", "danger"),
-        ("WITHDRAWN", "↩️ Withdrawn", "neutral"),
-        ("FAILED", "⚠️ Failed", "danger"),
-        ("MANUAL_REQUIRED", "🖐️ Manual Check", "warning"),
-        ("NOT_APPLIED", "⚪ Not Applied", "neutral"),
+        ("SUBMITTED", "Submitted", "success"),
+        ("UNDER_REVIEW", "Under Review", "warning"),
+        ("SHORTLISTED", "Shortlisted", "primary"),
+        ("RECRUITER_CONTACTED", "Recruiter Call", "primary"),
+        ("ASSESSMENT", "Assessment", "purple"),
+        ("INTERVIEW", "Interview", "purple"),
+        ("OFFER", "Offer", "success"),
+        ("REJECTED", "Rejected", "danger"),
+        ("WITHDRAWN", "Withdrawn", "neutral"),
+        ("MANUAL_REQUIRED", "Manual Check", "warning"),
+        ("FAILED", "Failed", "danger"),
+        ("SKIPPED", "Skipped", "neutral"),
+        ("NOT_APPLIED", "Not Applied", "neutral"),
     ]
 
-    def __init__(self, current_status: str, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        current_status: str,
+        parent: Optional[QWidget] = None,
+        allowed_statuses: Optional[Sequence[str]] = None,
+    ):
         super().__init__(parent)
-        self.current_status = (current_status or "NOT_APPLIED").strip().upper()
+        self._allowed_statuses = set(allowed_statuses) if allowed_statuses else None
+        self.current_status = normalize_display_status(current_status)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(112, 22)
+        self.setFixedSize(118, 22)
         self.update_display(self.current_status)
         self.clicked.connect(self._show_menu)
 
     def update_display(self, status: str) -> None:
-        self.current_status = (status or "NOT_APPLIED").strip().upper()
+        self.current_status = normalize_display_status(status)
         display_label = STATUS_DISPLAY_LABELS.get(self.current_status, self.current_status.replace("_", " ").title())
         self.setText(f"{display_label} ▾")
         self.setToolTip(f"Current Stage: {display_label}\nClick to change job stage")
 
-        color_map = {
-            "success": ("#34D399", "#064E3B", "#059669"),
-            "warning": ("#FBBF24", "#451A03", "#D97706"),
-            "danger": ("#F87171", "#450A0A", "#DC2626"),
-            "primary": ("#FB923C", "#431407", "#EA580C"),
-            "purple": ("#C084FC", "#2E1065", "#7C3AED"),
-            "neutral": ("#9CA3AF", "#1F2937", "#374151"),
-        }
+        palette = _LIGHT_BADGE_MAP if ThemeManager.current_mode == "light" else _DARK_BADGE_MAP
         st = "neutral"
         if self.current_status in ["SUBMITTED", "OFFER", "COMPLETED", "READY", "QUALIFIED"]:
             st = "success"
@@ -177,7 +181,8 @@ class StatusDropdownButton(QPushButton):
         elif self.current_status in ["REJECTED", "FAILED", "OVERDUE", "CANCELLED"]:
             st = "danger"
 
-        fg, bg, border = color_map.get(st, color_map["neutral"])
+        fg, bg, border, hover_bg = palette.get(st, palette["neutral"])
+        hover_fg = fg if ThemeManager.current_mode == "light" else "#FFFFFF"
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
@@ -191,7 +196,12 @@ class StatusDropdownButton(QPushButton):
             }}
             QPushButton:hover {{
                 border-color: {fg};
-                background-color: {border}40;
+                background-color: {hover_bg};
+                color: {hover_fg};
+            }}
+            QPushButton:focus {{
+                border: 2px solid {COLORS["primary"]};
+                padding: 0px 5px;
             }}
         """)
 
@@ -227,9 +237,11 @@ class StatusDropdownButton(QPushButton):
         menu.addSeparator()
 
         for code, label, _ in self.STATUS_OPTIONS:
+            if self._allowed_statuses and code not in self._allowed_statuses:
+                continue
             act = menu.addAction(label)
             if code == self.current_status:
-                act.setText(f"✓ {label}")
+                act.setText(f"* {label}")
                 act.setEnabled(False)
             act.triggered.connect(lambda _, c=code: self._on_action_triggered(c))
 

@@ -16,7 +16,11 @@ from app.db.models import Application, ApplicationStatusHistory, Job
 from app.db.session import SessionLocal, get_db_session
 from app.repositories.application_repository import ApplicationRepository
 from app.repositories.dto import ApplicationCreateDTO
-from app.repositories.validators import ALLOWED_TRANSITIONS, validate_status_transition
+from app.repositories.validators import (
+    ALLOWED_TRANSITIONS,
+    UNAPPLIED_ALIAS_STATUSES,
+    validate_status_transition,
+)
 
 
 @dataclass
@@ -147,12 +151,14 @@ class ApplicationService:
         with get_db_session(self._session_factory) as session:
             stmt = select(Application).options(joinedload(Application.job)).join(Job)
 
-            if filters:
-                if filters.status_list:
-                    cleaned_statuses = [s.strip().upper() for s in filters.status_list if s.strip()]
-                    if cleaned_statuses:
-                        stmt = stmt.where(Application.status.in_(cleaned_statuses))
+            if filters and filters.status_list:
+                cleaned_statuses = [s.strip().upper() for s in filters.status_list if s.strip()]
+                if cleaned_statuses:
+                    stmt = stmt.where(Application.status.in_(cleaned_statuses))
+            else:
+                stmt = stmt.where(Application.status.notin_(tuple(UNAPPLIED_ALIAS_STATUSES)))
 
+            if filters:
                 if filters.platform and filters.platform.strip().lower() not in ["all", ""]:
                     stmt = stmt.where(Job.platform == filters.platform.strip().lower())
 
@@ -183,12 +189,14 @@ class ApplicationService:
         with get_db_session(self._session_factory) as session:
             stmt = select(func.count(Application.id)).join(Job)
 
-            if filters:
-                if filters.status_list:
-                    cleaned_statuses = [s.strip().upper() for s in filters.status_list if s.strip()]
-                    if cleaned_statuses:
-                        stmt = stmt.where(Application.status.in_(cleaned_statuses))
+            if filters and filters.status_list:
+                cleaned_statuses = [s.strip().upper() for s in filters.status_list if s.strip()]
+                if cleaned_statuses:
+                    stmt = stmt.where(Application.status.in_(cleaned_statuses))
+            else:
+                stmt = stmt.where(Application.status.notin_(tuple(UNAPPLIED_ALIAS_STATUSES)))
 
+            if filters:
                 if filters.platform and filters.platform.strip().lower() not in ["all", ""]:
                     stmt = stmt.where(Job.platform == filters.platform.strip().lower())
 
@@ -227,6 +235,11 @@ class ApplicationService:
             repo = ApplicationRepository(session)
             grouped = repo.get_pipeline_grouped()
             return {status: len(apps) for status, apps in grouped.items()}
+
+    def get_kpi_summary(self) -> Dict[str, int]:
+        """Returns canonical KPI card counts aligned with Dashboard and Interviews views."""
+        with get_db_session(self._session_factory) as session:
+            return ApplicationRepository(session).get_canonical_kpi_counts()
 
     def get_allowed_transitions(self, current_status: str) -> List[str]:
         """Returns the list of valid target states reachable from current status."""

@@ -270,7 +270,12 @@ class ApplicationTracker:
                 job, _ = job_repo.upsert_job(dto)
 
                 app = app_repo.get_by_job_id(job.id)
-                if not app:
+                if record.status in ("DISCOVERED", "EXTERNAL", "QUALIFIED"):
+                    # Job discovery / external portal method lives on Job (application_method / application_url).
+                    # Avoid creating redundant Application rows so unapplied jobs consistently appear as NOT_APPLIED.
+                    if app and app.status in ("APPLYING", "DISCOVERED", "QUALIFIED", "EXTERNAL"):
+                        app.status = "NOT_APPLIED"
+                elif not app:
                     app_dto = ApplicationCreateDTO(
                         job_id=job.id,
                         user_id=uid,

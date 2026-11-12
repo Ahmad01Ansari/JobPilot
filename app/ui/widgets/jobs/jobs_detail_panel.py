@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.db.models import Job
+from app.repositories.validators import normalize_display_status
 from app.ui.theme import COLORS
+from app.ui.widgets.status_badge import StatusDropdownButton
 
 
 def format_platform_name(platform: Optional[str]) -> str:
@@ -47,14 +49,7 @@ class JobsDetailPanel(QFrame):
     status_change_requested = Signal(object, str)   # (Job, new_status)
 
     STATUS_OPTIONS = [
-        ("SUBMITTED", "📄 Submitted"),
-        ("UNDER_REVIEW", "⏳ Under Review"),
-        ("INTERVIEW", "🎯 Interview / Shortlisted"),
-        ("OFFER", "🎉 Offer"),
-        ("REJECTED", "❌ Rejected"),
-        ("FAILED", "⚠️ Failed"),
-        ("MANUAL_REQUIRED", "🖐️ Manual Check"),
-        ("NOT_APPLIED", "⚪ Not Applied"),
+        (code, label) for code, label, _ in StatusDropdownButton.STATUS_OPTIONS
     ]
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -507,9 +502,13 @@ class JobsDetailPanel(QFrame):
             except Exception:
                 self._current_app_status = None
 
-        curr_st = self._current_app_status or ("SUBMITTED" if in_pipeline else "NOT_APPLIED")
-        if in_pipeline or (self._current_app_status and self._current_app_status not in ("NOT_APPLIED", "JUNK")):
-            st_clean = curr_st.replace("_", " ").title()
+        normalized_st = normalize_display_status(self._current_app_status)
+        if not self._current_app_status and in_pipeline:
+            normalized_st = "SUBMITTED"
+        self._current_app_status = normalized_st
+
+        if normalized_st not in ("NOT_APPLIED", "JUNK"):
+            st_clean = normalized_st.replace("_", " ").title()
             self.btn_track_app.setText(f"Status: {st_clean} ▾")
             self.btn_track_app.setEnabled(True)
             self.btn_track_app.setToolTip(f"Current status: {st_clean}. Click to update.")

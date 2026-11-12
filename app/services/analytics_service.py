@@ -192,20 +192,22 @@ class AnalyticsService:
             q_prog = self._apply_application_filters(q_prog, f, start_date, end_date)
             progressed_apps = session.scalar(q_prog) or 0
 
-            # 4. Distinct Applications with >= 1 Interview in cohort
+            # 4. Distinct Applications with >= 1 Interview (row or INTERVIEW status) in cohort
             q_iv = (
-                select(func.count(func.distinct(Interview.application_id)))
-                .join(Application, Interview.application_id == Application.id)
+                select(func.count(func.distinct(Application.id)))
+                .outerjoin(Interview, Interview.application_id == Application.id)
                 .join(Job, Application.job_id == Job.id)
+                .where((Application.status == "INTERVIEW") | (Interview.id.is_not(None)))
             )
             q_iv = self._apply_application_filters(q_iv, f, start_date, end_date)
             interviewed_apps = session.scalar(q_iv) or 0
 
-            # 5. Distinct Applications with an Offer in cohort
+            # 5. Distinct Applications with an Offer (Offer row or OFFER status) in cohort
             q_off = (
-                select(func.count(func.distinct(Offer.application_id)))
-                .join(Application, Offer.application_id == Application.id)
+                select(func.count(func.distinct(Application.id)))
+                .outerjoin(Offer, Offer.application_id == Application.id)
                 .join(Job, Application.job_id == Job.id)
+                .where((Application.status == "OFFER") | (Offer.id.is_not(None)))
             )
             q_off = self._apply_application_filters(q_off, f, start_date, end_date)
             offer_apps = session.scalar(q_off) or 0
@@ -346,20 +348,22 @@ class AnalyticsService:
             q_r = self._apply_application_filters(q_r, f, start_date, end_date)
             responded_apps = session.scalar(q_r) or 0
 
-            # 5. Distinct Interviews
+            # 5. Distinct Interviews (Interview row or INTERVIEW status)
             q_i = (
-                select(func.count(func.distinct(Interview.application_id)))
-                .join(Application, Interview.application_id == Application.id)
+                select(func.count(func.distinct(Application.id)))
+                .outerjoin(Interview, Interview.application_id == Application.id)
                 .join(Job, Application.job_id == Job.id)
+                .where((Application.status == "INTERVIEW") | (Interview.id.is_not(None)))
             )
             q_i = self._apply_application_filters(q_i, f, start_date, end_date)
             interviewed_apps = session.scalar(q_i) or 0
 
-            # 6. Distinct Offers
+            # 6. Distinct Offers (Offer row or OFFER status)
             q_o = (
-                select(func.count(func.distinct(Offer.application_id)))
-                .join(Application, Offer.application_id == Application.id)
+                select(func.count(func.distinct(Application.id)))
+                .outerjoin(Offer, Offer.application_id == Application.id)
                 .join(Job, Application.job_id == Job.id)
+                .where((Application.status == "OFFER") | (Offer.id.is_not(None)))
             )
             q_o = self._apply_application_filters(q_o, f, start_date, end_date)
             offer_apps = session.scalar(q_o) or 0
@@ -536,10 +540,20 @@ class AnalyticsService:
         """Calculates factual comparison metrics across platforms with safe division."""
         f = f or AnalyticsFilter()
         start_date, end_date = self.resolve_filter_dates(f)
-        platforms = ["linkedin", "naukri", "indeed", "foundit", "glassdoor", "manual"]
+        base_platforms = ["linkedin", "naukri", "indeed", "foundit", "glassdoor", "universal", "manual"]
         comparison: List[Dict[str, Any]] = []
 
         with get_db_session(self._session_factory) as session:
+            db_plats = [
+                (p or "").strip().lower()
+                for p in session.scalars(select(func.distinct(Job.platform))).all()
+                if p and str(p).strip()
+            ]
+            platforms = list(base_platforms)
+            for dp in db_plats:
+                if dp not in platforms:
+                    platforms.append(dp)
+
             for plat in platforms:
                 # 1. Jobs discovered on this platform
                 q_j = select(func.count(Job.id)).where(Job.platform == plat)
@@ -577,22 +591,28 @@ class AnalyticsService:
                 q_pr = self._apply_application_filters(q_pr, f, start_date, end_date)
                 prog_count = session.scalar(q_pr) or 0
 
-                # 5. Distinct interviews
+                # 5. Distinct interviews (Interview row or INTERVIEW status)
                 q_i = (
-                    select(func.count(func.distinct(Interview.application_id)))
-                    .join(Application, Interview.application_id == Application.id)
+                    select(func.count(func.distinct(Application.id)))
+                    .outerjoin(Interview, Interview.application_id == Application.id)
                     .join(Job, Application.job_id == Job.id)
-                    .where(Job.platform == plat)
+                    .where(
+                        Job.platform == plat,
+                        (Application.status == "INTERVIEW") | (Interview.id.is_not(None)),
+                    )
                 )
                 q_i = self._apply_application_filters(q_i, f, start_date, end_date)
                 iv_count = session.scalar(q_i) or 0
 
-                # 6. Distinct offers
+                # 6. Distinct offers (Offer row or OFFER status)
                 q_o = (
-                    select(func.count(func.distinct(Offer.application_id)))
-                    .join(Application, Offer.application_id == Application.id)
+                    select(func.count(func.distinct(Application.id)))
+                    .outerjoin(Offer, Offer.application_id == Application.id)
                     .join(Job, Application.job_id == Job.id)
-                    .where(Job.platform == plat)
+                    .where(
+                        Job.platform == plat,
+                        (Application.status == "OFFER") | (Offer.id.is_not(None)),
+                    )
                 )
                 q_o = self._apply_application_filters(q_o, f, start_date, end_date)
                 offers_count = session.scalar(q_o) or 0

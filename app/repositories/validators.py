@@ -30,45 +30,135 @@ def normalize_company_name(name: str) -> str:
     return cleaned
 
 
+# Canonical lifecycle classification sets (Single Source of Truth)
+UNAPPLIED_ALIAS_STATUSES = {"NOT_APPLIED", "DISCOVERED", "QUALIFIED", "EXTERNAL"}
+
+PRE_APPLICATION_STATUSES = {
+    "NOT_APPLIED",
+    "APPLYING",
+    "MANUAL_REQUIRED",
+    "FAILED",
+    "SKIPPED",
+    "UNKNOWN",
+    "JUNK",
+}
+
+PIPELINE_STATUSES = (
+    "SUBMITTED",
+    "UNDER_REVIEW",
+    "SHORTLISTED",
+    "RECRUITER_CONTACTED",
+    "ASSESSMENT",
+    "INTERVIEW",
+    "OFFER",
+    "REJECTED",
+    "WITHDRAWN",
+)
+
+TERMINAL_OUTCOME_STATUSES = {"OFFER", "REJECTED", "WITHDRAWN", "JUNK"}
+
+CANONICAL_STAGE_LABELS = {
+    "NOT_APPLIED": "Not Applied",
+    "APPLYING": "Applying",
+    "MANUAL_REQUIRED": "Manual Check",
+    "FAILED": "Failed",
+    "SKIPPED": "Skipped",
+    "UNKNOWN": "Unknown",
+    "SUBMITTED": "Submitted",
+    "UNDER_REVIEW": "Under Review",
+    "SHORTLISTED": "Shortlisted",
+    "RECRUITER_CONTACTED": "Recruiter Call",
+    "ASSESSMENT": "Assessment",
+    "INTERVIEW": "Interview",
+    "OFFER": "Offer",
+    "REJECTED": "Rejected",
+    "WITHDRAWN": "Withdrawn",
+    "JUNK": "Junk",
+}
+
+
+def normalize_display_status(status: Optional[str]) -> str:
+    """Normalizes legacy discovery/external/internal tracker statuses to canonical UI stages.
+
+    Jobs discovered from any source (including Company Portal / External) share the single
+    canonical 'NOT_APPLIED' stage until an application or explicit skip/failure occurs.
+    """
+    st = (status or "").strip().upper()
+    if not st or st in UNAPPLIED_ALIAS_STATUSES:
+        return "NOT_APPLIED"
+    if st == "ALREADY_APPLIED":
+        return "SKIPPED"
+    return st
+
+
 # Application status state machine definitions
 ALLOWED_TRANSITIONS = {
     None: {
+        "NOT_APPLIED",
         "APPLYING",
         "SUBMITTED",
         "UNDER_REVIEW",
         "SHORTLISTED",
+        "RECRUITER_CONTACTED",
+        "ASSESSMENT",
+        "INTERVIEW",
+        "OFFER",
+        "REJECTED",
+        "WITHDRAWN",
+        "MANUAL_REQUIRED",
+        "FAILED",
         "DISCOVERED",
         "QUALIFIED",
         "SKIPPED",
         "JUNK",
     },
-    "DISCOVERED": {"QUALIFIED", "SKIPPED", "JUNK"},
-    "QUALIFIED": {"APPLYING", "SKIPPED", "JUNK"},
-    "SKIPPED": {"QUALIFIED", "APPLYING", "JUNK"},  # Allow manual re-qualification or junking
-    "JUNK": {"DISCOVERED", "QUALIFIED", "APPLYING", "SUBMITTED", "SKIPPED", "NOT_APPLIED"},
+    "NOT_APPLIED": {
+        "APPLYING",
+        "SUBMITTED",
+        "UNDER_REVIEW",
+        "SHORTLISTED",
+        "RECRUITER_CONTACTED",
+        "ASSESSMENT",
+        "INTERVIEW",
+        "OFFER",
+        "REJECTED",
+        "WITHDRAWN",
+        "MANUAL_REQUIRED",
+        "FAILED",
+        "SKIPPED",
+        "JUNK",
+    },
+    "DISCOVERED": {"NOT_APPLIED", "QUALIFIED", "APPLYING", "SUBMITTED", "SKIPPED", "JUNK"},
+    "QUALIFIED": {"NOT_APPLIED", "APPLYING", "SUBMITTED", "SKIPPED", "JUNK"},
+    "SKIPPED": {"NOT_APPLIED", "QUALIFIED", "APPLYING", "SUBMITTED", "JUNK"},
+    "JUNK": {"NOT_APPLIED", "DISCOVERED", "QUALIFIED", "APPLYING", "SUBMITTED", "SKIPPED"},
     "APPLYING": {
+        "NOT_APPLIED",
         "SUBMITTED",
         "FAILED",
         "UNKNOWN",
         "MANUAL_REQUIRED",
         "EXTERNAL",
+        "SKIPPED",
         "JUNK",
     },
-    "FAILED": {"APPLYING", "JUNK"},  # Manual retry or junking
-    "UNKNOWN": {"SUBMITTED", "FAILED", "APPLYING", "JUNK"},  # Manual confirmation or junking
-    "MANUAL_REQUIRED": {"APPLYING", "SUBMITTED", "SKIPPED", "JUNK"},
-    "EXTERNAL": {"SUBMITTED", "APPLYING", "WITHDRAWN", "JUNK"},
+    "FAILED": {"NOT_APPLIED", "APPLYING", "SUBMITTED", "MANUAL_REQUIRED", "SKIPPED", "JUNK"},
+    "UNKNOWN": {"NOT_APPLIED", "SUBMITTED", "FAILED", "APPLYING", "MANUAL_REQUIRED", "JUNK"},
+    "MANUAL_REQUIRED": {"NOT_APPLIED", "APPLYING", "SUBMITTED", "SKIPPED", "FAILED", "JUNK"},
+    "EXTERNAL": {"NOT_APPLIED", "SUBMITTED", "APPLYING", "SKIPPED", "WITHDRAWN", "JUNK"},
     "SUBMITTED": {
+        "NOT_APPLIED",
         "UNDER_REVIEW",
         "SHORTLISTED",
-        "JUNK",
         "RECRUITER_CONTACTED",
         "ASSESSMENT",
         "INTERVIEW",
         "REJECTED",
         "WITHDRAWN",
+        "JUNK",
     },
     "UNDER_REVIEW": {
+        "SUBMITTED",
         "SHORTLISTED",
         "RECRUITER_CONTACTED",
         "ASSESSMENT",
@@ -78,6 +168,7 @@ ALLOWED_TRANSITIONS = {
         "WITHDRAWN",
     },
     "SHORTLISTED": {
+        "UNDER_REVIEW",
         "RECRUITER_CONTACTED",
         "ASSESSMENT",
         "INTERVIEW",
@@ -90,6 +181,7 @@ ALLOWED_TRANSITIONS = {
         "INTERVIEW",
         "OFFER",
         "UNDER_REVIEW",
+        "SHORTLISTED",
         "REJECTED",
         "WITHDRAWN",
     },
@@ -97,19 +189,24 @@ ALLOWED_TRANSITIONS = {
         "INTERVIEW",
         "OFFER",
         "UNDER_REVIEW",
+        "SHORTLISTED",
         "REJECTED",
         "WITHDRAWN",
     },
     "INTERVIEW": {
-        "INTERVIEW",  # Multiple rounds
+        "INTERVIEW",
         "OFFER",
         "ASSESSMENT",
         "UNDER_REVIEW",
+        "SHORTLISTED",
+        "RECRUITER_CONTACTED",
+        "SUBMITTED",
         "REJECTED",
         "WITHDRAWN",
     },
     "OFFER": {
         "OFFER",
+        "INTERVIEW",
         "REJECTED",
         "WITHDRAWN",
     },

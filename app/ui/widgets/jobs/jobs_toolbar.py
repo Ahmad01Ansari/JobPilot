@@ -55,7 +55,7 @@ class JobsToolbar(QWidget):
 
         # Global Search
         self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("🔍  Search jobs, companies, keywords...")
+        self.txt_search.setPlaceholderText("Search jobs, companies, keywords...")
         self.txt_search.setClearButtonEnabled(True)
         self.txt_search.setStyleSheet(self._input_style())
         self.txt_search.textChanged.connect(self._on_search_text_changed)
@@ -63,7 +63,7 @@ class JobsToolbar(QWidget):
 
         # Location Filter Input
         self.txt_location = QLineEdit()
-        self.txt_location.setPlaceholderText("📍  Location...")
+        self.txt_location.setPlaceholderText("Location...")
         self.txt_location.setClearButtonEnabled(True)
         self.txt_location.setMaximumWidth(150)
         self.txt_location.setStyleSheet(self._input_style())
@@ -92,11 +92,16 @@ class JobsToolbar(QWidget):
             "All Statuses",
             "Not Applied",
             "Applying",
+            "Manual Check",
             "Submitted",
+            "Under Review",
+            "Shortlisted",
+            "Interview",
+            "Offer",
+            "Rejected",
+            "Withdrawn",
             "Skipped",
             "Failed",
-            "External",
-            "Already Applied",
             "Junk",
         ])
         self.cmb_status.setStyleSheet(self._combo_style())
@@ -452,7 +457,14 @@ class JobsToolbar(QWidget):
         platform = None if plat in ["all platforms", "all", ""] else plat
 
         stat = self.cmb_status.currentText().strip().upper().replace(" ", "_")
-        status = None if stat in ["ALL_STATUSES", "ALL", ""] else stat
+        status_alias = {
+            "ALL_STATUSES": None,
+            "ALL": None,
+            "": None,
+            "MANUAL_CHECK": "MANUAL_REQUIRED",
+            "RECRUITER_CALL": "RECRUITER_CONTACTED",
+        }
+        status = status_alias.get(stat, stat)
 
         meth = self.cmb_method.currentText().strip().upper().replace(" ", "_")
         method = None if meth in ["ALL_METHODS", "ALL", ""] else meth

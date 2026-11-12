@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.services.dto.dashboard_dto import ReadinessSummaryDTO
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon
 
 
 class ReadinessStrip(QFrame):
@@ -102,21 +103,25 @@ class ReadinessStrip(QFrame):
         return btn
 
     def set_readiness(self, readiness: ReadinessSummaryDTO) -> None:
-        """Updates readiness pill texts and consolidated platform health."""
-        # 1. Profile
-        prof_icon = "✓" if readiness.profile_complete else "⚠️"
-        self.btn_profile.setText(f"Profile {prof_icon}")
+        """Updates readiness pill texts, vector status icons, and consolidated platform health."""
+        ok_color = COLORS["success"]
+        warn_color = COLORS["warning"]
 
-        # 2. Resume
-        res_icon = "✓" if readiness.resume_configured else "⚠️"
-        self.btn_resume.setText(f"Resume {res_icon}")
+        self.btn_profile.setIconSize(QSize(12, 12))
+        self.btn_profile.setIcon(render_vector_icon("check" if readiness.profile_complete else "alert", ok_color if readiness.profile_complete else warn_color, 12))
+        self.btn_profile.setText("Profile")
 
-        # 3. QnA
+        self.btn_resume.setIconSize(QSize(12, 12))
+        self.btn_resume.setIcon(render_vector_icon("check" if readiness.resume_configured else "alert", ok_color if readiness.resume_configured else warn_color, 12))
+        self.btn_resume.setText("Resume")
+
         qna_pct = int(readiness.qna_answered_ratio * 100)
-        qna_text = "✓" if qna_pct >= 80 else f"{qna_pct}%"
-        self.btn_qna.setText(f"QA {qna_text}")
+        qna_ok = qna_pct >= 80
+        self.btn_qna.setIconSize(QSize(12, 12))
+        self.btn_qna.setIcon(render_vector_icon("check" if qna_ok else "alert", ok_color if qna_ok else warn_color, 12))
+        self.btn_qna.setText("QA Ready" if qna_ok else f"QA {qna_pct}%")
 
-        # 4. Consolidated platforms
+        # Consolidated platforms
         platforms_dict = readiness.platforms or {}
         active_plats = [p for p in platforms_dict.keys() if p != "email"]
         ready_count = sum(1 for p, s in platforms_dict.items() if p != "email" and s in ("READY", "CONNECTED"))

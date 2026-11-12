@@ -1,9 +1,10 @@
 """Modern segmented category tabs for Jobs page: All Jobs, Easy Apply, Company Portal, Junk."""
 
 from typing import Optional
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon
 
 
 class JobsCategoryTabs(QWidget):
@@ -25,7 +26,9 @@ class JobsCategoryTabs(QWidget):
         self.btn_all = QPushButton("All Jobs")
         self.btn_easy = QPushButton("Easy Apply")
         self.btn_portal = QPushButton("Company Portal")
-        self.btn_junk = QPushButton("🗑 Junk")
+        self.btn_junk = QPushButton("Junk")
+        self.btn_junk.setIconSize(QSize(13, 13))
+        self.btn_junk.setIcon(render_vector_icon("trash", COLORS["text_muted"], 13))
 
         for btn in [self.btn_all, self.btn_easy, self.btn_portal, self.btn_junk]:
             btn.setCheckable(True)
@@ -77,7 +80,7 @@ class JobsCategoryTabs(QWidget):
         self.btn_all.setText(f"All Jobs  ({all_count})")
         self.btn_easy.setText(f"Easy Apply  ({easy_count})")
         self.btn_portal.setText(f"Company Portal  ({portal_count})")
-        self.btn_junk.setText(f"🗑 Junk  ({junk_count})")
+        self.btn_junk.setText(f"Junk  ({junk_count})")
 
     def _apply_styles(self) -> None:
         style = f"""

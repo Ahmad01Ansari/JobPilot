@@ -4,8 +4,11 @@ Modern ATS aesthetic with Refined Dark Canvas (#0F1117), Crisp Light Canvas (#F6
 and Vibrant Safety Orange Accents (#FF5F15).
 """
 
+import logging
 from pathlib import Path
 from typing import Dict
+
+logger = logging.getLogger(__name__)
 
 _CHECK_ICON_PATH = (Path(__file__).parent / "assets" / "icons" / "check.svg").as_posix()
 _CHEVRON_DOWN_PATH = (Path(__file__).parent / "assets" / "icons" / "chevron_down.svg").as_posix()
@@ -108,8 +111,8 @@ class ThemeManager:
         for cb in list(cls._listeners):
             try:
                 cb(mode)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Theme listener callback failed: %s", exc)
 
     @staticmethod
     def get_stylesheet(tokens: Dict[str, str] = COLORS) -> str:
@@ -206,6 +209,8 @@ class ThemeManager:
             outline: none;
         }}
         QPushButton:focus {{
+            border: 2px solid {tokens["primary"]};
+            padding: 7px 15px;
             outline: none;
         }}
         QPushButton:pressed {{
@@ -390,15 +395,15 @@ class ThemeManager:
             gridline-color: transparent;
             color: {tokens["text"]};
             selection-background-color: {tokens["surface_hover"]};
-            selection-color: #FFFFFF;
+            selection-color: {tokens["text"]};
         }}
         QTableWidget::item:hover, QTableView::item:hover {{
             background-color: {tokens["surface_hover"]};
-            color: #FFFFFF;
+            color: {tokens["text"]};
         }}
         QTableWidget::item:selected, QTableView::item:selected {{
             background-color: {tokens["surface_hover"]};
-            color: #FFFFFF;
+            color: {tokens["text"]};
         }}
         QTableWidget QWidget, QTableView QWidget {{
             background-color: transparent;
@@ -471,22 +476,62 @@ class ThemeManager:
             font-size: 16px;
             font-weight: 700;
             color: {tokens["text"]};
+            background: transparent;
+            border: none;
         }}
         TopBar QPushButton#TopBarSearch {{
             background-color: {tokens["surface_alt"]};
             color: {tokens["text_muted"]};
             border: 1px solid {tokens["border_light"]};
             border-radius: 18px;
-            padding: 7px 16px;
+            padding: 7px 14px;
             font-size: 12px;
             font-weight: 500;
             text-align: left;
-            min-width: 320px;
+            min-width: 220px;
+            max-width: 420px;
         }}
         TopBar QPushButton#TopBarSearch:hover {{
             background-color: {tokens["surface_hover"]};
             color: {tokens["text"]};
             border-color: {tokens["primary"]};
+        }}
+        TopBar QPushButton#TopBarSearch:focus {{
+            border: 2px solid {tokens["primary"]};
+            padding: 6px 13px;
+            color: {tokens["text"]};
+        }}
+        TopBar QPushButton#TopBarRefreshBtn,
+        TopBar QPushButton#TopBarAboutBtn {{
+            background-color: {tokens["surface_alt"]};
+            color: {tokens["text_muted"]};
+            border: 1px solid {tokens["border_light"]};
+            border-radius: 16px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        TopBar QPushButton#TopBarProfileBtn {{
+            background-color: {tokens["surface_alt"]};
+            color: {tokens["text"]};
+            border: 1px solid {tokens["border_light"]};
+            border-radius: 16px;
+            padding: 5px 14px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+        TopBar QPushButton#TopBarRefreshBtn:hover,
+        TopBar QPushButton#TopBarAboutBtn:hover,
+        TopBar QPushButton#TopBarProfileBtn:hover {{
+            background-color: {tokens["surface_hover"]};
+            color: {tokens["text"]};
+            border-color: {tokens["primary"]};
+        }}
+        TopBar QPushButton#TopBarRefreshBtn:focus,
+        TopBar QPushButton#TopBarAboutBtn:focus,
+        TopBar QPushButton#TopBarProfileBtn:focus {{
+            border: 2px solid {tokens["primary"]};
+            padding: 4px 11px;
         }}
         TopBar QFrame#UserPill {{
             background-color: {tokens["surface_alt"]};
@@ -676,19 +721,24 @@ class ThemeManager:
         """
 
     @classmethod
+    def _apply_tooltip_palette(cls, app, tokens: Dict[str, str]) -> None:
+        """Synchronizes native tooltip palette colors with active theme tokens."""
+        try:
+            from PySide6.QtGui import QPalette, QColor
+            pal = app.palette()
+            pal.setColor(QPalette.ToolTipBase, QColor(tokens["surface"]))
+            pal.setColor(QPalette.ToolTipText, QColor(tokens["text"]))
+            app.setPalette(pal)
+        except Exception as exc:
+            logger.debug("Failed setting tooltip palette: %s", exc)
+
+    @classmethod
     def apply_dark_theme(cls, app) -> None:
         """Applies refined dark canvas stylesheet to the QApplication."""
         cls.current_mode = "dark"
         COLORS.clear()
         COLORS.update(DARK_COLORS)
-        try:
-            from PySide6.QtGui import QPalette, QColor
-            pal = app.palette()
-            pal.setColor(QPalette.ToolTipBase, QColor("#161B22"))
-            pal.setColor(QPalette.ToolTipText, QColor("#FFFFFF"))
-            app.setPalette(pal)
-        except Exception:
-            pass
+        cls._apply_tooltip_palette(app, DARK_COLORS)
         app.setStyleSheet(cls.get_stylesheet(DARK_COLORS))
         cls.notify_listeners("dark")
 
@@ -698,6 +748,7 @@ class ThemeManager:
         cls.current_mode = "light"
         COLORS.clear()
         COLORS.update(LIGHT_COLORS)
+        cls._apply_tooltip_palette(app, LIGHT_COLORS)
         app.setStyleSheet(cls.get_stylesheet(LIGHT_COLORS))
         cls.notify_listeners("light")
 

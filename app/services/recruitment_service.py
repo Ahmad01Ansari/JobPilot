@@ -199,10 +199,12 @@ class RecruitmentService:
         self,
         application_id: Optional[int] = None,
         status: Optional[str] = None,
+        active_only: Optional[bool] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[Interview]:
         """Lists interviews with eager loaded application and job records."""
+        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK")
         with get_db_session(self._session_factory) as session:
             # Self-healing: ensure any application currently in INTERVIEW stage has at least one Interview round
             unlinked_apps = (
@@ -233,14 +235,32 @@ class RecruitmentService:
 
             stmt = (
                 select(Interview)
+                .join(Interview.application)
                 .options(
                     joinedload(Interview.application).joinedload(Application.job)
                 )
             )
             if application_id:
                 stmt = stmt.where(Interview.application_id == application_id)
-            if status and status.strip().upper() not in ["ALL", ""]:
-                stmt = stmt.where(Interview.status == status.strip().upper())
+
+            st_clean = status.strip().upper() if status and status.strip().upper() not in ["ALL", ""] else None
+            if st_clean:
+                stmt = stmt.where(Interview.status == st_clean)
+                if st_clean == "SCHEDULED":
+                    stmt = stmt.where(Application.status.notin_(closed_app_statuses))
+
+            if active_only is True:
+                stmt = stmt.where(
+                    Interview.status == "SCHEDULED",
+                    Application.status.notin_(closed_app_statuses),
+                )
+            elif active_only is False:
+                stmt = stmt.where(
+                    or_(
+                        Interview.status != "SCHEDULED",
+                        Application.status.in_(closed_app_statuses),
+                    )
+                )
 
             stmt = stmt.order_by(Interview.scheduled_at.desc()).limit(limit).offset(offset)
             return list(session.execute(stmt).scalars().all())
@@ -435,12 +455,16 @@ class RecruitmentService:
     def get_metrics(self) -> Dict[str, Any]:
         """Computes derived recruitment metrics across interviews, follow-ups, and offers."""
         now = utc_now()
+        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK")
         with get_db_session(self._session_factory) as session:
-            # Upcoming interviews: SCHEDULED and scheduled_at >= now
+            # Upcoming interviews: SCHEDULED, scheduled_at >= now, and parent application still active
             upcoming = session.scalar(
-                select(func.count(Interview.id)).where(
+                select(func.count(Interview.id))
+                .join(Interview.application)
+                .where(
                     Interview.status == "SCHEDULED",
                     Interview.scheduled_at >= now,
+                    Application.status.notin_(closed_app_statuses),
                 )
             ) or 0
 

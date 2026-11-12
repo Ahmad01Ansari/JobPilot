@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.services.dto.dashboard_dto import TodaysHuntItemDTO
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 from app.ui.widgets.status_badge import StatusBadge
 
 
@@ -95,7 +96,7 @@ class NeedsAttentionRow(QFrame):
             "OPEN_CONVERSATION": "Reply →",
             "COMPOSE_FOLLOWUP": "Follow Up →",
             "REVIEW_APPLICATION": "Review →",
-            "PREPARE_INTERVIEW": "Prepare →",
+            "PREPARE_INTERVIEW": "Update Stage →",
             "REVIEW_JOB": "Review →",
         }
         return mapping.get(action, "View →")
@@ -128,8 +129,9 @@ class NeedsAttentionWidget(QFrame):
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
 
-        lbl_icon = QLabel("⚠️")
-        lbl_icon.setStyleSheet("font-size: 16px; background: transparent; border: none;")
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(render_vector_pixmap("alert", COLORS["warning"], 16))
+        lbl_icon.setStyleSheet("background: transparent; border: none;")
         header_row.addWidget(lbl_icon)
 
         lbl_title = QLabel("NEEDS ATTENTION")

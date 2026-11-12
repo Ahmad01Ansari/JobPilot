@@ -9,6 +9,7 @@ from app.db.base import utc_now
 from app.db.models import Application, Job, JobEvaluation, generate_job_fingerprint
 from app.repositories.base import BaseRepository
 from app.repositories.dto import JobCreateDTO
+from app.repositories.validators import UNAPPLIED_ALIAS_STATUSES
 
 
 class JobRepository(BaseRepository):
@@ -183,8 +184,15 @@ class JobRepository(BaseRepository):
 
         if status:
             st = status.strip().upper()
-            if st == "NOT_APPLIED":
-                stmt = stmt.outerjoin(Job.applications).where(Application.id == None)
+            if st in UNAPPLIED_ALIAS_STATUSES:
+                stmt = stmt.where(
+                    or_(
+                        ~Job.applications.any(),
+                        Job.applications.any(Application.status.in_(tuple(UNAPPLIED_ALIAS_STATUSES))),
+                    )
+                )
+                if not include_junk:
+                    stmt = stmt.where(~Job.applications.any(Application.status == "JUNK"))
             elif st == "JUNK":
                 stmt = stmt.join(Job.applications).where(Application.status == "JUNK")
             else:
