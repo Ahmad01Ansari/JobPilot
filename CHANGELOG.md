@@ -6,17 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — 2026-11-09
+## [0.4.6-beta] — 2026-11-12
 
-### Added
-- **Automatic Virtual Environment Bootstrapping**: Added seamless `.venv` auto-detection in `run_desktop.py`, ensuring that invoking the application via system Python automatically re-executes inside the local project virtual environment without manual interpreter activation.
-- **Cross-Platform Governance & Contribution Standards**: Added cross-platform agent guidelines (`.agents/rules/cross-platform-rules.md`), standardized pull request templates (`.github/pull_request_template.md`), repo-wide `.gitattributes`, and fork synchronization documentation in `CONTRIBUTING.md`.
+### Native macOS Packaging, Unified Pipeline KPIs & Upstream Enhancements
 
-### Fixed
-- **Resilient Package Initialization (`app/__init__.py`)**: Guarded legacy Flask web dashboard imports with `try...except (ImportError, ModuleNotFoundError)` so importing desktop modules never crashes when Flask or optional web dependencies are not loaded.
-- **Windows Frozen GUI Stream Safeguards**: Implemented `_SafeStream` for `sys.stdout` and `sys.stderr` in `run_desktop.py` to prevent `NoneType` attribute errors in windowed PyInstaller executable builds on Windows.
-- **Browser Fallback Discovery on Windows**: Extended browser automation to detect and launch Microsoft Edge, Brave, or Chromium when Google Chrome is not installed on Windows hosts or virtual machines.
-- **Automation & QnA Synchronization**: Resolved Windows browser initialization parameters, job link extraction nuances, and candidate question-and-answer persistence in the AI QnA engine.
+This release introduces native macOS distribution packages (.dmg & .zip), synchronizes real-time pipeline KPIs across all desktop tabs, and integrates launcher resilience enhancements.
+
+#### Added
+- **Native macOS Application Bundle & DMG Packaging**: Added `scripts/build_macos.sh` and PyInstaller `BUNDLE` rule in `JobPilot.spec` creating standalone `JobPilot.app` with Retina display scaling (`NSHighResolutionCapable`), dark mode integration, ad-hoc code signing, and a styled drag-to-Applications `.dmg` installer.
+- **Apple Icon Asset Generation**: Extended `scripts/generate_icons.py` with multi-resolution `.icns` support, generating `app/ui/assets/brand/jobpilot.icns`.
+- **macOS GitHub Actions Release Workflow**: Added `build-macos` job to `.github/workflows/release.yml` running on `macos-14` (Apple Silicon M-series) and added `macos-latest` to `.github/workflows/ci.yml`.
+- **Website Multi-Platform Download Matrix**: Updated landing page (`DownloadsSection.tsx`, `robot-hero.tsx`, `ArchitectureSection.tsx`, `Footer.tsx`) with a 3-column distribution card grid for Windows, macOS, and Linux.
+- **Automatic Virtual Environment Bootstrapping**: Integrated `.venv` auto-detection in `run_desktop.py` to seamlessly re-execute inside the local virtual environment when invoked via unconfigured system Python.
+
+#### Fixed
+- **Unified Pipeline KPI Cards**: Replaced fragmented queries with a single canonical repository query `ApplicationRepository.get_canonical_kpi_counts()` across Dashboard, Applications, and Interviews views, ensuring accurate real-time metrics across all tabs.
+- **Dynamic Interview Auto-Provisioning**: Moving an application to `INTERVIEW` automatically ensures an active interview round is provisioned with `max_round + 1` scheduling.
+- **Resilient Package Initialization (`app/__init__.py`)**: Guarded legacy Flask web dashboard imports with `try...except (ImportError, ModuleNotFoundError)` to prevent desktop startup crashes when optional web modules are absent.
+- **Design System Visual Polish**: Refined ThemeManager selection contrast, active focus rings, vector TopBar navigation icons, and `AllActionsDialog` horizontal scrolling lock.
 ## [0.4.5-beta] — 2026-11-02
 
 ### Workday Automation, Profile Repeaters, and Foundit Engine Stabilization
