@@ -111,7 +111,7 @@ export function Footer() {
                   className="hover:text-white transition-colors flex items-center gap-1.5 text-orange-400"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  <span>Download Windows & Linux</span>
+                  <span>Download macOS, Windows &amp; Linux</span>
                 </a>
               </li>
             </ul>

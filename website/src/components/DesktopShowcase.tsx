@@ -118,7 +118,7 @@ export function DesktopShowcase() {
             Built for Desktop Reliability.
           </h2>
           <p className="text-base sm:text-lg text-slate-300">
-            No mockups or concept art. Explore actual widescreen screenshots from the JobPilot PySide6 desktop interface running on Linux and Windows.
+            No mockups or concept art. Explore actual widescreen screenshots from the JobPilot PySide6 desktop interface running on macOS, Windows, and Linux.
           </p>
         </div>
 

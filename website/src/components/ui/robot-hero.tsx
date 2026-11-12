@@ -1089,7 +1089,7 @@ export function RobotHero() {
             {/* System Context Pill */}
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/90 px-3.5 py-1 text-xs font-mono text-slate-300 w-fit backdrop-blur-md">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              <span>Local-first desktop agent • Linux &amp; Windows</span>
+              <span>Local-first desktop agent • macOS, Windows &amp; Linux</span>
             </div>
 
             {/* Headline: Clean, Solid, Confident (Responsive Clamp Scale across all viewports) */}

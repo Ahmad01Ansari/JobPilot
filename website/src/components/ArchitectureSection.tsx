@@ -22,8 +22,8 @@ const FAQS: FAQItem[] = [
     a: "JobPilot enforces a strict priority cascade: Profile Facts → Resume Facts → Pre-Approved Q&A Rules → Mathematical Calculations → Constrained LLM. If an answer cannot be proven by your master candidate facts, automation halts for your review rather than inventing false certifications or years of experience.",
   },
   {
-    q: "What are the minimum system requirements for Windows and Linux?",
-    a: "JobPilot requires a 64-bit operating system (Ubuntu 20.04+, Debian 11+, Fedora 36+, or Windows 10/11) and Google Chrome or Chromium installed for browser automation. The standalone executable and AppImage bundles include all required Python and Qt runtime libraries.",
+    q: "What are the minimum system requirements for macOS, Windows, and Linux?",
+    a: "JobPilot requires a 64-bit operating system (macOS 11.0+ on Apple Silicon or Intel, Windows 10/11, or Ubuntu 20.04+, Debian 11+, Fedora 36+) and Google Chrome or Chromium installed for browser automation. Standalone .dmg, executable installer, and AppImage packages bundle all required Python and Qt runtime libraries.",
   },
   {
     q: "How does JobPilot avoid freezing the desktop user interface during scraping?",
