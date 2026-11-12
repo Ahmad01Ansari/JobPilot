@@ -1205,11 +1205,11 @@ def find_default_profile_directory() -> str | None:
             str(home / ".config" / "google-chrome"),
             str(home / ".var" / "app" / "com.google.Chrome" / "data" / ".config" / "google-chrome"),
         ]
-    # MacOS ## For some reason, opening with profile in MacOS is not creating a session for undetected-chromedriver!
-    # elif sys.platform == 'darwin':
-    #     paths = [
-    #         str(home / "Library" / "Application Support" / "Google" / "Chrome")
-    #     ]
+    # MacOS
+    elif sys.platform == 'darwin':
+        paths = [
+            str(home / "Library" / "Application Support" / "Google" / "Chrome"),
+        ]
     else:
         return None
 

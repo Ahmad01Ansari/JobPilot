@@ -44,6 +44,16 @@ def generate_all_icons(source_path: Path = Path("JobPilot.png"), project_root: P
         sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)],
     )
 
+    # macOS .icns containing standard Apple icon sizes
+    try:
+        master_512.save(
+            brand_dir / "jobpilot.icns",
+            format="ICNS",
+            sizes=[(512, 512), (256, 256), (128, 128), (64, 64), (32, 32), (16, 16)],
+        )
+    except Exception as e:
+        print(f"Warning: Could not save .icns: {e}")
+
     # System Tray Icons (32x32)
     tray_32 = master_512.resize((32, 32), Image.Resampling.LANCZOS)
     tray_32.save(brand_dir / "jobpilot_tray.png", "PNG", optimize=True)

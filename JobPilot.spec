@@ -8,9 +8,14 @@ from pathlib import Path
 block_cipher = None
 
 project_root = Path.cwd().resolve()
-icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot.ico")
-if not os.path.exists(icon_path):
-    icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot_256.png")
+if sys.platform == "darwin":
+    icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot.icns")
+    if not os.path.exists(icon_path):
+        icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot_256.png")
+else:
+    icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot.ico")
+    if not os.path.exists(icon_path):
+        icon_path = str(project_root / "app" / "ui" / "assets" / "brand" / "jobpilot_256.png")
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -88,3 +93,25 @@ coll = COLLECT(
     upx_exclude=[],
     name="JobPilot",
 )
+
+if sys.platform == "darwin":
+    from PyInstaller.building.osx import BUNDLE
+
+    app = BUNDLE(
+        coll,
+        name="JobPilot.app",
+        icon=icon_path if icon_path.endswith(".icns") else None,
+        bundle_identifier="com.jobpilot.desktop",
+        info_plist={
+            "CFBundleName": "JobPilot",
+            "CFBundleDisplayName": "JobPilot",
+            "CFBundleIdentifier": "com.jobpilot.desktop",
+            "CFBundleVersion": "0.4.5",
+            "CFBundleShortVersionString": "0.4.5",
+            "CFBundlePackageType": "APPL",
+            "NSHighResolutionCapable": True,
+            "NSRequiresAquaSystemAppearance": False,
+            "LSApplicationCategoryType": "public.app-category.productivity",
+            "LSMinimumSystemVersion": "11.0.0",
+        },
+    )
