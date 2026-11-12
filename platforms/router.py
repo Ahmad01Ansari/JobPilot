@@ -1368,7 +1368,11 @@ class PlatformRouter:
         print_lg("======================================================================\n")
         try:
             self.linkedin_platform.initialize()
-            if self.linkedin_platform.login():
+            try:
+                login_ok = self.linkedin_platform.login(stop_check=stop_check)
+            except TypeError:
+                login_ok = self.linkedin_platform.login()
+            if login_ok:
                 try:
                     return self.linkedin_platform.search_and_apply(stop_check=stop_check, log_callback=log_callback)
                 except TypeError:
