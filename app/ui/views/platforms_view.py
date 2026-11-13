@@ -1047,7 +1047,7 @@ class PlatformsView(QWidget):
             item = self.grid.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.setParent(None)
+                widget.hide()
                 widget.deleteLater()
 
         # Build 2-column responsive grid

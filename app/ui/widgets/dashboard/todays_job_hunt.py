@@ -366,7 +366,6 @@ class TodaysJobHuntWidget(QFrame):
             widget = child.widget()
             if widget:
                 widget.hide()
-                widget.setParent(None)
                 widget.deleteLater()
 
         if not self._items:

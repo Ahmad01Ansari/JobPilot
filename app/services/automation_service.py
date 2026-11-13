@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models.automation_run import AutomationRun
@@ -995,11 +995,11 @@ class AutomationManager(QObject):
         # Wire worker signals to manager handlers and external subscribers
         self._current_worker.state_changed.connect(self._on_worker_state_changed)
         self._current_worker.progress_updated.connect(self._on_worker_progress)
-        self._current_worker.job_discovered.connect(self.job_discovered)
-        self._current_worker.job_evaluated.connect(self.job_evaluated)
-        self._current_worker.application_submitted.connect(self.application_submitted)
-        self._current_worker.intervention_required.connect(self.intervention_required)
-        self._current_worker.activity_logged.connect(self.activity_logged)
+        self._current_worker.job_discovered.connect(self._on_worker_job_discovered)
+        self._current_worker.job_evaluated.connect(self._on_worker_job_evaluated)
+        self._current_worker.application_submitted.connect(self._on_worker_application_submitted)
+        self._current_worker.intervention_required.connect(self._on_worker_intervention_required)
+        self._current_worker.activity_logged.connect(self._on_worker_activity_logged)
         self._current_worker.finished_result.connect(self._on_worker_finished)
 
         self._current_worker.start()
@@ -1079,6 +1079,7 @@ class AutomationManager(QObject):
         rid = run_id or (self._current_worker.run_id if self._current_worker else "")
         self.state_changed.emit(rid, new_state.value)
 
+    @Slot(str, str)
     def _on_worker_state_changed(self, run_id: str, state_str: str) -> None:
         """Handles worker state transitions."""
         try:
@@ -1088,6 +1089,7 @@ class AutomationManager(QObject):
         except ValueError:
             pass
 
+    @Slot(object)
     def _on_worker_progress(self, progress: AutomationProgressEvent) -> None:
         """Updates persistent run record and emits progress."""
         try:
@@ -1108,6 +1110,28 @@ class AutomationManager(QObject):
 
         self.progress_updated.emit(progress)
 
+    @Slot(object)
+    @Slot(object)
+    def _on_worker_job_discovered(self, event: JobDiscoveredEvent) -> None:
+        self.job_discovered.emit(event)
+
+    @Slot(object)
+    def _on_worker_job_evaluated(self, event: JobEvaluatedEvent) -> None:
+        self.job_evaluated.emit(event)
+
+    @Slot(object)
+    def _on_worker_application_submitted(self, event: ApplicationSubmittedEvent) -> None:
+        self.application_submitted.emit(event)
+
+    @Slot(object)
+    def _on_worker_intervention_required(self, event: AutomationInterventionEvent) -> None:
+        self.intervention_required.emit(event)
+
+    @Slot(str, str)
+    def _on_worker_activity_logged(self, timestamp: str, message: str) -> None:
+        self.activity_logged.emit(timestamp, message)
+
+    @Slot(object)
     def _on_worker_finished(self, result: AutomationRunResult) -> None:
         """Finalizes run record in database and resets active state."""
         try:

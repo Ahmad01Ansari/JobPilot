@@ -826,7 +826,7 @@ class EmailOutreachConfigDialog(QDialog):
             item = self.tmpls_layout.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.setParent(None)
+                widget.hide()
                 widget.deleteLater()
 
         with get_db_session() as session:
@@ -1056,7 +1056,7 @@ class EmailOutreachConfigDialog(QDialog):
             item = self.cadence_steps_box.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.setParent(None)
+                widget.hide()
                 widget.deleteLater()
 
         for idx, days in enumerate(cadence_days, 1):

@@ -1,5 +1,14 @@
 """JobPilot Desktop Application Package."""
 import os
+import sys
+
+# Apply standard library and runtime environment patches as early as possible
+try:
+    from app.services.os.compatibility import apply_runtime_compatibility_patches
+    apply_runtime_compatibility_patches()
+except Exception:
+    pass
+
 import importlib.util
 from app.version import __version__, VERSION
 

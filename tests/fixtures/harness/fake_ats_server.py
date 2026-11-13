@@ -5,7 +5,13 @@ CAPTCHA challenges, login gates, and validation errors) and captures submissions
 for automated empirical evaluation.
 """
 
-import cgi
+try:
+    import cgi
+except ModuleNotFoundError:
+    try:
+        import legacy_cgi as cgi
+    except ModuleNotFoundError:
+        cgi = None
 import io
 import json
 import os
