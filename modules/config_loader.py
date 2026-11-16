@@ -147,6 +147,10 @@ def get_platform(name: str, user_id: Optional[int] = None) -> Dict[str, Any]:
             plat_cfg.update(db_cfg)
     except Exception:
         pass
+    if "enabled" not in plat_cfg or plat_cfg["enabled"] is None:
+        plat_cfg["enabled"] = plat_cfg.get("is_enabled", True)
+    if "is_enabled" not in plat_cfg or plat_cfg["is_enabled"] is None:
+        plat_cfg["is_enabled"] = plat_cfg["enabled"]
     return plat_cfg
 
 def get_ai() -> Dict[str, Any]:
@@ -192,7 +196,8 @@ def validate_naukri_config() -> bool:
     if not cfg:
         raise ValueError("Missing 'naukri' section under 'platforms' in config/profile.json")
 
-    if not isinstance(cfg.get("enabled"), bool):
+    enabled = cfg.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
         raise ValueError("'enabled' in platforms.naukri must be a boolean")
 
     search_terms = cfg.get("search_terms")
@@ -203,6 +208,8 @@ def validate_naukri_config() -> bool:
         raise ValueError("'search_location' in platforms.naukri must be a non-empty string")
 
     exp = cfg.get("experience_years")
+    if exp is None:
+        exp = cfg.get("current_experience")
     if not isinstance(exp, int) or exp < 0:
         raise ValueError("'experience_years' in platforms.naukri must be an integer >= 0")
 
@@ -210,14 +217,16 @@ def validate_naukri_config() -> bool:
     if not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("'max_pages_per_search' must be an integer >= 1")
 
-    apply_mode = cfg.get("apply_mode", "direct_only")
-    if apply_mode == "EASY_APPLY_ONLY":
+    raw_mode = str(cfg.get("apply_mode", "direct_only")).strip().lower()
+    if raw_mode in ["direct_only", "easy_apply_only", "easy_apply"]:
         apply_mode = "direct_only"
-        cfg["apply_mode"] = "direct_only"
-    if apply_mode not in ["direct_only", "all"]:
-        raise ValueError(f"'apply_mode' must be 'direct_only' or 'all', got '{apply_mode}'")
+    elif raw_mode in ["all", "hybrid", "hybrid_mode"]:
+        apply_mode = "all"
+    else:
+        raise ValueError(f"'apply_mode' must be 'direct_only' or 'all', got '{cfg.get('apply_mode')}'")
+    cfg["apply_mode"] = apply_mode
 
-    if not isinstance(cfg.get("pause_before_submit"), bool):
+    if not isinstance(cfg.get("pause_before_submit", False), bool):
         raise ValueError("'pause_before_submit' must be a boolean")
 
     # Validate separate candidate concepts
@@ -240,7 +249,8 @@ def validate_foundit_config() -> bool:
     if not cfg:
         raise ValueError("Missing 'foundit' section under 'platforms' in config/profile.json")
 
-    if not isinstance(cfg.get("enabled"), bool):
+    enabled = cfg.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
         raise ValueError("'enabled' in platforms.foundit must be a boolean")
 
     search_terms = cfg.get("search_terms")
@@ -251,6 +261,8 @@ def validate_foundit_config() -> bool:
         raise ValueError("'search_location' in platforms.foundit must be a non-empty string")
 
     exp = cfg.get("experience_years")
+    if exp is None:
+        exp = cfg.get("current_experience")
     if not isinstance(exp, int) or exp < 0:
         raise ValueError("'experience_years' in platforms.foundit must be an integer >= 0")
 
@@ -265,8 +277,9 @@ def validate_foundit_config() -> bool:
         apply_mode = "all"
     else:
         raise ValueError(f"'apply_mode' must be 'direct_only' or 'all', got '{cfg.get('apply_mode')}'")
+    cfg["apply_mode"] = apply_mode
 
-    if not isinstance(cfg.get("pause_before_submit"), bool):
+    if not isinstance(cfg.get("pause_before_submit", False), bool):
         raise ValueError("'pause_before_submit' must be a boolean")
 
     # Validate candidate concepts
@@ -289,7 +302,8 @@ def validate_glassdoor_config() -> bool:
     if not cfg:
         raise ValueError("Missing 'glassdoor' section under 'platforms' in config/profile.json")
 
-    if not isinstance(cfg.get("enabled"), bool):
+    enabled = cfg.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
         raise ValueError("'enabled' in platforms.glassdoor must be a boolean")
 
     search_terms = cfg.get("search_terms")
@@ -300,6 +314,8 @@ def validate_glassdoor_config() -> bool:
         raise ValueError("'search_location' in platforms.glassdoor must be a non-empty string")
 
     exp = cfg.get("experience_years")
+    if exp is None:
+        exp = cfg.get("current_experience")
     if not isinstance(exp, int) or exp < 0:
         raise ValueError("'experience_years' in platforms.glassdoor must be an integer >= 0")
 
@@ -314,8 +330,9 @@ def validate_glassdoor_config() -> bool:
         apply_mode = "all"
     else:
         raise ValueError(f"'apply_mode' must be 'direct_only' or 'all', got '{cfg.get('apply_mode')}'")
+    cfg["apply_mode"] = apply_mode
 
-    if not isinstance(cfg.get("pause_before_submit"), bool):
+    if not isinstance(cfg.get("pause_before_submit", False), bool):
         raise ValueError("'pause_before_submit' must be a boolean")
 
     # Validate candidate concepts

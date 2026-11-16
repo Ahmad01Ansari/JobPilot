@@ -139,7 +139,7 @@ class SearchRotationEngine:
             self.applier.automation_bridge = self.automation_bridge
 
 
-    def iter_qualified_jobs(self) -> Iterator[RotationJobItem]:
+    def iter_qualified_jobs(self, stop_check: Optional[Callable[[], bool]] = None) -> Iterator[RotationJobItem]:
         """
         Yields qualified jobs across configured search terms and pages.
         Skips unqualified jobs, updates tracker with SKIPPED state,
