@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.7-beta] — 2026-11-17
+
+### Universal ATS Loop Prevention, Mission Control Live Streaming, and Indeed Numeric Normalization
+
+This release stabilizes Universal ATS questionnaire automation, connects real-time thread-safe log streaming to the Mission Control Cockpit, normalizes Indeed phone/numeric field validation, and integrates upstream platform configuration hardening.
+
+#### Fixed
+- **Universal ATS Loop Prevention & Dynamic Overview Handling**: Broadened overview apply button regex to recognize multi-language/portal variations, added loop prevention to stop repetitive clicking of entry buttons on identical URLs, expanded embedded ATS iframe detection (Zoho Recruit, NiyukHR, Workable, Breezy, Recruitee, BambooHR, Ashby), and suppressed illegal state transitions from terminal `COMPLETED`.
+- **Mission Control Cockpit Real-Time Log Streaming**: Resolved blank logs tab by pointing canonical log path to runtime logs (`AppPaths.get_logs_dir() / "log.txt"`), registered cross-thread `realtime_line_received` Qt Signal with `helpers.add_log_listener`, wired `AutomationManager` typed event bus, and added `refresh()` tab synchronization.
+- **Indeed Phone & Number Validation**: Added pure-digit normalization (`_clean_phone_number`) stripping non-digit symbols (`+`, spaces, dashes) to satisfy Indeed's strict integer format (`Answer must be a valid number (no decimals)`), fixed dial code matching to prevent selecting British Indian Ocean Territory (`+246`) over India (`+91`), added explicit standalone checkbox handling, and added self-healing error correction in `advance_to_next_step()`.
+- **Platform Configuration Validation & Boolean Normalization**: Normalized `is_enabled` and `enabled` boolean flags in `config/search.py` and `modules/config_loader.py` to prevent `ValueError` crashes on platform initialization.
+
 ## [0.4.6-beta] — 2026-11-12
 
 ### Native macOS Packaging, Unified Pipeline KPIs & Upstream Enhancements
