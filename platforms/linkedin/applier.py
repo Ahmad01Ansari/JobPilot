@@ -199,7 +199,17 @@ class LinkedInApplier:
 
                     if any(w in q_lower for w in ["hybrid", "remote", "on-site", "onsite", "commute", "relocat", "travel"]):
                         answer = "Yes"
-                    elif any(w in q_lower for w in ["require visa", "need visa", "visa sponsorship", "future sponsorship"]):
+                    elif any(w in q_lower for w in [
+                        "sponsorship", "require sponsorship", "future sponsorship", "employer sponsorship",
+                        "require visa", "need visa", "visa sponsorship", "h-1b", "h1b"
+                    ]) and not any(w in q_lower for w in ["without", "no sponsorship", "not require"]):
+                        answer = "No"
+                    elif any(w in q_lower for w in [
+                        "ever been employed", "currently employed", "previously employed", "ever worked for",
+                        "former employee", "prior employee", "worked at", "subsidiaries before", "affiliates before",
+                        "relative", "family member", "conflict of interest", "non-compete", "disciplin", "terminated",
+                        "felony", "misdemeanor", "crime", "convicted", "lawsuit", "referred by", "referral by"
+                    ]):
                         answer = "No"
                     elif any(w in q_lower for w in ["authorized", "eligib", "legal"]):
                         answer = "Yes"
@@ -415,6 +425,70 @@ class LinkedInApplier:
                         print_lg(f"[LinkedInApplier] Safety fallback selected first option for radio group '{gname}'")
             except Exception:
                 pass
+
+            # 6. Checkbox handling (Consent, acknowledgements, terms, declarations)
+            try:
+                checkboxes = modal.find_elements(
+                    By.XPATH,
+                    ".//input[@type='checkbox'] | .//div[@role='checkbox']"
+                )
+                for cb in checkboxes:
+                    try:
+                        if not cb.is_displayed():
+                            continue
+                        is_checked = (
+                            cb.is_selected()
+                            or cb.get_attribute("aria-checked") == "true"
+                            or cb.get_attribute("checked") in ["true", "checked", "True"]
+                        )
+                        if is_checked:
+                            continue
+
+                        # Extract label or prompt text
+                        cb_text = ""
+                        cb_id = cb.get_attribute("id")
+                        if cb_id:
+                            try:
+                                lbl = modal.find_element(By.XPATH, f".//label[@for='{cb_id}']")
+                                cb_text = lbl.text.strip()
+                            except Exception:
+                                pass
+                        if not cb_text:
+                            try:
+                                parent_lbl = cb.find_element(By.XPATH, "./ancestor::label[1]")
+                                cb_text = parent_lbl.text.strip()
+                            except Exception:
+                                pass
+                        if not cb_text:
+                            cb_text = cb.get_attribute("aria-label") or ""
+
+                        cb_lower = cb_text.lower()
+                        is_required = (
+                            cb.get_attribute("required") is not None
+                            or cb.get_attribute("aria-required") == "true"
+                            or "*" in cb_text
+                        )
+                        # Consent, terms, certifications, privacy, background check, authorizations
+                        should_check = is_required or any(w in cb_lower for w in [
+                            "agree", "consent", "acknowledge", "certify", "terms", "condition",
+                            "privacy", "policy", "confirm", "understand", "truth", "accurate",
+                            "background check", "authorized", "authorization", "declare", "declaration"
+                        ])
+
+                        # Explicit negative opt-ins should not be checked
+                        if any(w in cb_lower for w in ["decline", "do not agree", "opt out", "disagree", "not wish"]):
+                            should_check = False
+
+                        if should_check:
+                            try:
+                                cb.click()
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", cb)
+                            print_lg(f"[LinkedInApplier] Checked required/consent checkbox: '{cb_text[:60]}'")
+                    except Exception as e:
+                        print_lg(f"[LinkedInApplier] Notice checking individual checkbox: {e}")
+            except Exception as e:
+                print_lg(f"[LinkedInApplier] Notice discovering checkboxes: {e}")
         except Exception:
             pass
 

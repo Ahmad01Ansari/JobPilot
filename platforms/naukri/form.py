@@ -2159,7 +2159,7 @@ class NaukriForm:
                     }
 
                 print_lg(f"[NaukriForm] Step {step+1}: Filled field '{f.label}' ({f.field_type}) with '{ans.value}' [source: {ans.source}]")
-                if success and f.label and hasattr(self.qna_engine, "save_learned_answer"):
+                if success and f.label and getattr(ans, "source", "") == "user" and hasattr(self.qna_engine, "save_learned_answer"):
                     try:
                         self.qna_engine.save_learned_answer(f.label, str(ans.value), answer_type=f.field_type, source=ans.source)
                     except Exception:

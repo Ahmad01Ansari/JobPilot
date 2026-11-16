@@ -58,8 +58,9 @@ class PopupManager:
 
     # Safe dismiss button text patterns for benign banners and location prompts
     BENIGN_DISMISS_PATTERNS = [
-        r"^(accept all|accept cookies|agree|i agree|got it|allow all|allow|accept|close|dismiss|ok|okay|understood|proceed|use current location)$",
-        r"^(no thanks|not now|maybe later|don't allow|dont allow|block|reject all|reject|decline|deny|never|skip|cancel|continue without location)$",
+        r"^(accept all(\s+cookies)?|accept cookies|accept\s*(&|and)\s*continue|allow all(\s+cookies)?|agree(\s*(&|and)\s*proceed)?|i agree|got it|allow|accept|close(\s+banner|\s+window)?|dismiss|ok|okay|understood|proceed|use current location)$",
+        r"^(no thanks|not now|maybe later|don't allow|dont allow|block|reject all(\s+cookies)?|reject cookies|reject|decline|deny|never|skip|cancel|continue without location)$",
+        r".*(accept\s*all|accept\s*cookies|allow\s*all|agree\s*&|i\s*agree|got\s*it).*",
     ]
 
     DESTRUCTIVE_PATTERNS = [
@@ -137,14 +138,20 @@ class PopupManager:
             });
         })()"""
 
-        # Fast-path: Check for standalone cookie consent buttons (e.g. Workday legalNoticeAcceptButton or standalone Accept Cookies)
+        # Fast-path: Check for standalone cookie consent buttons (e.g. Workday legalNoticeAcceptButton, OneTrust, Cookiebot)
         js_quick_cookie = """(() => {
             const btn = document.querySelector(
                 'button[data-automation-id="legalNoticeAcceptButton"], [data-automation-id*="legalNoticeAccept" i], ' +
-                'button[id*="accept-cookie" i], button[id*="acceptCookie" i], #onetrust-accept-btn-handler'
+                'button[id*="accept-cookie" i], button[id*="acceptCookie" i], button[id*="cookie-accept" i], ' +
+                'button[class*="cookie-accept" i], button[class*="cookie-consent" i], ' +
+                '#onetrust-accept-btn-handler, #CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll, ' +
+                '#CybotCookiebotDialogBodyButtonAccept, .cookie-consent-allow, .cc-allow, .cc-btn.cc-dismiss, ' +
+                '[data-action="accept-cookies"], [data-cookie-accept]'
             ) || Array.from(document.querySelectorAll('button, a')).find(b => {
                 const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-                return t === 'accept cookies' || t === 'accept all cookies' || t === 'i accept' || t === 'agree and proceed';
+                return t === 'accept cookies' || t === 'accept all cookies' || t === 'accept all' ||
+                       t === 'i accept' || t === 'agree and proceed' || t === 'agree & proceed' ||
+                       t === 'allow all' || t === 'allow all cookies';
             });
             if (btn && btn.getBoundingClientRect().width > 0) {
                 try { btn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}

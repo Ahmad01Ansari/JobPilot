@@ -117,6 +117,8 @@ class UniversalApplicationOrchestrator:
 
         self._last_analysis: Optional[FormAnalysisResult] = None
         self._last_fill_result: Optional[FormFillResult] = None
+        self._is_cancelled: bool = False
+        self._clicked_entry_history: Dict[Tuple[str, str], int] = {}
 
     def confirm_submission(self, notes: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> None:
         """User confirms pre-submission review or OTP resolution: approves action."""
@@ -274,6 +276,7 @@ class UniversalApplicationOrchestrator:
 
     def cancel(self, reason: str = "User cancelled application.") -> None:
         """User aborts the application run."""
+        self._is_cancelled = True
         self.intervention_manager.resolve_cancel(self.state_machine, reason=reason)
 
     def takeover_manually(self, notes: Optional[str] = None) -> None:
@@ -356,6 +359,10 @@ class UniversalApplicationOrchestrator:
 
             # 3. Step Loop (Single page application or multi-step wizard)
             for step_idx in range(start_step, max_wizard_steps + 1):
+                if self._is_cancelled or self.state_machine.is_terminal:
+                    logger.info("Universal orchestrator terminating loop (cancelled=%s, terminal=%s).", self._is_cancelled, self.state_machine.is_terminal)
+                    return self._build_result(current_url, job_title, company, fill_result=latest_fill_result)
+
                 current_url = await self.browser_agent.get_url()
                 logger.info("=== WIZARD STEP %d / %d === (URL: %s)", step_idx, max_wizard_steps, current_url)
 
@@ -676,7 +683,28 @@ class UniversalApplicationOrchestrator:
                         if entry_candidate:
                             entry_sel = entry_candidate.get("selector", "a.btn")
                             entry_txt = entry_candidate.get("text", "Apply") or "Apply"
-                            logger.info("Landing page detected. Clicking entry button '%s' (%s) to reach form.", entry_txt, entry_sel)
+                            click_count = self._clicked_entry_history.get((current_url, entry_sel), 0) + 1
+                            self._clicked_entry_history[(current_url, entry_sel)] = click_count
+                            if click_count > 2:
+                                logger.warning("Overview apply button '%s' (%s) clicked %d times without navigating.", entry_txt, entry_sel, click_count)
+                                app_frame = await FrameResolver.find_application_frame(self.browser_agent)
+                                if app_frame and app_frame.src and app_frame.src.startswith("http"):
+                                    logger.info("Navigating directly to iframe source URL: %s", app_frame.src)
+                                    await self.browser_agent.navigate(app_frame.src)
+                                    await asyncio.sleep(2.0)
+                                    continue
+                                self.intervention_manager.trigger_intervention(
+                                    self.state_machine,
+                                    reason=InterventionReason.MANUAL_ACTION_REQUIRED,
+                                    message=f"Application entry button '{entry_txt}' does not navigate to a form. Please navigate to the application form.",
+                                    details={"url": current_url, "selector": entry_sel},
+                                )
+                                res = await self.intervention_manager.wait_for_resolution()
+                                if res.resolution_action != "RESUME":
+                                    return self._build_result(current_url, job_title, company, fill_result=latest_fill_result)
+                                continue
+
+                            logger.info("Landing page detected. Clicking entry button '%s' (%s) to reach form (attempt %d).", entry_txt, entry_sel, click_count)
                             self.state_machine.transition_to(
                                 AgentExecutionState.NAVIGATING,
                                 message=f"Job overview detected. Clicking '{entry_txt}' to open application form.",
@@ -697,7 +725,7 @@ class UniversalApplicationOrchestrator:
                                 for (const leaf of allLeafs) {
                                     if (leaf.children.length === 0) {
                                         const lt = (leaf.innerText || leaf.textContent || '').trim().toLowerCase();
-                                        if (/^apply(\s+now)?$/i.test(lt)) {
+                                        if (/^(apply(\s+(now|online|for\s+(this\s+)?(job|position|role)|manually|here))?|i'm\s+interested|quick\s+apply|easy\s+apply|submit\s+application)$/i.test(lt)) {
                                             const target = leaf.closest('button, a, [role="button"], oj-button, oj-c-button, div, span') || leaf;
                                             let innerBtn = target.querySelector('button, a, input');
                                             if (!innerBtn && target.shadowRoot) innerBtn = target.shadowRoot.querySelector('button, a, input');
@@ -719,7 +747,7 @@ class UniversalApplicationOrchestrator:
                                     }
                                 }
 
-                                const els = Array.from(document.querySelectorAll('a, button, [role="button"], input[type="submit"], oj-button, oj-c-button, [data-qa*="apply" i], [data-automation-id*="apply" i], [class*="apply" i], [id*="apply" i]'));
+                                const els = Array.from(document.querySelectorAll('a, button, [role="button"], input[type="submit"], oj-button, oj-c-button, [data-qa*="apply" i], [data-automation-id*="apply" i], [class*="apply" i], [id*="apply" i], [data-action="apply"]'));
                                 for (const el of els) {
                                     const txt = (el.innerText || el.value || el.textContent || '').trim().toLowerCase();
                                     const href = (el.getAttribute('href') || '').toLowerCase();
@@ -745,11 +773,13 @@ class UniversalApplicationOrchestrator:
                                     }
 
                                     if (txt.includes('apply on company') || txt.includes('apply on employer') ||
-                                        txt.includes('apply now') || txt === 'apply' || txt.includes('apply for this') ||
+                                        txt.includes('apply now') || txt === 'apply' || txt.includes('apply for') ||
+                                        txt.includes('apply to') || txt.includes('apply online') || txt.includes('quick apply') ||
+                                        txt.includes('easy apply') || txt.includes("i'm interested") ||
                                         txt.includes('submit application') || txt.includes('submit resume') ||
                                         href.includes('resume-registration') || href.includes('/apply') ||
-                                        id.includes('apply-btn') || id.includes('apply-button') || id.includes('company-site') ||
-                                        cls.includes('apply-btn') || cls.includes('apply-button') || cls.includes('company-site')) {
+                                        id.includes('applybutton') || id.includes('apply-btn') || id.includes('apply-button') || id.includes('company-site') ||
+                                        cls.includes('zrc_apply_btn') || cls.includes('apply-btn') || cls.includes('apply-button') || cls.includes('company-site')) {
                                         let clickTarget = el.querySelector('button, a, input');
                                         if (!clickTarget && el.shadowRoot) clickTarget = el.shadowRoot.querySelector('button, a, input');
                                         if (!clickTarget) clickTarget = el;
@@ -1165,7 +1195,28 @@ class UniversalApplicationOrchestrator:
                         entry_candidate = analysis.apply_now_buttons[0]
                         entry_sel = entry_candidate.get("selector", "a.btn")
                         entry_txt = entry_candidate.get("text", "Apply Now") or "Apply Now"
-                        logger.info("Zero fields populated and Apply button detected. Clicking '%s' (%s) to reach form.", entry_txt, entry_sel)
+                        click_count = self._clicked_entry_history.get((current_url, entry_sel), 0) + 1
+                        self._clicked_entry_history[(current_url, entry_sel)] = click_count
+                        if click_count > 2:
+                            logger.warning("Guardrail 1: Overview button '%s' (%s) clicked %d times without navigating.", entry_txt, entry_sel, click_count)
+                            app_frame = await FrameResolver.find_application_frame(self.browser_agent)
+                            if app_frame and app_frame.src and app_frame.src.startswith("http"):
+                                logger.info("Navigating directly to iframe source URL: %s", app_frame.src)
+                                await self.browser_agent.navigate(app_frame.src)
+                                await asyncio.sleep(2.0)
+                                continue
+                            self.intervention_manager.trigger_intervention(
+                                self.state_machine,
+                                reason=InterventionReason.MANUAL_ACTION_REQUIRED,
+                                message=f"Application entry button '{entry_txt}' does not navigate to a form. Please navigate to the application form.",
+                                details={"url": current_url, "selector": entry_sel},
+                            )
+                            res = await self.intervention_manager.wait_for_resolution()
+                            if res.resolution_action != "RESUME":
+                                return self._build_result(current_url, job_title, company, fill_result=latest_fill_result)
+                            continue
+
+                        logger.info("Zero fields populated and Apply button detected. Clicking '%s' (%s) to reach form (attempt %d).", entry_txt, entry_sel, click_count)
                         self.state_machine.transition_to(
                             AgentExecutionState.NAVIGATING,
                             message=f"Job overview detected. Clicking '{entry_txt}' to open application form.",
@@ -1196,13 +1247,23 @@ class UniversalApplicationOrchestrator:
 
                     # Invariant: Bot must answer all screening questions and required fields before review
                     unfilled_required = [
-                        f_name for f_name, f_data in fill_res.field_details.items()
-                        if f_data.get("required") and f_data.get("status") != "FILLED"
+                        f_name for f_name, f_data in (fill_res.field_details or {}).items()
+                        if (f_data or {}).get("required") and (f_data or {}).get("status") != "FILLED"
+                        and not any(k in str(f_name).lower() for k in ["apply with", "import from", "upload resume", "upload cv"])
                     ]
+                    filled_labels_or_keys = {
+                        str(k).lower() for k, v in (fill_res.field_details or {}).items() if (v or {}).get("status") == "FILLED"
+                    } | {
+                        str((v or {}).get("label") or "").lower() for k, v in (fill_res.field_details or {}).items() if (v or {}).get("status") == "FILLED"
+                    }
                     unfilled_screening_questions = [
                         f.label for f in analysis.fields
-                        if f.label and f.input_type != "file" and ("?" in f.label or any(k in f.label.lower() for k in ["rpa", "experience", "ctc", "salary", "notice", "location", "authorized", "visa", "sponsorship"]))
-                        and f.label not in [k for k, v in fill_res.field_details.items() if v.get("status") == "FILLED"]
+                        if f.label and f.input_type in ("text", "textarea", "email", "tel", "number", "select", "radio_group", "checkbox")
+                        and not any(k in f.label.lower() for k in ["apply with", "import from", "upload resume", "upload cv", "attach resume", "choose file", "browse"])
+                        and ("?" in f.label or any(k in f.label.lower() for k in ["rpa", "experience", "ctc", "salary", "notice", "location", "authorized", "visa", "sponsorship"]))
+                        and f.label.lower() not in filled_labels_or_keys
+                        and (f.field_id or "").lower() not in filled_labels_or_keys
+                        and (f.name or "").lower() not in filled_labels_or_keys
                     ]
 
                     all_missing = list(dict.fromkeys(unfilled_required + unfilled_screening_questions))

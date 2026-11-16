@@ -111,7 +111,7 @@ class SystemDiagnosticsTab(QWidget):
         grid.addWidget(self.card_process, 0, 0)
 
         # 2. Log File Integrity & Rotation
-        self.card_file = DiagnosticCard("2. Log File Health (logs/log.txt)")
+        self.card_file = DiagnosticCard("2. Log File Health")
         grid.addWidget(self.card_file, 0, 1)
 
         # 3. Worker & Thread Safety
@@ -145,7 +145,13 @@ class SystemDiagnosticsTab(QWidget):
         )
 
         # 2. Log File
-        log_path = Path("logs/log.txt")
+        try:
+            from app.services.os.app_paths import AppPaths
+            log_path = AppPaths.get_logs_dir() / "log.txt"
+            if not log_path.exists() and Path("logs/log.txt").exists():
+                log_path = Path("logs/log.txt")
+        except Exception:
+            log_path = Path("logs/log.txt")
         if log_path.exists():
             size_mb = log_path.stat().st_size / (1024 * 1024)
             mtime = datetime_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(log_path.stat().st_mtime))

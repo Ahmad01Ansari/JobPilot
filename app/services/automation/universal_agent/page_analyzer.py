@@ -983,7 +983,7 @@ _DOM_EXTRACTION_JS = """(() => {
         }
         if (el.children.length === 0) {
             const t = (el.innerText || el.textContent || '').trim();
-            if (/^(apply\s+now|apply\s+manually|apply|continue|next\s*[›»▸▶>]?|submit\s+application|submit|create\s+account)$/i.test(t)) {
+            if (/^(apply(\s+(now|online|for\s+(this\s+)?(job|position|role)|manually|here))?|i'm\s+interested|quick\s+apply|easy\s+apply|continue|next\s*[›»▸▶>]?|submit\s+application|submit|create\s+account)$/i.test(t)) {
                 foundElements.add(el);
                 const p = el.closest('button, a, [role="button"], oj-button, oj-c-button, input[type="submit"], input[type="button"]');
                 if (p) foundElements.add(p);
@@ -1039,6 +1039,11 @@ _DOM_EXTRACTION_JS = """(() => {
             continue;
         }
 
+        // Exclude skip links, bookmarks, mailto, tel links from action buttons
+        if (href === '#' || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || cleanLower.includes('skip to') || cleanLower.startsWith('skip')) {
+            continue;
+        }
+
         // Filter false-positive non-application buttons (cart, filters, cancellation, cookies, social share, accordion toggles, tab switcher links)
         const isSaveAndContinue = /save\s*(and|&)\s*continue/i.test(cleanLower);
         if (!isSaveAndContinue && (
@@ -1050,10 +1055,10 @@ _DOM_EXTRACTION_JS = """(() => {
 
         const selector = getUniqueSelector(btn);
 
-        const isNextPattern = isSaveAndContinue || cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') || cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') || /^(next|continue|proceed)(\s|$)/i.test(cleanLower) || cleanLower === 'create account' || cleanLower.startsWith('create account') || dataAuto === 'createaccountsubmitbutton' || dataAuto.includes('createaccountsubmit') || cleanLower === 'sign in' || cleanLower.startsWith('sign in') || dataAuto.includes('signinsubmit');
+        const isNextPattern = (isSaveAndContinue || cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') || cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') || /^(next|continue|proceed)(\s|$)/i.test(cleanLower) || ((cleanLower === 'create account' || cleanLower.startsWith('create account') || cleanLower === 'sign in' || cleanLower.startsWith('sign in')) && (dataAuto.includes('createaccountsubmit') || dataAuto.includes('signinsubmit') || dataAuto.includes('workday')))) && !btn.id.toLowerCase().includes('loginsubmit') && !btn.className.toLowerCase().includes('login');
         const isSubmitPattern = !isSaveAndContinue && !cleanLower.includes('continue') && (cleanLower === 'submit' || cleanLower.includes('submit application') || cleanLower.includes('send application') || cleanLower.includes('complete application') || cleanLower.includes('finish application') || (btnType === 'submit' && !/cancel|reset|search|close|filter|back/i.test(cleanLower + ' ' + (btn.id || '') + ' ' + (btn.name || ''))));
         const isModalTrigger = btn.getAttribute('data-bs-toggle') === 'modal' || btn.getAttribute('data-toggle') === 'modal' || btn.hasAttribute('data-bs-target') || btn.hasAttribute('data-target') || btn.getAttribute('aria-haspopup') === 'dialog';
-        const isApplyPattern = isModalTrigger || cleanLower === 'apply' || cleanLower.startsWith('apply now') || cleanLower.includes('apply online') || cleanLower.includes('apply on') || cleanLower.includes('start application') || cleanLower.includes('register to apply') || cleanLower.includes('apply manually') || dataAuto.includes('adventure') || dataAuto.includes('applymanually') || href.includes('resume-registration') || href.includes('/apply') || href.includes('action=apply') || href.includes('job-apply') || (cleanLower.includes('apply') && !/services|solutions|portfolio|integration|architecture|consulting|outsourcing/i.test(cleanLower));
+        const isApplyPattern = !href.startsWith('mailto:') && (isModalTrigger || cleanLower === 'apply' || cleanLower.startsWith('apply now') || cleanLower.includes('apply online') || cleanLower.includes('apply on') || cleanLower.includes('apply for') || cleanLower.includes('apply to') || cleanLower.includes('start application') || cleanLower.includes('register to apply') || cleanLower.includes('apply manually') || cleanLower.includes('quick apply') || cleanLower.includes('easy apply') || dataAuto.includes('adventure') || dataAuto.includes('applymanually') || href.includes('resume-registration') || href.includes('/apply') || href.includes('action=apply') || href.includes('job-apply') || (cleanLower.includes('apply') && !/services|solutions|portfolio|integration|architecture|consulting|outsourcing/i.test(cleanLower)));
 
         let score = 0;
         if (isModalTrigger) {

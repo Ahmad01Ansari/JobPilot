@@ -92,7 +92,15 @@ class LiveRawConsoleTab(QWidget):
 
         # File Selector
         self.file_combo = QComboBox()
-        self.file_combo.addItems(["logs/log.txt", "logs/bot.log"])
+        items = []
+        try:
+            from app.services.os.app_paths import AppPaths
+            canonical_log = str((AppPaths.get_logs_dir() / "log.txt").resolve())
+            items.append(canonical_log)
+        except Exception:
+            pass
+        items.extend(["logs/log.txt", "logs/bot.log"])
+        self.file_combo.addItems(list(dict.fromkeys(items)))
         self.file_combo.setStyleSheet(f"""
             QComboBox {{
                 background-color: {c.get('surface', '#161B22')};

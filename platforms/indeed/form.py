@@ -24,7 +24,7 @@ from selenium.common.exceptions import (
 
 from modules.helpers import print_lg
 from modules.qna_engine import QnAEngine, Answer
-from modules.config_loader import get_personal, get_resume
+from modules.config_loader import get_personal, get_resume, get_professional
 from platforms.indeed.selectors import (
     SPINNER_SELECTORS,
     STEP_HEADING_SELECTORS,
@@ -60,7 +60,91 @@ class IndeedForm:
         self.driver = browser.driver
         self.qna_engine = qna_engine or QnAEngine()
         self.personal = candidate_profile or get_personal()
+        self.professional = getattr(self.qna_engine, "prof", {}) or get_professional()
         self.captcha_handler = captcha_handler or IndeedCaptchaHandler(browser)
+
+    @staticmethod
+    def _clean_phone_number(phone_raw: str) -> str:
+        """Cleans phone number to pure digits, stripping non-digit symbols and redundant country codes."""
+        if not phone_raw:
+            return ""
+        digits = re.sub(r'\D', '', str(phone_raw))
+        # If 12 digits starting with 91 (India) -> 10-digit national number
+        if len(digits) == 12 and digits.startswith("91"):
+            return digits[-10:]
+        # If 11 digits starting with 1 (US/Canada) -> 10-digit national number
+        if len(digits) == 11 and digits.startswith("1"):
+            return digits[-10:]
+        # If 11 digits starting with 0 (e.g. 0XXXXXXXXXX) -> 10 digits
+        if len(digits) == 11 and digits.startswith("0"):
+            return digits[-10:]
+        # If 10 or more digits, extract last 10 digits
+        if len(digits) >= 10:
+            return digits[-10:]
+        return digits
+
+    @staticmethod
+    def _resolve_safe_option(question_text: str, options: List[str], raw_val: str, qna_match: Optional[str]) -> str:
+        """Picks the safest matching option without blind-defaulting to option[0] (which may be Afghanistan or Fiji Dollar)."""
+        if qna_match and qna_match in options:
+            return qna_match
+        q_lower = question_text.lower()
+
+        # Country / Phone Dial Code
+        is_dial_code_list = any(re.search(r'\+\d{1,4}', o) for o in options)
+        is_country_query = any(w in q_lower for w in ["country", "dial code", "phone code", "calling code"])
+        if is_country_query or is_dial_code_list:
+            # 1. Match India (+91) specifically (never match British Indian Ocean Territory (+246))
+            for opt in options:
+                opt_l = opt.lower()
+                if "+91" in opt_l:
+                    return opt
+            for opt in options:
+                opt_l = opt.lower()
+                if re.search(r'\bindia\b', opt_l) and "british" not in opt_l and "+246" not in opt_l:
+                    return opt
+            # 2. Match United States / Canada (+1) specifically
+            for opt in options:
+                opt_l = opt.lower()
+                if "+1" in opt_l or (re.search(r'\bunited states\b', opt_l) and "minor" not in opt_l):
+                    return opt
+
+        # Currency / Salary Unit
+        if any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
+            for opt in options:
+                opt_l = opt.lower()
+                if any(curr in opt_l for curr in ["inr", "rupee", "₹", "indian"]):
+                    return opt
+            for opt in options:
+                opt_l = opt.lower()
+                if any(curr in opt_l for curr in ["usd", "dollar (usd)", "$"]):
+                    return opt
+
+        # Yes / No Questions
+        if any(w in q_lower for w in ["sponsorship", "conflict", "relative", "felony", "crime", "previously employed", "discharged", "non-compete", "referred"]):
+            for opt in options:
+                if opt.lower() == "no" or "no" in opt.lower():
+                    return opt
+        if any(w in q_lower for w in ["authorized", "eligible", "relocate", "relocation", "hybrid", "remote"]):
+            for opt in options:
+                if opt.lower() == "yes" or "yes" in opt.lower():
+                    return opt
+
+        # Referral / Hearing source
+        if any(w in q_lower for w in ["hear about", "referral source", "how did you hear"]):
+            for opt in options:
+                opt_l = opt.lower()
+                if "indeed" in opt_l or "linkedin" in opt_l or "online" in opt_l:
+                    return opt
+
+        # Experience / Numeric ranges (strictly when question asks for experience/years/numerical level)
+        if any(w in q_lower for w in ["experience", "years", "year", "level", "tenure"]):
+            for opt in options:
+                opt_l = opt.lower()
+                if "1 to 2" in opt_l or "1-2" in opt_l or re.search(r'\b2\b', opt_l):
+                    return opt
+
+        return options[0] if options else ""
 
     def wait_for_spinner(self, timeout: int = 10) -> None:
         """Waits for any loading spinner / overlay to clear."""
@@ -325,11 +409,31 @@ class IndeedForm:
         print_lg("[IndeedForm] Processing Contact Information module...")
         first_name = self.personal.get("first_name", "Mohd Ahmad Raza")
         last_name = self.personal.get("last_name", "Ansari")
-        phone = self.personal.get("phone_number", "+916388623967")
+        phone_raw = self.personal.get("phone_number", "6388623967")
+        clean_phone = self._clean_phone_number(phone_raw)
 
         self.fill_field_if_needed(CONTACT_FIRST_NAME, first_name)
         self.fill_field_if_needed(CONTACT_LAST_NAME, last_name)
-        self.fill_field_if_needed(CONTACT_PHONE, phone)
+        self.fill_field_if_needed(CONTACT_PHONE, clean_phone)
+
+        # Select Country dropdown if present on contact page
+        try:
+            country_selects = self.driver.find_elements(
+                By.XPATH,
+                "//select[contains(@id, 'country') or contains(@name, 'country') or contains(@aria-label, 'country') or contains(@aria-label, 'Country')]"
+            )
+            for cs in country_selects:
+                if cs.is_displayed():
+                    sel = Select(cs)
+                    opts = [o.text.strip() for o in sel.options if o.text.strip()]
+                    best_country = self._resolve_safe_option("country", opts, "", None)
+                    if best_country:
+                        try:
+                            sel.select_by_visible_text(best_country)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     def fill_location_info(self) -> None:
         """Fills location and address fields."""
@@ -455,10 +559,48 @@ class IndeedForm:
                     target_radio = None
                     target_lbl = None
                     for opt_text, r, lbl in options_map:
-                        if target_str.lower() == opt_text.lower() or target_str.lower() in opt_text.lower():
+                        if target_str.lower() == opt_text.lower():
                             target_radio = r
                             target_lbl = lbl
                             break
+
+                    # Numeric range matching for experience questions (e.g. '1 to 2 years' vs 'Less than 1 year')
+                    if not target_radio and options_map:
+                        try:
+                            cand_exp = float(self.personal.get("years_of_experience", 2.0))
+                        except Exception:
+                            cand_exp = 2.0
+                        for opt_text, r, lbl in options_map:
+                            opt_lower = opt_text.lower()
+                            # Parse ranges like "1 to 2", "1-2", "less than 1", "more than 4"
+                            if "less than" in opt_lower or "under" in opt_lower:
+                                digits = re.findall(r'\d+', opt_lower)
+                                if digits and cand_exp < float(digits[0]):
+                                    target_radio = r
+                                    target_lbl = lbl
+                                    target_str = opt_text
+                                    break
+                            elif "more than" in opt_lower or "greater than" in opt_lower or "+" in opt_lower:
+                                digits = re.findall(r'\d+', opt_lower)
+                                if digits and cand_exp >= float(digits[0]):
+                                    target_radio = r
+                                    target_lbl = lbl
+                                    target_str = opt_text
+                                    break
+                            else:
+                                digits = re.findall(r'\d+', opt_lower)
+                                if len(digits) >= 2 and float(digits[0]) <= cand_exp <= float(digits[1]):
+                                    target_radio = r
+                                    target_lbl = lbl
+                                    target_str = opt_text
+                                    break
+
+                    if not target_radio:
+                        for opt_text, r, lbl in options_map:
+                            if target_str.lower() in opt_text.lower():
+                                target_radio = r
+                                target_lbl = lbl
+                                break
 
                     # Fallback to "No" for questions asking about conflicts, relatives, termination, etc.
                     if not target_radio and options_map:
@@ -507,10 +649,10 @@ class IndeedForm:
                 if elem in handled_inputs or not elem.is_displayed():
                     continue
 
-                # Skip standard name/phone/email inputs if they belong to contact info
+                # Skip standard name/email inputs if they belong to contact info (keep phone to handle questions step)
                 name_attr = (elem.get_attribute("name") or "").lower()
                 id_attr = (elem.get_attribute("id") or "").lower()
-                if any(k in name_attr or k in id_attr for k in ["first-name", "last-name", "phone", "email", "age", "recaptcha"]):
+                if any(k in name_attr or k in id_attr for k in ["first-name", "last-name", "email", "age", "recaptcha"]):
                     continue
 
                 tag_name = elem.tag_name.lower()
@@ -527,14 +669,59 @@ class IndeedForm:
                     except Exception:
                         pass
                 if not question_text:
+                    aria_lbl = elem.get_attribute("aria-label")
+                    if aria_lbl and aria_lbl.strip():
+                        question_text = aria_lbl.strip().replace("\n", " ")
+                if not question_text:
                     try:
-                        p_lbl = elem.find_element(By.XPATH, "ancestor::div[contains(@class, 'item') or @data-testid or contains(@class, 'Group')]//label")
+                        # Nearest preceding label is much more accurate than ancestor div label
+                        prec_lbls = elem.find_elements(By.XPATH, "preceding::label[1]")
+                        if prec_lbls and prec_lbls[0].is_displayed() and prec_lbls[0].text.strip():
+                            question_text = prec_lbls[0].text.strip().replace("\n", " ")
+                    except Exception:
+                        pass
+                if not question_text:
+                    try:
+                        p_lbl = elem.find_element(By.XPATH, "ancestor::label[1]")
                         if p_lbl and p_lbl.text.strip():
                             question_text = p_lbl.text.strip().replace("\n", " ")
                     except Exception:
                         pass
                 if not question_text:
-                    question_text = elem.get_attribute("aria-label") or elem.get_attribute("placeholder") or name_attr or "Question"
+                    try:
+                        p_lbl = elem.find_element(By.XPATH, "ancestor::div[contains(@class, 'item') or @data-testid or contains(@class, 'Group')][1]//label[1]")
+                        if p_lbl and p_lbl.text.strip():
+                            question_text = p_lbl.text.strip().replace("\n", " ")
+                    except Exception:
+                        pass
+                if not question_text:
+                    question_text = elem.get_attribute("placeholder") or name_attr or "Question"
+
+                q_lower = question_text.lower()
+
+                # Explicit Checkbox Handler
+                if inp_type == "checkbox":
+                    handled_inputs.add(elem)
+                    should_check = False
+                    if any(w in q_lower for w in ["text message", "sms", "notification", "agree", "certify", "acknowledge", "consent", "terms"]):
+                        should_check = True
+                    elif any(w in q_lower for w in ["disability", "veteran", "felony"]):
+                        should_check = False
+                    else:
+                        should_check = True
+
+                    try:
+                        is_checked = elem.is_selected()
+                        if should_check and not is_checked:
+                            self.driver.execute_script("arguments[0].click();", elem)
+                            print_lg(f"[IndeedForm] Checkbox checked: '{question_text[:60]}'")
+                        elif not should_check and is_checked:
+                            self.driver.execute_script("arguments[0].click();", elem)
+                            print_lg(f"[IndeedForm] Checkbox unchecked: '{question_text[:60]}'")
+                    except Exception as e:
+                        print_lg(f"[IndeedForm] Error toggling checkbox: {e}")
+                    answered.append({"question": question_text, "answer": "Checked" if should_check else "Unchecked"})
+                    continue
 
                 # Dropdowns (<select>)
                 if tag_name == "select":
@@ -550,9 +737,8 @@ class IndeedForm:
                         job_context={"title": job_title, "company": company_name}
                     )
                     raw_val = sel_obj.value if sel_obj else ""
-                    best_opt = self.qna_engine._match_option(str(raw_val), options_for_qna) if raw_val else (options_for_qna[0] if options_for_qna else "")
-                    if not best_opt and options_for_qna:
-                        best_opt = options_for_qna[0]
+                    qna_match = self.qna_engine._match_option(str(raw_val), options_for_qna) if raw_val else None
+                    best_opt = self._resolve_safe_option(question_text, options_for_qna, str(raw_val), qna_match)
 
                     selected_ok = False
                     if best_opt:
@@ -567,7 +753,7 @@ class IndeedForm:
                                     break
                     if not selected_ok and options_for_qna:
                         try:
-                            sel_elem.select_by_visible_text(options_for_qna[0])
+                            sel_elem.select_by_visible_text(best_opt or options_for_qna[0])
                         except Exception:
                             sel_elem.select_by_index(min(1, len(raw_options) - 1))
 
@@ -576,29 +762,44 @@ class IndeedForm:
                     continue
 
                 # Check if this input is a combobox, searchable select, or has an active listbox/dropdown attached
+                q_lower = question_text.lower()
+                inputmode = (elem.get_attribute("inputmode") or "").lower()
+                pattern = (elem.get_attribute("pattern") or "").lower()
+
+                # Guard: textareas, tel/number inputs, and explicit non-combobox fields must NEVER be treated as comboboxes
+                is_explicit_non_combobox = (
+                    tag_name == "textarea"
+                    or inp_type in ("tel", "number", "email", "password")
+                    or inputmode in ("numeric", "decimal", "tel", "email")
+                    or any(w in q_lower for w in [
+                        "phone", "mobile", "amount", "salary", "why", "describe",
+                        "cover letter", "tell us", "experience", "how many", "years",
+                        "notice period", "rate yourself", "summary", "explanation"
+                    ])
+                )
+
                 is_combobox = False
                 combobox_options = []
-                try:
-                    combobox_options = self.driver.execute_script("""
-                        const el = arguments[0];
-                        const role = el.getAttribute('role') || '';
-                        const ariaAuto = el.getAttribute('aria-autocomplete') || '';
-                        const ariaHasPopup = el.getAttribute('aria-haspopup') || '';
-                        const cls = el.className || '';
-                        const isComboInput = role === 'combobox' || ariaAuto === 'list' || ariaHasPopup === 'listbox' ||
-                                            cls.includes('select') || cls.includes('combobox') || el.type === 'search';
+                if not is_explicit_non_combobox:
+                    try:
+                        combobox_options = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const role = (el.getAttribute('role') || '').toLowerCase();
+                            const ariaAuto = (el.getAttribute('aria-autocomplete') || '').toLowerCase();
+                            const ariaHasPopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+                            const isComboInput = role === 'combobox' || ariaAuto === 'list' || ariaHasPopup === 'listbox';
 
-                        const container = el.closest('[role="combobox"], [role="listbox"], .icl-Select, [class*="select" i], [class*="combobox" i], [class*="dropdown" i]') || document;
-                        const optionEls = Array.from(container.querySelectorAll('[role="option"], li[role="option"], ul[role="listbox"] li, .icl-Select-option'));
-                        if (optionEls.length > 0 || isComboInput) {
+                            const container = el.closest('[role="combobox"], [role="listbox"], .icl-Select, [data-testid*="combobox"], [data-testid*="select"]') || (isComboInput ? el.parentElement : null);
+                            if (!container || container === document.body || container === document.documentElement) {
+                                return [];
+                            }
+                            const optionEls = Array.from(container.querySelectorAll('[role="option"], li[role="option"], ul[role="listbox"] li, .icl-Select-option'));
                             return optionEls.map(o => (o.innerText || o.textContent || '').trim()).filter(t => t.length > 0);
-                        }
-                        return [];
-                    """, elem)
-                    if combobox_options and len(combobox_options) > 0:
-                        is_combobox = True
-                except Exception:
-                    pass
+                        """, elem)
+                        if combobox_options and len(combobox_options) > 0:
+                            is_combobox = True
+                    except Exception:
+                        pass
 
                 if is_combobox and combobox_options:
                     clean_cb_options = [o for o in combobox_options if o.lower() not in ["select an option", "select...", "choose an option", "choose one", "select", "-- select --"]]
@@ -611,9 +812,8 @@ class IndeedForm:
                         job_context={"title": job_title, "company": company_name}
                     )
                     raw_val = sel_obj.value if sel_obj else ""
-                    best_opt = self.qna_engine._match_option(str(raw_val), cb_options) if raw_val else (cb_options[0] if cb_options else "")
-                    if not best_opt and cb_options:
-                        best_opt = cb_options[0]
+                    qna_match = self.qna_engine._match_option(str(raw_val), cb_options) if raw_val else None
+                    best_opt = self._resolve_safe_option(question_text, cb_options, str(raw_val), qna_match)
 
                     if best_opt:
                         try:
@@ -634,16 +834,11 @@ class IndeedForm:
                                 return true;
                             }
                         }
-                        if (optionEls.length > 0) {
-                            optionEls[0].click();
-                            return true;
-                        }
                         return false;
                     """, best_opt)
 
                     if not clicked_opt:
                         try:
-                            from selenium.webdriver.common.keys import Keys
                             elem.send_keys(Keys.ENTER)
                         except Exception:
                             pass
@@ -653,10 +848,6 @@ class IndeedForm:
                     continue
 
                 # Text / Number inputs and Textareas
-                q_lower = question_text.lower()
-                inputmode = (elem.get_attribute("inputmode") or "").lower()
-                pattern = (elem.get_attribute("pattern") or "").lower()
-
                 is_numeric_field = (
                     inp_type == "number"
                     or inputmode in ("numeric", "decimal")
@@ -668,35 +859,94 @@ class IndeedForm:
                     ])
                 )
 
-                ans_obj: Answer = self.qna_engine.answer_question(
-                    question=question_text,
-                    options=[],
-                    field_type="number" if is_numeric_field else "text",
-                    job_context={"title": job_title, "company": company_name}
+                # Special Field Handlers: Phone, Salary Amount, Seeking Employment, Referrals, Bio
+                is_phone_field = (
+                    inp_type == "tel"
+                    or inputmode == "tel"
+                    or any(w in q_lower for w in ["phone", "mobile", "contact number"])
                 )
-                ans_str = str(ans_obj.value if ans_obj else "").strip()
+                is_salary_amount_field = (
+                    any(w in q_lower for w in ["enter the amount", "please enter the amount", "salary amount", "desired salary", "expected salary", "compensation amount"])
+                )
+                is_seeking_employment_field = (
+                    any(w in q_lower for w in ["why are you currently seeking employment", "reason for seeking", "why are you looking for a change", "reason for leaving"])
+                )
+                is_conditional_referral_field = (
+                    any(w in q_lower for w in ["if you answered \"yes\"", "if you answered yes", "staffing agency, please provide", "please provide the name", "please specify"])
+                )
+                is_tell_us_bio_field = (
+                    any(w in q_lower for w in ["tell us anything else about yourself", "anything else about yourself", "additional information", "cover letter", "message to hiring manager"])
+                )
 
-                if is_numeric_field:
-                    # Indeed strictly enforces: "Answer must be a valid number (no decimals)."
-                    # Extract pure integer digits, resolve ranges (e.g. '1-4 YEARS'), and ensure no decimals
-                    digits = re.findall(r'\d+', ans_str)
-                    if digits:
-                        try:
-                            cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
-                        except Exception:
-                            cand_exp = 2
-                        if len(digits) > 1 and str(cand_exp) in digits:
-                            ans_str = str(cand_exp)
-                        elif len(digits) > 1 and int(digits[0]) <= cand_exp <= int(digits[-1]):
-                            ans_str = str(cand_exp)
+                is_home_phone = (
+                    "home" in q_lower and any(w in q_lower for w in ["phone", "number", "tel"])
+                ) or "homephone" in name_attr or "homephone" in id_attr
+                is_required = (
+                    elem.get_attribute("required") is not None
+                    or elem.get_attribute("aria-required") == "true"
+                    or "*" in question_text
+                )
+
+                if is_phone_field:
+                    phone_raw = str(self.personal.get("phone_number", "6388623967")).strip()
+                    clean_phone = self._clean_phone_number(phone_raw)
+                    if is_home_phone:
+                        home_raw = str(self.personal.get("home_phone", "")).strip()
+                        if home_raw:
+                            ans_str = self._clean_phone_number(home_raw)
+                        elif is_required:
+                            ans_str = clean_phone
                         else:
-                            ans_str = digits[0]
+                            ans_str = ""  # Optional home phone: leave empty to avoid redundant or invalid input
                     else:
-                        try:
-                            cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
-                        except Exception:
-                            cand_exp = 2
-                        ans_str = str(cand_exp) if any(w in q_lower for w in ["experience", "years"]) else "0"
+                        ans_str = clean_phone
+
+                    # If optional home phone and empty, clear any invalid draft value
+                    if ans_str == "" and is_home_phone and not is_required:
+                        existing_val = (elem.get_attribute("value") or "").strip()
+                        if existing_val:
+                            self._clear_and_type_input(elem, "")
+                            print_lg("[IndeedForm] Cleared optional home phone field.")
+                        continue
+                elif is_salary_amount_field:
+                    salary_val = self.professional.get("desired_salary") or self.personal.get("desired_salary", 550000)
+                    digits = re.findall(r'\d+', str(salary_val))
+                    ans_str = digits[0] if digits else "550000"
+                elif is_seeking_employment_field:
+                    ans_str = "Seeking new opportunities to grow professionally and contribute technical expertise in enterprise automation and Python development."
+                elif is_conditional_referral_field:
+                    ans_str = "N/A"
+                elif is_tell_us_bio_field:
+                    ans_str = "I am a dedicated automation engineer with 2 years of experience in RPA and Python, eager to contribute to your team."
+                else:
+                    ans_obj: Answer = self.qna_engine.answer_question(
+                        question=question_text,
+                        options=[],
+                        field_type="number" if is_numeric_field else "text",
+                        job_context={"title": job_title, "company": company_name}
+                    )
+                    ans_str = str(ans_obj.value if ans_obj else "").strip()
+
+                    if is_numeric_field:
+                        # Indeed strictly enforces: "Answer must be a valid number (no decimals)."
+                        digits = re.findall(r'\d+', ans_str)
+                        if digits:
+                            try:
+                                cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
+                            except Exception:
+                                cand_exp = 2
+                            if len(digits) > 1 and str(cand_exp) in digits:
+                                ans_str = str(cand_exp)
+                            elif len(digits) > 1 and int(digits[0]) <= cand_exp <= int(digits[-1]):
+                                ans_str = str(cand_exp)
+                            else:
+                                ans_str = digits[0]
+                        else:
+                            try:
+                                cand_exp = int(round(float(self.personal.get("years_of_experience", 2))))
+                            except Exception:
+                                cand_exp = 2
+                            ans_str = str(cand_exp) if any(w in q_lower for w in ["experience", "years"]) else "0"
 
                 existing_val = (elem.get_attribute("value") or "").strip()
                 if not existing_val or existing_val != ans_str:
@@ -840,6 +1090,40 @@ class IndeedForm:
                 """)
                 if err_texts:
                     print_lg(f"[IndeedForm] Validation error(s) preventing advance: {err_texts[:3]}")
+                    # Auto-heal: Fix any inputs with numeric errors (e.g. phone numbers containing '+' or letters)
+                    fixed_any = self.driver.execute_script("""
+                        let fixed = false;
+                        const badInputs = Array.from(document.querySelectorAll(
+                            'input[aria-invalid="true"], [class*="error"] input, [class*="invalid"] input, input[type="tel"], input[type="number"]'
+                        ));
+                        for (const inp of badInputs) {
+                            const val = (inp.value || '').trim();
+                            if (val && /\\D/.test(val)) {
+                                const digits = val.replace(/\\D/g, '');
+                                const clean = digits.length >= 10 ? digits.slice(-10) : digits;
+                                if (clean !== val) {
+                                    const proto = window.HTMLInputElement.prototype;
+                                    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                                    if (desc && desc.set) {
+                                        desc.set.call(inp, clean);
+                                    } else {
+                                        inp.value = clean;
+                                    }
+                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                    fixed = true;
+                                }
+                            }
+                        }
+                        return fixed;
+                    """)
+                    if fixed_any:
+                        print_lg("[IndeedForm] Auto-corrected invalid input values to clean numeric digits. Re-triggering advance...")
+                        time.sleep(0.5)
+                        try:
+                            self.driver.execute_script("arguments[0].click();", cont_btn)
+                        except Exception:
+                            pass
             except Exception:
                 pass
 

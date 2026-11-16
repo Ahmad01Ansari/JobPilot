@@ -113,14 +113,19 @@ class FrameResolver:
             form_frames.sort(key=lambda f: f.input_count, reverse=True)
             return form_frames[0]
 
-        # Prioritize true embedded ATS application forms (e.g. Greenhouse, Lever, Jobvite embed widgets)
+        # Prioritize true embedded ATS application forms (e.g. Greenhouse, Lever, Jobvite, Zoho Recruit, NiyukHR embed widgets)
         ats_embed_indicators = [
-            "greenhouse.io/embed", "jobs.lever.co", "app.jobvite.com",
-            "catsone.com", "smartrecruiters.com"
+            "greenhouse.io", "jobs.lever.co", "app.jobvite.com",
+            "catsone.com", "smartrecruiters.com", "zohorecruit.com",
+            "niyukhr.com", "workable.com", "breezy.hr", "recruitee.com",
+            "bamboohr.com", "applytojob.com", "ashbyhq.com", "freshteam.com",
+            "personio.com", "teamtailor.com", "rippling.com", "icims.com",
         ]
         for f in frames:
             src_l = f.src.lower()
             if any(indicator in src_l for indicator in ats_embed_indicators):
+                return f
+            if any(k in src_l for k in ["/job", "/career", "/apply", "recruit", "applicant"]) and not any(ex in src_l for ex in EXCLUDED_FRAME_PATTERNS):
                 return f
 
         return None

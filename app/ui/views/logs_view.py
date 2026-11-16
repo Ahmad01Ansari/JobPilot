@@ -7,9 +7,9 @@ and raw diagnostic log inspection.
 from datetime import datetime
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -39,8 +39,31 @@ from app.ui.views.logs.tabs.system_diagnostics_tab import SystemDiagnosticsTab
 from app.ui.widgets.notification_bar import NotificationBar
 
 
+def resolve_canonical_log_path(provided_path: Optional[Path] = None) -> Path:
+    """Finds the active log file path, preferring AppPaths user directory over local directory."""
+    if provided_path and Path(provided_path).exists():
+        return Path(provided_path)
+    try:
+        from app.services.os.app_paths import AppPaths
+        user_log = AppPaths.get_logs_dir() / "log.txt"
+        if user_log.exists():
+            return user_log
+    except Exception:
+        pass
+    local_log = Path("logs/log.txt")
+    if local_log.exists():
+        return local_log
+    try:
+        from app.services.os.app_paths import AppPaths
+        return AppPaths.get_logs_dir() / "log.txt"
+    except Exception:
+        return Path("logs/log.txt")
+
+
 class LogsView(QWidget):
     """Automation Mission Control Cockpit replacing legacy raw text logs."""
+
+    realtime_line_received = Signal(str)
 
     def __init__(
         self,
@@ -49,6 +72,7 @@ class LogsView(QWidget):
     ):
         super().__init__(parent)
         self.app_state: Optional[AppState] = None
+        self.automation_manager = None
 
         # Core Domain Infrastructure
         self.registry = RunRegistry()
@@ -57,7 +81,7 @@ class LogsView(QWidget):
         self.persistence_bridge = RunPersistenceBridge(registry=self.registry)
 
         # File reader state
-        self._log_file_path = log_file_path or Path("logs/log.txt")
+        self._log_file_path = resolve_canonical_log_path(log_file_path)
         self._file_offset = 0
         self._line_counter = 0
         self._is_paused = False
@@ -66,6 +90,16 @@ class LogsView(QWidget):
         self._setup_ui()
         self._connect_signals()
 
+        # Connect thread-safe realtime line receiver
+        self.realtime_line_received.connect(self._handle_realtime_log_line)
+
+        # Register callback with helpers.add_log_listener
+        try:
+            from modules.helpers import add_log_listener
+            add_log_listener(self._on_realtime_log_callback)
+        except Exception:
+            pass
+
         # Log polling timer (1.5s interval)
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._poll_log_file)
@@ -73,6 +107,16 @@ class LogsView(QWidget):
 
         # Initial read of existing logs
         self._poll_log_file()
+
+    def closeEvent(self, event) -> None:
+        try:
+            from modules.helpers import remove_log_listener
+            remove_log_listener(self._on_realtime_log_callback)
+        except Exception:
+            pass
+        if hasattr(self, "_poll_timer") and self._poll_timer.isActive():
+            self._poll_timer.stop()
+        super().closeEvent(event)
 
     def set_app_state(self, state: AppState) -> None:
         """Injects application-wide UI state bus."""
@@ -211,9 +255,16 @@ class LogsView(QWidget):
         active_runs = self.registry.get_all_runs()
         self.header.set_runs(active_runs, selected_run_id=self._active_run_id)
 
-        # 4. If matching active run (or default), update live UI components
-        if event.run_id == self._active_run_id or self._active_run_id == "default":
-            self._active_run_id = event.run_id
+        # 4. If matching active run, or if either run_id is "default", update live UI components
+        is_relevant = (
+            event.run_id == self._active_run_id
+            or self._active_run_id == "default"
+            or event.run_id == "default"
+            or (ctx and ctx.status in ("RUNNING", "STARTING", "ACTION_REQUIRED"))
+        )
+        if is_relevant:
+            if event.run_id and event.run_id != "default":
+                self._active_run_id = event.run_id
             self.current_action_card.update_from_context(ctx)
             self.pipeline_flow_map.set_current_stage(ctx.current_stage)
             self.status_strip.update_metrics(ctx)
@@ -237,10 +288,99 @@ class LogsView(QWidget):
             # Update Tab 3 badge text
             self.tabs.setTabText(2, f"Error Center ({len(ctx.active_interventions)})")
 
-    def _poll_log_file(self) -> None:
-        """Incrementally reads new lines from logs/log.txt without blocking."""
-        if not self._log_file_path.exists():
+    def connect_automation_manager(self, manager: Any) -> None:
+        """Connects typed worker signals from AutomationManager to AutomationLogBridge."""
+        if not manager:
             return
+        self.automation_manager = manager
+
+        # Connect typed domain signals
+        if hasattr(manager, "job_discovered"):
+            try:
+                manager.job_discovered.connect(self.bridge.on_job_discovered)
+            except Exception:
+                pass
+        if hasattr(manager, "job_evaluated"):
+            try:
+                manager.job_evaluated.connect(self.bridge.on_job_evaluated)
+            except Exception:
+                pass
+        if hasattr(manager, "application_submitted"):
+            try:
+                manager.application_submitted.connect(self.bridge.on_application_submitted)
+            except Exception:
+                pass
+        if hasattr(manager, "intervention_required"):
+            try:
+                manager.intervention_required.connect(self.bridge.on_intervention_required)
+            except Exception:
+                pass
+        if hasattr(manager, "state_changed"):
+            try:
+                manager.state_changed.connect(self._on_manager_state_changed)
+            except Exception:
+                pass
+        if hasattr(manager, "activity_logged"):
+            try:
+                manager.activity_logged.connect(self._on_manager_activity_logged)
+            except Exception:
+                pass
+
+    def _on_manager_state_changed(self, run_id: str, new_state: str) -> None:
+        """Tracks state changes and updates active run ID."""
+        if run_id and run_id != "default":
+            self._active_run_id = run_id
+        self.bridge.on_state_changed(run_id, new_state)
+
+    def _on_manager_activity_logged(self, timestamp: str, message: str) -> None:
+        """Handles live real-time activity logged from running automation."""
+        clean_msg = str(message or "").strip()
+        if not clean_msg:
+            return
+        line = f"[{timestamp}] {clean_msg}" if timestamp else clean_msg
+        self._handle_realtime_log_line(line)
+
+    def _on_realtime_log_callback(self, line: str) -> None:
+        """Invoked from background or worker threads via helpers.print_lg."""
+        if not line or self._is_paused:
+            return
+        self.realtime_line_received.emit(str(line))
+
+    def _handle_realtime_log_line(self, line: str) -> None:
+        """Executes on the Qt main GUI thread for safe UI updates."""
+        clean_line = line.rstrip("\r\n")
+        if not clean_line or self._is_paused:
+            return
+        self._line_counter += 1
+        self.tab_raw_console.append_log_line(clean_line)
+        self.bridge.on_log_line(
+            line=clean_line,
+            run_id=self._active_run_id,
+            line_number=self._line_counter,
+            byte_offset=self._file_offset,
+        )
+
+    def refresh(self) -> None:
+        """Invoked when navigating to the Logs view to ensure real-time state is active."""
+        if not self._log_file_path.exists():
+            self._log_file_path = resolve_canonical_log_path(self._log_file_path)
+        self._poll_log_file()
+        ctx = self.registry.get(self._active_run_id) or self.registry.get("default")
+        if ctx:
+            self.current_action_card.update_from_context(ctx)
+            self.pipeline_flow_map.set_current_stage(ctx.current_stage)
+            self.status_strip.update_metrics(ctx)
+            self.tab_errors.set_active_interventions(ctx.active_interventions)
+        active_runs = self.registry.get_all_runs()
+        if active_runs:
+            self.header.set_runs(active_runs, selected_run_id=self._active_run_id)
+
+    def _poll_log_file(self) -> None:
+        """Incrementally reads new lines from canonical log file without blocking."""
+        if not self._log_file_path.exists():
+            self._log_file_path = resolve_canonical_log_path(self._log_file_path)
+            if not self._log_file_path.exists():
+                return
 
         try:
             curr_size = self._log_file_path.stat().st_size

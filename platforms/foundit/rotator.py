@@ -338,49 +338,61 @@ class FounditRotator:
                                 break
                         continue
 
-                    # Stage 1 Passed: Open job in a new tab for deep inspection & full JD extraction
+                    # Stage 1 Passed: Inspect via active in-page split details pane first (avoids Akamai Access Denied on direct URLs)
                     main_window = self.browser.driver.current_window_handle
                     initial_windows = set(self.browser.driver.window_handles)
 
-                    job_href = ""
+                    pane_data = {}
                     try:
-                        for a in card_elem.find_elements(By.TAG_NAME, "a"):
-                            href = a.get_attribute("href") or ""
-                            if "/job/" in href:
-                                job_href = href
-                                break
+                        self.browser.driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", card_elem)
+                        time.sleep(random.uniform(0.6, 1.0))
+                        pane_data = self.parser.parse_active_details_pane()
                     except Exception:
                         pass
-                    if not job_href and job.source_url and "/job/" in job.source_url:
-                        job_href = job.source_url
 
-                    opened_tab = False
-                    if job_href:
+                    new_windows = []
+                    if not pane_data.get("description"):
+                        job_href = ""
                         try:
-                            self.browser.driver.execute_script("window.open(arguments[0], '_blank');", job_href)
-                            opened_tab = True
+                            for a in card_elem.find_elements(By.TAG_NAME, "a"):
+                                href = a.get_attribute("href") or ""
+                                if "/job/" in href:
+                                    job_href = href
+                                    break
                         except Exception:
                             pass
+                        if not job_href and job.source_url and "/job/" in job.source_url:
+                            job_href = job.source_url
 
-                    if not opened_tab:
-                        try:
-                            title_targets = card_elem.find_elements(By.CSS_SELECTOR, "a[href*='/job/'], div.jobTitle, div#jobCardTitle, h2, h3")
-                            if title_targets:
-                                self.browser.driver.execute_script("arguments[0].click();", title_targets[0])
+                        opened_tab = False
+                        if job_href:
+                            try:
+                                self.browser.driver.execute_script("window.open(arguments[0], '_blank');", job_href)
                                 opened_tab = True
-                        except Exception:
-                            pass
+                            except Exception:
+                                pass
 
-                    time.sleep(1.2)
-                    new_windows = [w for w in self.browser.driver.window_handles if w not in initial_windows]
+                        if not opened_tab:
+                            try:
+                                title_targets = card_elem.find_elements(By.CSS_SELECTOR, "a[href*='/job/'], div.jobTitle, div#jobCardTitle, h2, h3")
+                                if title_targets:
+                                    self.browser.driver.execute_script("arguments[0].click();", title_targets[0])
+                                    opened_tab = True
+                            except Exception:
+                                pass
+
+                        time.sleep(1.2)
+                        new_windows = [w for w in self.browser.driver.window_handles if w not in initial_windows]
 
                     if new_windows:
                         new_tab = new_windows[-1]
                         self.browser.driver.switch_to.window(new_tab)
                         time.sleep(1.5)
-
-                        # Extract full JD, experience, package, already-applied status from dedicated page
                         page_data = self.parser.parse_full_job_page()
+                    else:
+                        page_data = pane_data
+
+                    if page_data:
                         if page_data.get("title") and (not job.title or job.title == "Unknown Role"):
                             job.title = page_data["title"]
                         if page_data.get("company") and (not job.company or job.company == "Unknown Company"):
@@ -411,10 +423,11 @@ class FounditRotator:
                                 self.tracker.record_skipped(job, reason="NOT_EASY_APPLY")
                             elif hasattr(self.tracker, "record_state"):
                                 self.tracker.record_state(job, "SKIPPED", skip_reason="NOT_EASY_APPLY")
-                            try:
-                                self.browser.driver.close()
-                            except Exception:
-                                pass
+                            if new_windows:
+                                try:
+                                    self.browser.driver.close()
+                                except Exception:
+                                    pass
                             self.browser.driver.switch_to.window(main_window)
                             term_stats.jobs_skipped += 1
                             rot_stats.jobs_skipped += 1
@@ -452,10 +465,11 @@ class FounditRotator:
                                 self.tracker.record_skipped(job, reason="ALREADY_APPLIED_ON_PORTAL")
                             elif hasattr(self.tracker, "record_state"):
                                 self.tracker.record_state(job, "SKIPPED", skip_reason="ALREADY_APPLIED_ON_PORTAL")
-                            try:
-                                self.browser.driver.close()
-                            except Exception:
-                                pass
+                            if new_windows:
+                                try:
+                                    self.browser.driver.close()
+                                except Exception:
+                                    pass
                             self.browser.driver.switch_to.window(main_window)
                             term_stats.jobs_skipped += 1
                             rot_stats.jobs_skipped += 1
@@ -469,10 +483,11 @@ class FounditRotator:
                                 self.tracker.record_skipped(job, reason=qual_res_2.reason or "STAGE_2_FILTER")
                             elif hasattr(self.tracker, "record_state"):
                                 self.tracker.record_state(job, "SKIPPED", skip_reason=qual_res_2.reason or "STAGE_2_FILTER")
-                            try:
-                                self.browser.driver.close()
-                            except Exception:
-                                pass
+                            if new_windows:
+                                try:
+                                    self.browser.driver.close()
+                                except Exception:
+                                    pass
                             self.browser.driver.switch_to.window(main_window)
                             term_stats.jobs_skipped += 1
                             rot_stats.jobs_skipped += 1
@@ -489,7 +504,10 @@ class FounditRotator:
                             continue
 
                         # Apply on dedicated job details page (handles Quick Apply & Screen Questionnaire)
-                        print_lg(f"[FounditRotator] QUALIFIED Stage 2: {job.title} | {job.company}. Applying on job page...")
+                        if new_windows:
+                            print_lg(f"[FounditRotator] QUALIFIED Stage 2: {job.title} | {job.company}. Applying on job page...")
+                        else:
+                            print_lg(f"[FounditRotator] QUALIFIED Stage 2: {job.title} | {job.company}. Applying via in-page details...")
                         term_stats.jobs_qualified += 1
                         rot_stats.jobs_qualified += 1
                         if self.automation_bridge:
@@ -506,11 +524,20 @@ class FounditRotator:
 
                         if self.applier:
                             try:
-                                apply_res = self.applier.apply_on_job_page(
-                                    job,
-                                    pause_before_submit=self.config.pause_before_submit,
-                                    stop_check=stop_check,
-                                )
+                                if new_windows:
+                                    apply_res = self.applier.apply_on_job_page(
+                                        job,
+                                        pause_before_submit=self.config.pause_before_submit,
+                                        stop_check=stop_check,
+                                    )
+                                else:
+                                    apply_res = self.applier.apply(
+                                        job,
+                                        card_elem=card_elem,
+                                        qualification_engine=self.qualification_engine,
+                                        pause_before_submit=self.config.pause_before_submit,
+                                        stop_check=stop_check,
+                                    )
                                 status = apply_res.get("status")
                                 if status in ["SUBMITTED", "EXTERNAL"]:
                                     consecutive_skips = 0

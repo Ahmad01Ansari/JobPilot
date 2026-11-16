@@ -302,7 +302,32 @@ class QnAEngine:
             ans = Answer(value=exp_str, source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
 
-        # Priority 1d: Technology / Tools / Proficiency Lists
+        # Priority 1d: Technology / Tools / Proficiency Lists (Domain-specific breakdowns)
+        is_rpa_tools = ("rpa" in lbl or "robotic process" in lbl or "automation anywhere" in lbl or "uipath" in lbl or "power automate" in lbl) and any(w in lbl for w in ["tool", "tools", "platform", "mention", "name", "exp"])
+        is_prog_lang = ("programming" in lbl or "coding" in lbl or ("language" in lbl and any(w in lbl for w in ["python", "java", "c#", "javascript"]))) and any(w in lbl for w in ["mention", "name", "exp", "list", "which", "what"])
+        is_db_integration = ("database" in lbl or "integration" in lbl or "rest api" in lbl or "web service" in lbl or "sql" in lbl) and any(w in lbl for w in ["mention", "name", "exp", "list", "which", "what"])
+        is_aiml_tools = any(w in lbl for w in ["generative ai", "openai", "llm", "llms", "ai/ml", "ai & machine", "nlp", "ocr", "intelligent document"]) and any(w in lbl for w in ["tool", "tools", "mention", "name", "exp", "list"])
+
+        if is_rpa_tools and not any(w in lbl for w in ["how many years", "years of experience", "rate yourself"]):
+            rpa_ans = "Automation Anywhere 360 (2 years), UiPath (1 year), Microsoft Power Automate (1 year)"
+            ans = Answer(value=rpa_ans, source="profile", confidence=1.0)
+            return validate_answer(ans, question_label)
+
+        if is_prog_lang and not any(w in lbl for w in ["how many years", "years of experience", "rate yourself"]):
+            prog_ans = "Python (2 years), JavaScript (1 year)"
+            ans = Answer(value=prog_ans, source="profile", confidence=1.0)
+            return validate_answer(ans, question_label)
+
+        if is_db_integration and not any(w in lbl for w in ["how many years", "years of experience", "rate yourself"]):
+            db_ans = "SQL (PostgreSQL, MySQL) (2 years), REST APIs & Web Services (2 years)"
+            ans = Answer(value=db_ans, source="profile", confidence=1.0)
+            return validate_answer(ans, question_label)
+
+        if is_aiml_tools and not any(w in lbl for w in ["how many years", "years of experience", "rate yourself"]):
+            aiml_ans = "Generative AI & LLMs (2 years), OpenAI API & LangChain (1 year), AWS Textract & OCR (2 years)"
+            ans = Answer(value=aiml_ans, source="profile", confidence=1.0)
+            return validate_answer(ans, question_label)
+
         is_tools_or_tech_list = (
             any(w in lbl for w in [
                 "which tools", "which platforms", "which technologies",
@@ -531,7 +556,17 @@ class QnAEngine:
         if "last name" in lbl:
             ans = Answer(value=str(self.personal.get("last_name", "")), source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
-        if "signature" in lbl or "legal name" in lbl or "full name" in lbl or ("name" in lbl and "employer" not in lbl and "company" not in lbl):
+        is_candidate_name = (
+            "full name" in lbl or "legal name" in lbl or "your name" in lbl
+            or "candidate name" in lbl or "applicant name" in lbl
+            or "signature" in lbl or "sign here" in lbl
+            or lbl in ("name", "name:", "name *")
+        ) and not any(w in lbl for w in [
+            "company", "employer", "school", "college", "university", "tool", "tools",
+            "language", "languages", "database", "rpa", "skill", "exp", "experience", "project",
+            "manager", "supervisor", "reference", "mention", "certif", "product", "platform", "institution"
+        ])
+        if is_candidate_name:
             ans = Answer(value=self.full_name, source="profile", confidence=1.0)
             return validate_answer(ans, question_label)
 
@@ -708,6 +743,9 @@ class QnAEngine:
                 continue
             if k_lower in generic_choice_keys and lbl != k_lower and lbl_clean != k_lower:
                 continue
+            if k_lower in ["are you currently employed", "currently employed", "employed", "are you currently working"]:
+                if any(w in lbl for w in ["by", "at", "with", "subsidiaries", "affiliates", "before", "past", "prior", "ever been"]):
+                    continue
             if k_lower in lbl:
                 target = str(val)
                 source = "rule"
@@ -721,17 +759,35 @@ class QnAEngine:
                 target = "Yes"
                 source = "profile"
                 confidence = 0.98
-            elif any(w in lbl for w in ["visa", "sponsorship"]):
-                target = self.standard_answers.get("require_visa", "No")
+            elif any(w in lbl for w in ["visa", "sponsorship", "employer sponsorship", "future sponsorship", "require sponsorship", "need sponsorship", "h-1b", "h1b"]):
+                if any(w in lbl for w in ["without", "no sponsorship", "not require"]):
+                    target = "Yes"
+                else:
+                    target = self.standard_answers.get("require_visa", "No")
             elif any(w in lbl for w in ["related to", "relative", "family member", "nepotism", "relationship with anyone", "conflict of interest"]):
                 target = "No"
                 source = "rule"
                 confidence = 0.98
-            elif any(w in lbl for w in ["ever worked for", "previously employed", "former employee", "previously worked", "prior employee", "worked at"]):
+            elif any(w in lbl for w in [
+                "ever worked for", "previously employed", "former employee", "previously worked",
+                "prior employee", "worked at", "ever been employed", "currently employed by",
+                "subsidiaries before", "affiliates before", "worked for this company"
+            ]):
                 target = "No"
                 source = "rule"
                 confidence = 0.98
-            elif any(w in lbl for w in ["non-compete", "restrictive covenant", "disciplinary", "terminated", "fired", "convicted", "felony", "misdemeanor", "crime", "lawsuit", "sanctioned", "government official", "politically exposed"]):
+            elif any(w in lbl for w in [
+                "referred by", "referral by", "employee referral", "internal referral",
+                "referred by an employee", "current employee referral"
+            ]):
+                target = "No"
+                source = "rule"
+                confidence = 0.98
+            elif any(w in lbl for w in [
+                "non-compete", "restrictive covenant", "disciplinary", "terminated", "fired",
+                "convicted", "felony", "misdemeanor", "crime", "lawsuit", "sanctioned",
+                "government official", "politically exposed", "discharge"
+            ]):
                 target = "No"
                 source = "rule"
                 confidence = 0.98
@@ -795,7 +851,6 @@ class QnAEngine:
                 target = ai_choice
                 source = "llm"
                 confidence = 0.85
-                self.save_learned_answer(question_label, str(ai_choice), category="choice", answer_type="choice", source="llm")
         elif not matched_option and available_options:
             # Fallback if no match: prefer negative for military/legal/crime, affirmative for skills
             if any(w in lbl for w in ["military", "veteran", "crime", "felony", "misdemeanor", "drug", "lawsuit"]):
@@ -816,8 +871,8 @@ class QnAEngine:
             field_type="select" if len(available_options) > 2 else "radio",
         )
         validated_ans = validate_answer(ans, question_label, available_options)
-        # Auto-learn resolved question into QnA knowledge base if not already present
-        if question_label and question_label.lower() not in [k.lower() for k in self.custom_qa]:
+        # Only persist user-verified answers into custom_qa to avoid poisoning the profile
+        if source == "user" and question_label and question_label.lower() not in [k.lower() for k in self.custom_qa]:
             self.save_learned_answer(question_label, str(validated_ans.value), category="choice", answer_type="choice", source=source)
         return validated_ans, matched_option
 

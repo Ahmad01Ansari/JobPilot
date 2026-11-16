@@ -531,6 +531,24 @@ class FounditJobParser:
         except Exception:
             pass
 
+        # 8. Detect already applied status in details pane
+        try:
+            applied_els = self.driver.find_elements(
+                By.XPATH,
+                "//div[contains(@class, 'srpRightContainer') or contains(@class, 'detailsContainer') or contains(@class, 'headerContent')]//*[self::button or self::span or self::div or self::p][starts-with(normalize-space(), 'Applied') or normalize-space()='Already Applied' or normalize-space()='Your application status']"
+            )
+            for a_el in applied_els:
+                if a_el.is_displayed():
+                    atxt = (a_el.text or "").strip().lower()
+                    if "applicants have applied" in atxt or "applicant have applied" in atxt:
+                        continue
+                    if "applied" in atxt or "application status" in atxt:
+                        details["is_applied"] = True
+                        details["applied_status_text"] = a_el.text.strip()
+                        break
+        except Exception:
+            pass
+
         return details
 
     def extract_job_description(self) -> str:

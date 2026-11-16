@@ -5,11 +5,14 @@ attachment to <input type="file"> elements without operating system file dialog 
 """
 
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from app.services.automation.universal_agent.browser_agent.base import BrowserAgent
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc"}
 MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB

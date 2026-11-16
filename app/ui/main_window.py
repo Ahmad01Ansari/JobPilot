@@ -125,11 +125,14 @@ class MainWindow(QMainWindow):
         # Wire automation manager signals to notification service and live real-time view updates
         automation_view = self.view_instances.get("automation")
         dashboard_view = self.view_instances.get("dashboard")
+        logs_view = self.view_instances.get("logs")
         if automation_view and hasattr(automation_view, "manager"):
             mgr = automation_view.manager
             self.notification_service.connect_automation_manager(mgr)
             if dashboard_view and hasattr(dashboard_view, "set_automation_manager"):
                 dashboard_view.set_automation_manager(mgr)
+            if logs_view and hasattr(logs_view, "connect_automation_manager"):
+                logs_view.connect_automation_manager(mgr)
             for sig_name in ("application_submitted", "run_finished"):
                 sig = getattr(mgr, sig_name, None)
                 if sig is not None and hasattr(sig, "connect"):

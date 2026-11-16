@@ -5,6 +5,7 @@ from modules.qna_engine import QnAEngine, Answer, validate_answer
 class TestQnAProvenanceAndValidation(unittest.TestCase):
     def setUp(self):
         self.engine = QnAEngine(ai_client=None)
+        self.engine.prof["years_of_experience"] = 2.0
 
     def test_provenance_calculation(self):
         # 1. CTC in Lakhs -> calculation

@@ -751,8 +751,21 @@ class FounditSearch:
         # 2. If page > 1, advance strictly via UI pagination controls on the active search results page
         if page > 1:
             if not self.driver or "/search" not in (self.driver.current_url or "").lower():
-                print_lg(f"[FounditSearch] Cannot advance to page {page}: Not on search results page.")
-                return []
+                print_lg(f"[FounditSearch] Notice: Browser is not on search results page for page {page}. Navigating to canonical search URL...")
+                direct_url = build_search_url(
+                    keyword=keyword,
+                    location=location,
+                    experience_years=experience_years,
+                    freshness_days=freshness_days,
+                    page=page,
+                )
+                self.browser.navigate(direct_url)
+                time.sleep(3.0)
+                if self.is_access_denied():
+                    self.recover_from_access_denied()
+                cards = self.find_job_cards()
+                if cards:
+                    return cards
 
             print_lg(f"[FounditSearch] Advancing to page {page} via UI pagination controls...")
             next_btn = self.get_next_page_element()

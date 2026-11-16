@@ -66,6 +66,7 @@ restore_tmp/
 scratch/
 debug/
 testing/
+user_beta_testing_data/
 graphify-out/
 docs/indeed_research_artifacts/
 foundit_session_check.png

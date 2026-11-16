@@ -1,9 +1,12 @@
 """Deterministic application lifecycle state machine with decoupled execution, intervention, and terminal enums."""
 
 from enum import Enum
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.automation.universal_agent.timeline import AgentRunTimeline
+
+logger = logging.getLogger(__name__)
 
 
 class AgentExecutionState(str, Enum):
@@ -169,6 +172,11 @@ class UniversalApplicationStateMachine:
         return self.terminal_result == TerminalResult.SUCCESS_SUBMITTED
 
     @property
+    def is_terminal(self) -> bool:
+        """Indicates whether the state machine is in a terminal state (COMPLETED)."""
+        return self.state == AgentExecutionState.COMPLETED
+
+    @property
     def terminal_message(self) -> str:
         """Returns the final message or last timeline event message."""
         if hasattr(self.timeline, "events") and self.timeline.events:
@@ -191,6 +199,14 @@ class UniversalApplicationStateMachine:
     ) -> None:
         """Transitions state machine to new_state if valid."""
         if new_state == self.state:
+            return
+
+        if self.state == AgentExecutionState.COMPLETED:
+            logger.warning(
+                "Attempted transition from terminal state COMPLETED to %s ('%s'). Transition suppressed.",
+                new_state.value,
+                message,
+            )
             return
 
         valid_targets = self._VALID_TRANSITIONS.get(self.state, set())
