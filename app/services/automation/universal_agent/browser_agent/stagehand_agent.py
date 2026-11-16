@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Optional
 
 import sys
 
+from app.services.os.compatibility import apply_runtime_compatibility_patches
+
+# Ensure runtime compatibility patches (e.g. Python 3.15 concurrent.futures) are active before stagehand imports
+apply_runtime_compatibility_patches()
+
 from stagehand import Stagehand, local_browser
 from stagehand.browser import StagehandBrowser
 from stagehand.page import Page
@@ -99,6 +104,8 @@ class StagehandBrowserAgent(BrowserAgent):
         """Launches isolated Stagehand browser session."""
         if self.is_initialized:
             return
+
+        apply_runtime_compatibility_patches()
 
         launch_options = self.session_manager.get_launch_options(headless=headless, **kwargs)
 

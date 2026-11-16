@@ -429,7 +429,7 @@ class ResumesView(QWidget):
                 item = self.grid_layout.takeAt(0)
                 if item.widget():
                     w = item.widget()
-                    w.setParent(None)
+                    w.hide()
                     w.deleteLater()
 
             # Render 2-column or 3-column responsive grid

@@ -369,7 +369,7 @@ class ResumePreviewWorkspace(QWidget):
             item = layout.takeAt(0)
             if item.widget():
                 w = item.widget()
-                w.setParent(None)
+                w.hide()
                 w.deleteLater()
             elif item.layout():
                 self._clear_layout(item.layout())

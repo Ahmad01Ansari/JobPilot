@@ -170,7 +170,7 @@ class SearchKeywordInput(QWidget):
             item = self.tags_layout.takeAt(0)
             w = item.widget()
             if w:
-                w.setParent(None)
+                w.hide()
                 w.deleteLater()
 
         count = len(self.tags)

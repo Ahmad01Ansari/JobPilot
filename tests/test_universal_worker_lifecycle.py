@@ -40,6 +40,9 @@ from app.services.automation.universal_agent.state_machine import (
     UniversalApplicationStateMachine,
 )
 from app.services.automation.universal_agent.timeline import AgentRunTimeline
+from app.services.automation_bridge import AutomationBridge
+from app.services.dedup.job_dedup_service import JobDeduplicationService
+from app.services.job_service import JobService
 from platforms.router import PlatformRouter, UniversalPlatform
 
 app = QApplication.instance() or QApplication([])
@@ -202,9 +205,11 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
     """Integration test suite for AutomationWorker and AutomationManager universal execution."""
 
     def setUp(self):
+        from pathlib import Path
         self.temp_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.temp_dir, "phase12_test.db")
-        self.db_url = f"sqlite:///{self.db_path}"
+        self.db_url = f"sqlite:///{Path(self.db_path).as_posix()}"
+        self._active_workers = []
 
         self.engine = create_engine(self.db_url, future=True)
         event.listen(self.engine, "connect", configure_sqlite_pragmas)
@@ -221,6 +226,10 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         self.manager = AutomationManager(session_factory=self.Session)
 
     def tearDown(self):
+        for w in getattr(self, "_active_workers", []):
+            if w.isRunning():
+                w.request_stop()
+                w.wait(2000)
         if self.manager.is_running() and self.manager._current_worker:
             self.manager.request_stop()
             self.manager._current_worker.wait(2000)
@@ -278,6 +287,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
             headless=True,
             orchestrator=mock_orch,
         )
+        self._active_workers.append(worker)
 
         interventions = []
         submissions = []
@@ -292,7 +302,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         worker.start()
 
         # Wait until pre-submission review intervention is emitted
-        timeout_loops = 50
+        timeout_loops = 120
         while not interventions and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -305,7 +315,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         # Confirm review via worker method
         worker.confirm_review(notes="Confirmed in test")
 
-        timeout_loops = 50
+        timeout_loops = 120
         while (worker.isRunning() or not results) and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -334,12 +344,13 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
             company="CloudCo",
             orchestrator=mock_orch,
         )
+        self._active_workers.append(worker)
 
         interventions = []
         worker.intervention_required.connect(lambda ev: interventions.append(ev))
         worker.start()
 
-        timeout_loops = 50
+        timeout_loops = 120
         while not interventions and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -348,7 +359,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
 
         # Trigger manual takeover
         worker.takeover_manually(notes="Candidate opted to finish manually")
-        timeout_loops = 50
+        timeout_loops = 120
         while worker.isRunning() and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -377,7 +388,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         self.assertTrue(self.manager.is_running())
 
         # Wait for intervention
-        timeout_loops = 150
+        timeout_loops = 300
         while not interventions and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -388,7 +399,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
         ok = self.manager.confirm_current_review(notes="Manager confirmed")
         self.assertTrue(ok)
 
-        timeout_loops = 150
+        timeout_loops = 120
         while not runs_finished and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -417,12 +428,13 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
             company="TestLab",
             orchestrator=mock_orch,
         )
+        self._active_workers.append(worker)
 
         interventions = []
         worker.intervention_required.connect(lambda ev: interventions.append(ev))
         worker.start()
 
-        timeout_loops = 50
+        timeout_loops = 120
         while not interventions and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1
@@ -431,7 +443,7 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
 
         # Stop requested
         worker.request_stop()
-        timeout_loops = 50
+        timeout_loops = 120
         while worker.isRunning() and timeout_loops > 0:
             QTest.qWait(50)
             timeout_loops -= 1

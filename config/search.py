@@ -31,7 +31,8 @@ def _read_platform_from_db(platform_name="linkedin"):
         cur.execute("""
             SELECT pa.extra_settings, pa.default_location, pa.experience_years,
                    pa.max_applications, pa.apply_mode, pa.pause_before_submit,
-                   pa.stealth_mode, pa.safe_mode, pa.daily_application_goal
+                   pa.stealth_mode, pa.safe_mode, pa.daily_application_goal,
+                   p.is_enabled
             FROM platform_accounts pa
             JOIN platforms p ON pa.platform_id = p.id
             WHERE p.name = ?
@@ -46,6 +47,7 @@ def _read_platform_from_db(platform_name="linkedin"):
         extra = json.loads(row[0]) if row[0] else {}
         result = dict(extra)
         result["search_location"] = row[1]
+        result["experience_years"] = row[2]
         result["current_experience"] = row[2]
         result["switch_number"] = row[3]
         result["easy_apply_only"] = row[4] == "EASY_APPLY_ONLY"
@@ -54,6 +56,9 @@ def _read_platform_from_db(platform_name="linkedin"):
         result["stealth_mode"] = bool(row[6])
         result["safe_mode"] = bool(row[7])
         result["daily_application_goal"] = row[8] if len(row) > 8 and row[8] is not None else 50
+        is_enabled = bool(row[9]) if len(row) > 9 and row[9] is not None else True
+        result["enabled"] = is_enabled
+        result["is_enabled"] = is_enabled
         return result
     except Exception:
         return None

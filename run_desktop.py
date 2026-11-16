@@ -14,6 +14,13 @@ try:
 except Exception:
     pass
 
+# Apply standard library and runtime environment patches as early as possible
+try:
+    from app.services.os.compatibility import apply_runtime_compatibility_patches
+    apply_runtime_compatibility_patches()
+except Exception:
+    pass
+
 import sys
 import os
 import io
@@ -38,7 +45,7 @@ if sys.stdin is None:
 
 def _ensure_venv() -> None:
     """Auto-detect and switch to the project .venv if run with an unconfigured system Python."""
-    if os.environ.get("_JOBPILOT_VENV_BOOTSTRAPPED"):
+    if getattr(sys, "frozen", False) or os.environ.get("_JOBPILOT_VENV_BOOTSTRAPPED"):
         return
 
     root_dir = Path(__file__).resolve().parent

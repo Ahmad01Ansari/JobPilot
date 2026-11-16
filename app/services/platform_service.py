@@ -624,6 +624,9 @@ class PlatformService:
             if p_key not in data["platforms"] or not isinstance(data["platforms"][p_key], dict):
                 data["platforms"][p_key] = {}
 
+            if "enabled" not in data["platforms"][p_key] or data["platforms"][p_key]["enabled"] is None:
+                data["platforms"][p_key]["enabled"] = True
+
             data["platforms"][p_key]["search_terms"] = search_terms
             data["platforms"][p_key]["search_location"] = search_location
             data["platforms"][p_key]["switch_number"] = switch_number
