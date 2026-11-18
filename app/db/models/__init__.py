@@ -25,6 +25,7 @@ from app.db.models.setting import AppSetting
 from app.db.models.automation_run import AutomationRun
 from app.db.models.email_template import EmailTemplate
 from app.db.models.sync_checkpoint import EmailSyncCheckpoint
+from app.db.models.pilot_chat import PilotChatMessage
 
 __all__ = [
     "Company",
@@ -55,6 +56,7 @@ __all__ = [
     "AutomationRun",
     "EmailTemplate",
     "EmailSyncCheckpoint",
+    "PilotChatMessage",
 ]
 
 

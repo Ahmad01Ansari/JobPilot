@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.8-beta] — 2026-11-19
+
+### AI Career Copilot RAG Grounding, Chrome Process Recovery, and LinkedIn Seniority Gate
+
+This release introduces the grounded AI Career Copilot with zero-hallucination platform navigation, interactive reasoning streams, cross-platform Chrome process recovery, and automated LinkedIn seniority qualification gates.
+
+#### Added
+- **AI Career Copilot & Grounded RAG Knowledge Base**: Implemented `PlatformKnowledgeBase` providing grounded UI navigation flows and feature explanations across JobPilot's desktop views (Daily Apply Limit in Platforms View, Email Outreach Workspace, Universal ATS Agent, Instant Skip Rules, QnA screening profile facts).
+- **Interactive Simulation & Reasoning Stream**: Implemented real-time interactive thought stream cards (`PilotMessageCard` with animated milestones, pulsing execution steps, and live console logging for automation workers).
+- **Semantic Intent Routing & Human Behavior Test Suite**: Built semantic intent router handling complex human inquiries (application status checks, skip keyword additions/removals, compensation queries, and offer audits) with 60 comprehensive unit tests.
+- **Single-Instance Application Lock**: Added `SingleInstanceLock` in `app/services/os/single_instance.py` to prevent duplicate concurrent processes from locking SQLite databases or Chrome profiles.
+- **Smooth UI Wheel Event Filtering**: Added `app/ui/wheel_filter.py` to prevent accidental value changes on spinboxes and combo boxes during view scrolling.
+
+#### Fixed & Enhanced
+- **Cross-Platform Chrome Lock & Process Recovery**: Added `find_pids_for_profile` using Windows PowerShell (`Get-CimInstance Win32_Process`) and POSIX (`pgrep`) to reliably locate and terminate lingering Chrome instances. Added `lockfile` cleanup to `cleanup_stale_profile_locks`.
+- **ChromeOptions Reusability Across All Platforms**: Refactored `FounditBrowser`, `GlassdoorBrowser`, `IndeedBrowser`, `LinkedInBrowser`, and `NaukriBrowser` to use `_build_options()` and `_get_launch_kwargs()`, eliminating the undetected-chromedriver crash (`cannot reuse the ChromeOptions object`) on retry attempts.
+- **LinkedIn Seniority Mismatch Gate**: Added `_is_senior_title_mismatch` in `LinkedInRotator` to pre-filter and skip senior, principal, lead, and director roles when candidate experience is below required thresholds.
+- **Automatic Experience Level Search Filtering**: Configured `LinkedInRotator` to automatically append `f_E=2%2C3` (Entry level & Associate) for candidates with $\le 2$ years experience.
+- **Dynamic Candidate Skill Provenance in QnA**: Updated `QnAEngine` to dynamically draw verified skills from candidate profile records rather than hardcoded domain lists.
+
 ## [0.4.7-beta] — 2026-11-17
 
 ### Universal ATS Loop Prevention, Mission Control Live Streaming, and Indeed Numeric Normalization

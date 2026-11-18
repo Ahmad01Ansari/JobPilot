@@ -1049,6 +1049,18 @@ class AutomationManager(QObject):
             return True
         return False
 
+    def pause(self) -> None:
+        """Alias for pause_automation."""
+        self.pause_automation()
+
+    def resume(self) -> None:
+        """Alias for resume_automation."""
+        self.resume_automation()
+
+    def confirm_review(self, notes: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> bool:
+        """Alias for confirm_current_review."""
+        return self.confirm_current_review(notes=notes, data=data)
+
     def takeover_current_manually(self, notes: Optional[str] = None) -> bool:
         """Transfers control of current application session to the user."""
         if self._current_worker and hasattr(self._current_worker, "takeover_manually"):

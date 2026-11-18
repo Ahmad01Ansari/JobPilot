@@ -172,8 +172,8 @@ class MainWindow(QMainWindow):
         # Reflect real candidate name in TopBar
         self._update_top_bar_user_name()
 
-        # Initialize starting page
-        self.navigate_to("dashboard")
+        # Initialize starting page to the AI Pilot Command Center
+        self.navigate_to("pilot")
 
         # Auto-launch Onboarding Wizard on first run
         self._check_onboarding()
@@ -201,15 +201,26 @@ class MainWindow(QMainWindow):
                 completed = repo.get("general.onboarding_completed", False)
             if not completed:
                 from PySide6.QtCore import QTimer
-                QTimer.singleShot(500, self.launch_onboarding)
+                QTimer.singleShot(600, self.launch_onboarding)
         except Exception:
             pass
 
     def launch_onboarding(self) -> None:
         """Opens the Onboarding Setup Wizard dialog."""
+        # Ensure any lingering splash screen is completely closed before showing modal wizard
+        try:
+            from PySide6.QtWidgets import QApplication, QSplashScreen
+            for w in QApplication.topLevelWidgets():
+                if isinstance(w, QSplashScreen):
+                    w.close()
+                    w.deleteLater()
+        except Exception:
+            pass
         from app.ui.widgets.onboarding_wizard import OnboardingWizardDialog
         wizard = OnboardingWizardDialog(parent=self)
         wizard.onboarding_completed.connect(self._on_onboarding_done)
+        wizard.raise_()
+        wizard.activateWindow()
         wizard.exec()
 
     def launch_product_tour(self) -> None:

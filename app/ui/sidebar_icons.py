@@ -4,6 +4,7 @@ from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen, QPixmap, QIcon
 
 ICON_NAME_MAP = {
     "dashboard": "dashboard",
+    "pilot": "pilot",
     "automation": "automation",
     "jobs": "briefcase",
     "easy_apply": "lightning",
@@ -47,6 +48,21 @@ class SidebarIconPainter:
             painter.drawRoundedRect(QRectF(10, 3, 5, 5), 1.5, 1.5)
             painter.drawRoundedRect(QRectF(3, 10, 5, 5), 1.5, 1.5)
             painter.drawRoundedRect(QRectF(10, 10, 5, 5), 1.5, 1.5)
+
+        elif icon_name in ("pilot", "brain", "sparkles"):
+            path = QPainterPath()
+            path.moveTo(9, 2)
+            path.lineTo(10.5, 6.5)
+            path.lineTo(15, 8)
+            path.lineTo(10.5, 9.5)
+            path.lineTo(9, 14)
+            path.lineTo(7.5, 9.5)
+            path.lineTo(3, 8)
+            path.lineTo(7.5, 6.5)
+            path.closeSubpath()
+            painter.drawPath(path)
+            painter.drawLine(QPointF(14, 2), QPointF(14, 4))
+            painter.drawLine(QPointF(13, 3), QPointF(15, 3))
             
         elif icon_name == "automation":
             painter.drawEllipse(QRectF(2, 2, 14, 14))

@@ -29,6 +29,8 @@ hidden_imports = [
     "PySide6.QtCore",
     "PySide6.QtGui",
     "PySide6.QtWidgets",
+    "PySide6.QtNetwork",
+    "multiprocessing",
     "sqlalchemy",
     "sqlalchemy.sql.default_comparator",
     "cryptography",
@@ -97,6 +99,11 @@ coll = COLLECT(
 if sys.platform == "darwin":
     from PyInstaller.building.osx import BUNDLE
 
+    try:
+        from app.version import __version__ as app_version
+    except Exception:
+        app_version = "0.4.8"
+
     app = BUNDLE(
         coll,
         name="JobPilot.app",
@@ -106,12 +113,13 @@ if sys.platform == "darwin":
             "CFBundleName": "JobPilot",
             "CFBundleDisplayName": "JobPilot",
             "CFBundleIdentifier": "com.jobpilot.desktop",
-            "CFBundleVersion": "0.4.5",
-            "CFBundleShortVersionString": "0.4.5",
+            "CFBundleVersion": app_version.split("-")[0],
+            "CFBundleShortVersionString": app_version,
             "CFBundlePackageType": "APPL",
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,
             "LSApplicationCategoryType": "public.app-category.productivity",
             "LSMinimumSystemVersion": "11.0.0",
+            "LSMultipleInstancesProhibited": True,
         },
     )

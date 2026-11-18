@@ -6,6 +6,7 @@ from app.services.os.process_manager import ProcessManager
 from app.services.os.crash_reporter import install_global_crash_handler
 from app.services.os.lifecycle_manager import ApplicationLifecycleManager
 from app.services.os.compatibility import apply_runtime_compatibility_patches
+from app.services.os.single_instance import SingleInstanceManager
 
 __all__ = [
     "AppPaths",
@@ -14,4 +15,5 @@ __all__ = [
     "install_global_crash_handler",
     "ApplicationLifecycleManager",
     "apply_runtime_compatibility_patches",
+    "SingleInstanceManager",
 ]

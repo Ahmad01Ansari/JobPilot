@@ -138,6 +138,26 @@ def ensure_sqlite_schema(eng: Engine) -> None:
                 """))
                 conn.commit()
 
+            if "pilot_chat_messages" not in tables:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS pilot_chat_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        uuid VARCHAR(64) NOT NULL UNIQUE,
+                        author VARCHAR(20) NOT NULL,
+                        body TEXT NOT NULL,
+                        action_type VARCHAR(50) NOT NULL DEFAULT 'chat',
+                        payload_json TEXT,
+                        steps_json TEXT,
+                        rule_change_json TEXT,
+                        intervention_json TEXT,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pilot_chat_messages_uuid ON pilot_chat_messages(uuid)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pilot_chat_messages_created_at ON pilot_chat_messages(created_at)"))
+                conn.commit()
+
             # Outreach Center: Communications Table Columns
             if "communications" in tables:
                 res = conn.execute(text("PRAGMA table_info(communications)")).fetchall()

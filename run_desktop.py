@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """JobPilot Desktop Application root launcher."""
 
+import sys
+import multiprocessing
+
+# Critical: freeze_support() must be called immediately for PyInstaller frozen bundles
+# to prevent infinite recursive process spawning on macOS and Windows.
+multiprocessing.freeze_support()
+
+# Filter macOS Finder process serial number argument (-psn_...)
+if sys.platform == "darwin":
+    sys.argv = [arg for arg in sys.argv if not arg.startswith("-psn_")]
+
 import os
 os.environ["JOBPILOT_DESKTOP"] = "1"
 

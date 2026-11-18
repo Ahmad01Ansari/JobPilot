@@ -8,13 +8,21 @@ import sys
 import re
 import time
 import subprocess
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-import undetected_chromedriver as uc
+_uc = None
+
+def _get_uc():
+    """Lazily import and initialize undetected_chromedriver to prevent early multiprocessing hooks."""
+    global _uc
+    if _uc is None:
+        import undetected_chromedriver as uc_module
+        _uc = uc_module
+    return _uc
 from modules.browser_lock import cleanup_stale_profile_locks, get_profile_dir
 from modules.helpers import print_lg, make_directories
 from config.settings import run_in_background, stealth_mode, disable_extensions
@@ -49,7 +57,7 @@ class LinkedInBrowser:
         self.profile_dir = profile_dir or get_profile_dir("linkedin", user_id=self.user_id)
         self.headless = headless if headless is not None else run_in_background
         self.stealth = stealth
-        self.driver: Optional[uc.Chrome] = None
+        self.driver: Optional[Any] = None
         self.wait: Optional[WebDriverWait] = None
         self.actions: Optional[ActionChains] = None
 
@@ -59,8 +67,9 @@ class LinkedInBrowser:
         from modules.open_chrome import get_installed_chrome_major_version
         return get_installed_chrome_major_version()
 
-    def _build_options(self) -> uc.ChromeOptions:
+    def _build_options(self) -> Any:
         """Constructs a fresh ChromeOptions instance for undetected-chromedriver."""
+        uc = _get_uc()
         options = uc.ChromeOptions()
         options.page_load_strategy = 'eager'
 
@@ -84,6 +93,13 @@ class LinkedInBrowser:
 
     def start(self) -> None:
         """Starts an isolated undetected Chrome session using persistent LinkedIn profile."""
+        if self.driver:
+            try:
+                _ = self.driver.window_handles
+                return
+            except Exception:
+                self.driver = None
+
         make_directories([self.profile_dir])
         cleanup_stale_profile_locks(self.profile_dir)
 
@@ -104,6 +120,7 @@ class LinkedInBrowser:
             return kw
 
         try:
+            uc = _get_uc()
             self.driver = uc.Chrome(**_get_launch_kwargs())
         except Exception as e:
             print_lg(f"[LinkedInBrowser] Launch failed ({e}), clearing profile locks and lingering processes...")
@@ -111,6 +128,7 @@ class LinkedInBrowser:
             kill_profile_processes(self.profile_dir)
             time.sleep(2)
             # CRITICAL: Always use a fresh ChromeOptions instance on retry to avoid 'you cannot reuse the ChromeOptions object'
+            uc = _get_uc()
             self.driver = uc.Chrome(**_get_launch_kwargs())
 
         self.driver.maximize_window()
@@ -330,3 +348,4 @@ class LinkedInBrowser:
                 self.driver = None
                 self.wait = None
                 self.actions = None
+                cleanup_stale_profile_locks(self.profile_dir)

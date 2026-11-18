@@ -50,6 +50,11 @@ fi
 
 echo "Successfully built dist/JobPilot.app"
 
+# Strip quarantine and stale extended attributes before signing
+if command -v xattr >/dev/null 2>&1; then
+    xattr -rc "dist/JobPilot.app" 2>/dev/null || true
+fi
+
 # Ad-hoc code signing for local execution and Gatekeeper compliance
 if command -v codesign >/dev/null 2>&1; then
     echo "Applying ad-hoc code signature to JobPilot.app..."

@@ -13,7 +13,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 
-import undetected_chromedriver as uc
+_uc = None
+
+def _get_uc():
+    """Lazily import and initialize undetected_chromedriver to prevent early multiprocessing hooks."""
+    global _uc
+    if _uc is None:
+        import undetected_chromedriver as uc_module
+        _uc = uc_module
+    return _uc
 from platforms.glassdoor.selectors import (
     HOME_URL,
     LOGIN_URL,
@@ -58,7 +66,7 @@ class GlassdoorBrowser:
         self.headless = run_in_background if headless is None else headless
         self.stealth = stealth
         self.user_id = user_id
-        self.driver: Optional[uc.Chrome] = None
+        self.driver: Optional[Any] = None
 
     @staticmethod
     def _get_chrome_major_version() -> Optional[int]:
@@ -66,8 +74,9 @@ class GlassdoorBrowser:
         from modules.open_chrome import get_installed_chrome_major_version
         return get_installed_chrome_major_version()
 
-    def _build_options(self) -> uc.ChromeOptions:
+    def _build_options(self) -> Any:
         """Constructs a fresh ChromeOptions instance for undetected-chromedriver."""
+        uc = _get_uc()
         options = uc.ChromeOptions()
         options.page_load_strategy = 'eager'
 
@@ -90,10 +99,14 @@ class GlassdoorBrowser:
             options.add_argument("--disable-extensions")
         return options
 
-    def start(self) -> uc.Chrome:
+    def start(self) -> Any:
         """Launches Chrome driver with Glassdoor persistent profile and stealth capabilities."""
         if self.driver:
-            return self.driver
+            try:
+                _ = self.driver.window_handles
+                return self.driver
+            except Exception:
+                self.driver = None
 
         os.makedirs(self.profile_dir, exist_ok=True)
         _cleanup_stale_profile_locks(self.profile_dir)
@@ -115,6 +128,7 @@ class GlassdoorBrowser:
             return kw
 
         try:
+            uc = _get_uc()
             self.driver = uc.Chrome(**_get_launch_kwargs())
         except Exception as e:
             err_msg = str(e).strip() or repr(e)
@@ -124,6 +138,7 @@ class GlassdoorBrowser:
             time.sleep(2)
             try:
                 # CRITICAL: Always use a fresh ChromeOptions instance on retry to avoid 'you cannot reuse the ChromeOptions object'
+                uc = _get_uc()
                 self.driver = uc.Chrome(**_get_launch_kwargs())
             except Exception as e2:
                 err_detail = str(e2).strip() or repr(e2)

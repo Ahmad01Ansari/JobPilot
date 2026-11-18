@@ -8,6 +8,7 @@ from typing import List, Type, Optional
 from PySide6.QtWidgets import QWidget
 
 from app.ui.views.dashboard_view import DashboardView
+from app.ui.views.pilot.pilot_view import PilotView
 from app.ui.views.profile_view import ProfileView
 from app.ui.views.resumes_view import ResumesView
 from app.ui.views.platforms_view import PlatformsView
@@ -52,9 +53,17 @@ class SidebarSection:
     items: List[SidebarNavEntry] = field(default_factory=list)
 
 
-# Central Navigation Registry: Exactly 13 items covering the master roadmap.
+# Central Navigation Registry: Exactly 14 items covering the master roadmap.
 # ORDER MATTERS — this order determines stacked-widget indices in MainWindow.
 NAV_ITEMS: List[NavItem] = [
+    NavItem(
+        id="pilot",
+        title="AI Pilot",
+        icon_type="pilot",
+        view_class=PilotView,
+        category="INTELLIGENCE",
+        shortcut="Ctrl+P",
+    ),
     NavItem(
         id="dashboard",
         title="Dashboard",
@@ -173,6 +182,9 @@ NAV_ITEMS: List[NavItem] = [
 # "easy_apply" and "company_portal" are virtual items that route to "jobs" with a filter.
 
 SIDEBAR_SECTIONS: List[SidebarSection] = [
+    SidebarSection("COPILOT", [
+        SidebarNavEntry("pilot",          "AI Pilot",       "pilot",       "pilot",      "AI Pilot Copilot (Ctrl+P)"),
+    ]),
     SidebarSection("WORKSPACE", [
         SidebarNavEntry("dashboard",      "Dashboard",      "dashboard",   "dashboard",  "Dashboard (Ctrl+1)"),
         SidebarNavEntry("automation",     "Automation",     "automation",  "automation", "Automation (Ctrl+2)"),

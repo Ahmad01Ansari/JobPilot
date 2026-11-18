@@ -4,6 +4,16 @@ Initializes QApplication, theme tokens, and primary MainWindow shell.
 """
 
 import sys
+import multiprocessing
+
+# Critical: freeze_support() must be called immediately for PyInstaller frozen bundles
+# to prevent infinite recursive process spawning on macOS and Windows.
+multiprocessing.freeze_support()
+
+# Filter macOS Finder process serial number argument (-psn_...)
+if sys.platform == "darwin":
+    sys.argv = [arg for arg in sys.argv if not arg.startswith("-psn_")]
+
 import os
 import io
 from pathlib import Path
@@ -74,6 +84,14 @@ def main() -> int:
     app.setOrganizationName("JobPilot")
     app.setDesktopFileName("jobpilot")
 
+    # Enforce cross-platform single instance locking to prevent duplicate launches
+    from app.services.os.single_instance import SingleInstanceManager
+    is_primary, instance_mgr = SingleInstanceManager.acquire_lock()
+    if not is_primary:
+        return 0
+    if instance_mgr:
+        app.aboutToQuit.connect(instance_mgr.release)
+
     # Set application-wide brand icon (inherited by all dialogs, windows, and taskbars)
     app_icon = ThemeManager.get_app_icon()
     if not app_icon.isNull():
@@ -90,19 +108,40 @@ def main() -> int:
     # Apply centralized dark theme
     ThemeManager.apply_dark_theme(app)
 
+    # Install global wheel scroll filter to prevent accidental editing of inputs when scrolling
+    try:
+        from app.ui.wheel_filter import install_no_wheel_edit_filter
+        install_no_wheel_edit_filter(app)
+    except Exception:
+        pass
+
     # Startup Splash Screen (displayed during database initialization in desktop mode)
     splash = None
     is_offscreen = os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "--offscreen" in sys.argv
+
+    def _dismiss_splash():
+        nonlocal splash
+        if splash is not None:
+            try:
+                splash.close()
+                splash.deleteLater()
+            except Exception:
+                pass
+            splash = None
+
     if not is_offscreen and "--test-run" not in sys.argv:
         splash_pix = ThemeManager.get_splash_pixmap()
         if not splash_pix.isNull():
             from PySide6.QtWidgets import QSplashScreen
-            from PySide6.QtCore import Qt
+            from PySide6.QtCore import Qt, QTimer
             from PySide6.QtGui import QColor
-            splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+            # Use FramelessWindowHint without WindowStaysOnTopHint so splash doesn't trap modals
+            splash = QSplashScreen(splash_pix, Qt.FramelessWindowHint)
             splash.showMessage("JobPilot Autopilot initializing...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#94A3B8"))
             splash.show()
             app.processEvents()
+            # Safety timeout: splash screen will never remain on screen longer than 2.5 seconds
+            QTimer.singleShot(2500, _dismiss_splash)
 
     # Initialize and diagnose database connection safely
     from app.db import init_db, check_connection
@@ -146,10 +185,18 @@ def main() -> int:
 
     # Instantiate Main Window
     window = MainWindow(state=state)
-    if splash:
-        splash.finish(window)
+    if instance_mgr:
+        instance_mgr.register_main_window(window)
     if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
         window.showMaximized()
+        window.raise_()
+        window.activateWindow()
+    if splash:
+        try:
+            splash.finish(window)
+        except Exception:
+            pass
+        _dismiss_splash()
 
     # Pre-flight self-test support
     from PySide6.QtCore import QTimer

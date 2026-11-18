@@ -2,7 +2,13 @@
 JobPilot - Multi-Platform Job Search & Application Automation
 '''
 
+import sys
+import multiprocessing
 
+multiprocessing.freeze_support()
+
+if sys.platform == "darwin":
+    sys.argv = [arg for arg in sys.argv if not arg.startswith("-psn_")]
 
 # Imports
 import os

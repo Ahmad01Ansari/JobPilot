@@ -4,6 +4,7 @@ from modules.qna_engine import QnAEngine
 class TestLinkedInFormValidation(unittest.TestCase):
     def setUp(self):
         self.engine = QnAEngine()
+        self.engine.personal["current_city"] = "Delhi"
         self.engine.prof.update({
             "skills": ["Automation Anywhere 360", "Python 3.11", "SAP GUI Scripting", "SQL"],
         })

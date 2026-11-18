@@ -148,6 +148,16 @@ class LinkedInPlatform(BasePlatformApplier):
             or "example_password" in str(pwd).lower()
         )
 
+        if is_placeholder:
+            try:
+                from app.services.secrets_service import SecretsService
+                sec_user, sec_pwd = SecretsService().get_platform_credentials("linkedin")
+                if sec_user and sec_pwd:
+                    user, pwd = sec_user, sec_pwd
+                    is_placeholder = False
+            except Exception:
+                pass
+
         if not is_placeholder:
             print_lg("[LinkedInPlatform] Attempting login with configured credentials...")
             success, msg = self.browser.login(user, pwd)
@@ -577,6 +587,16 @@ class NaukriPlatform(BasePlatformApplier):
             or "example.com" in str(user).lower()
             or "example_password" in str(pwd).lower()
         )
+
+        if is_placeholder:
+            try:
+                from app.services.secrets_service import SecretsService
+                sec_user, sec_pwd = SecretsService().get_platform_credentials("naukri")
+                if sec_user and sec_pwd:
+                    user, pwd = sec_user, sec_pwd
+                    is_placeholder = False
+            except Exception:
+                pass
 
         if not is_placeholder:
             print_lg("[NaukriPlatform] Attempting login with configured credentials...")

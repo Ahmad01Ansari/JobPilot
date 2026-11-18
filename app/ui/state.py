@@ -3,6 +3,7 @@ Application-wide UI state and signal bus for JobPilot.
 Decouples UI components without premature global singletons.
 """
 
+from typing import Optional
 from PySide6.QtCore import QObject, Signal
 
 
@@ -11,6 +12,8 @@ class AppState(QObject):
     Lightweight UI state event bus.
     Enables components to emit and observe navigation, notification, and status events.
     """
+
+    _instance: Optional["AppState"] = None
 
     # Emitted when active navigation page changes (passes page_id: str)
     page_changed = Signal(str)
@@ -24,8 +27,15 @@ class AppState(QObject):
     # Emitted when domain entities are updated across any page (passes entity: str, e.g. 'applications', 'jobs', 'profile')
     data_updated = Signal(str)
 
+    @classmethod
+    def get_instance(cls) -> "AppState":
+        if cls._instance is None:
+            cls._instance = AppState()
+        return cls._instance
+
     def __init__(self, parent: QObject = None):
         super().__init__(parent)
+        AppState._instance = self
         self.current_page_id: str = "dashboard"
         self.engine_status: str = "Ready"
         self.database_status: str = "Not Connected (Phase 2)"
@@ -47,6 +57,10 @@ class AppState(QObject):
     def emit_data_updated(self, entity: str = "general") -> None:
         """Broadcasts real-time entity updates to all listening views."""
         self.data_updated.emit(entity)
+
+    def notify_data_updated(self, entity: str = "general") -> None:
+        """Convenience alias for broadcasting entity updates."""
+        self.emit_data_updated(entity)
 
     def update_status(self, component: str, status_text: str) -> None:
         if component == "engine":

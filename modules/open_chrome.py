@@ -11,12 +11,18 @@ import subprocess
 from typing import Optional
 from config.settings import run_in_background, stealth_mode, disable_extensions, safe_mode, file_name, failed_file_name, logs_folder_path, generated_resume_path
 from config.questions import default_resume_path
-if stealth_mode:
-    import undetected_chromedriver as uc
-else: 
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    # from selenium.webdriver.chrome.service import Service
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+_uc = None
+
+def _get_uc():
+    """Lazily import and initialize undetected_chromedriver to prevent early multiprocessing hooks."""
+    global _uc
+    if _uc is None:
+        import undetected_chromedriver as uc_module
+        _uc = uc_module
+    return _uc
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from modules.helpers import find_default_profile_directory, critical_error_log, print_lg
@@ -204,12 +210,17 @@ def create_undetected_chrome(options, profile_dir=None):
             "Could not detect Chrome version automatically. Falling back to default detection."
         )
 
+    uc = _get_uc()
     return uc.Chrome(**kwargs)
 
 def createChromeSession(isRetry: bool = False):
     make_directories([file_name,failed_file_name,logs_folder_path+"/screenshots",default_resume_path,generated_resume_path+"/temp"])
     # Set up WebDriver with Chrome Profile
-    options = uc.ChromeOptions() if stealth_mode else Options()
+    if stealth_mode:
+        uc = _get_uc()
+        options = uc.ChromeOptions()
+    else:
+        options = Options()
     options.page_load_strategy = 'eager'
     prefs = {
         "profile.default_content_setting_values.geolocation": 2,
@@ -251,7 +262,7 @@ def createChromeSession(isRetry: bool = False):
             from modules.browser_lock import kill_profile_processes
             kill_profile_processes(profile_dir)
             time.sleep(2)
-            fresh_options = uc.ChromeOptions() if stealth_mode else Options()
+            fresh_options = _get_uc().ChromeOptions() if stealth_mode else Options()
             fresh_options.page_load_strategy = 'eager'
             fresh_options.add_experimental_option("prefs", prefs)
             fresh_options.add_argument("--start-maximized")
