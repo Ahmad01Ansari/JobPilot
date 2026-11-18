@@ -247,9 +247,23 @@ def createChromeSession(isRetry: bool = False):
         try:
             driver = create_undetected_chrome(options, profile_dir=profile_dir)
         except Exception as e:
-            print_lg(f"[open_chrome] Initial Chrome launch failed ({e}), attempting stale lock cleanup retry...")
-            cleanup_stale_profile_locks(profile_dir)
-            driver = create_undetected_chrome(options, profile_dir=profile_dir)
+            print_lg(f"[open_chrome] Initial Chrome launch failed ({e}), clearing lingering profile processes and locks...")
+            from modules.browser_lock import kill_profile_processes
+            kill_profile_processes(profile_dir)
+            time.sleep(2)
+            fresh_options = uc.ChromeOptions() if stealth_mode else Options()
+            fresh_options.page_load_strategy = 'eager'
+            fresh_options.add_experimental_option("prefs", prefs)
+            fresh_options.add_argument("--start-maximized")
+            fresh_options.add_argument("--deny-permission-prompts")
+            fresh_options.add_argument("--disable-geolocation")
+            if run_in_background: fresh_options.add_argument("--headless")
+            if disable_extensions: fresh_options.add_argument("--disable-extensions")
+            fresh_options.add_argument("--disable-gpu")
+            fresh_options.add_argument("--no-sandbox")
+            fresh_options.add_argument("--disable-dev-shm-usage")
+            driver = create_undetected_chrome(fresh_options, profile_dir=profile_dir)
+            options = fresh_options
     else:
         options.add_argument(f"--user-data-dir={profile_dir}")
         driver = webdriver.Chrome(options=options)

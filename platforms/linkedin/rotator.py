@@ -21,6 +21,9 @@ from platforms.linkedin.selectors import (
 )
 from platforms.linkedin.parser import LinkedInJobParser
 from platforms.linkedin.applier import LinkedInApplier
+from modules.qualification_engine import QualificationEngine
+from modules.models import Job
+from modules.config_loader import get_candidate_experience, get_professional, get_platform
 
 
 class LinkedInRotator:
@@ -32,6 +35,7 @@ class LinkedInRotator:
         tracker: Optional[ApplicationTracker] = None,
         applier: Optional[LinkedInApplier] = None,
         automation_bridge: Optional[Any] = None,
+        qualification_engine: Optional[Any] = None,
         search_terms: Optional[List[str]] = None,
         search_location: Optional[str] = None,
         easy_apply_only: bool = True,
@@ -53,6 +57,10 @@ class LinkedInRotator:
             user_id=user_id,
         )
         self.automation_bridge = automation_bridge
+        cand_exp = get_candidate_experience(user_id=user_id)
+        prof = get_professional(user_id=user_id)
+        ln_plat = get_platform("linkedin")
+
         self.search_terms = search_terms or ["Software Engineer"]
         self.search_location = search_location
         self.easy_apply_only = easy_apply_only
@@ -64,6 +72,35 @@ class LinkedInRotator:
         self.max_pages_per_term = max_pages_per_term
         self.consecutive_skips_limit = consecutive_skips_limit
         self.user_id = user_id
+
+        # Extract verified candidate skills and search terms as core domain skills
+        cand_core = set()
+        for s in (prof.get("skills") or []):
+            if isinstance(s, str) and s.strip():
+                cand_core.add(s.lower().strip())
+        for t in (self.search_terms or []):
+            cand_core.add(t.lower().strip())
+            for word in t.lower().split():
+                if len(word) > 2 and word not in ["developer", "engineer"]:
+                    cand_core.add(word)
+
+        all_tech = [
+            "angular", "vue", "php", "ruby", "c++", ".net", "dotnet", "golang", "rust",
+            "android", "ios", "swift", "flutter", "salesforce", "sap abap", "mainframe",
+            "embedded", "devops engineer", "cloud architect", "data engineer"
+        ]
+        irrelevant_tech = [w for w in all_tech if w not in cand_core]
+
+        cfg_neg = ln_plat.get("negative_title_words", [])
+        cfg_bad = ln_plat.get("bad_words", [])
+
+        self.qualification_engine = qualification_engine or QualificationEngine(
+            candidate_experience=cand_exp,
+            negative_title_words=cfg_neg,
+            bad_words=cfg_bad,
+            core_skills=list(cand_core) if cand_core else None,
+            irrelevant_tech_words=irrelevant_tech if cand_core else None,
+        )
 
         # Fallback to search config if specific search preferences were not passed
         try:
@@ -82,6 +119,13 @@ class LinkedInRotator:
                 self.on_site = getattr(sc, "on_site", [])
         except Exception:
             pass
+
+        # Automatic experience level filtering on LinkedIn based on verified candidate experience
+        if not self.experience_level:
+            if cand_exp <= 2:
+                self.experience_level = ["Entry level", "Associate"]
+            elif cand_exp <= 5:
+                self.experience_level = ["Associate", "Mid-Senior level"]
 
     def build_search_url(self, keyword: str, start: int = 0) -> str:
         """Constructs direct search URL for LinkedIn jobs with configured search preferences."""
@@ -124,6 +168,26 @@ class LinkedInRotator:
 
         params["start"] = str(start)
         return f"https://www.linkedin.com/jobs/search/?{urlencode(params)}"
+
+    @staticmethod
+    def _is_senior_title_mismatch(title: str, cand_exp: float) -> bool:
+        """Determines if a title implies seniority exceeding candidate's years of experience."""
+        if not title or not isinstance(title, str) or hasattr(title, "_mock_return_value"):
+            return False
+        lower = title.lower()
+        if cand_exp < 8:
+            for w in ["principal", "director", "vice president", "head of", "chief", "fellow"]:
+                if re.search(r'\b' + re.escape(w) + r'\b', lower):
+                    return True
+        if cand_exp < 5:
+            for w in ["staff", "architect", "lead", "tech lead", "team lead", "manager", "engineering manager", "sde 3", "sde iii", "sde-3", "sde-iii", "sde 4", "sde iv"]:
+                if re.search(r'\b' + re.escape(w) + r'\b', lower):
+                    return True
+        if cand_exp < 3:
+            for w in ["senior", "sr", "sr.", "sde 2", "sde ii", "sde-2", "sde-ii", "level 2", "level ii"]:
+                if re.search(r'\b' + re.escape(w) + r'\b', lower):
+                    return True
+        return False
 
     def scroll_job_list(self, driver: Any) -> None:
         """Progressively scrolls the left job listings container to hydrate all occludable cards."""
@@ -349,6 +413,47 @@ class LinkedInRotator:
                         consecutive_skips += 1
                         continue
 
+                    # Fast Pre-Click Filter on card title & company
+                    raw_title = LinkedInJobParser.extract_title(driver, card_element=card)
+                    raw_company = LinkedInJobParser.extract_company(driver, card_element=card)
+                    card_title = raw_title if isinstance(raw_title, str) and not hasattr(raw_title, "_mock_return_value") and raw_title.strip() else None
+                    card_company = raw_company if isinstance(raw_company, str) and not hasattr(raw_company, "_mock_return_value") and raw_company.strip() else ""
+
+                    if card_title:
+                        title_res = self.qualification_engine.qualify_title(title=card_title, company=card_company, job_id=job_id)
+                        if not title_res.accepted:
+                            print_lg(f"[LinkedInRotator] Pre-filter SKIP for '{card_title} | {card_company}': {title_res.reason}")
+                            if self.tracker:
+                                job_stub = Job(
+                                    platform="linkedin",
+                                    job_id=job_id,
+                                    title=card_title or "Unknown",
+                                    company=card_company or "Unknown",
+                                    location="",
+                                )
+                                self.tracker.record_evaluation(job_stub, "SKIPPED", skip_reason=title_res.reason)
+                            stats["jobs_skipped"] += 1
+                            consecutive_skips += 1
+                            continue
+
+                        # Check seniority barrier on card title before clicking
+                        cand_exp = getattr(self.qualification_engine, "candidate_experience", 0)
+                        if cand_exp > -1 and self._is_senior_title_mismatch(card_title, cand_exp):
+                            skip_reason = f"Title '{card_title}' indicates seniority exceeding candidate experience ({cand_exp} yr)"
+                            print_lg(f"[LinkedInRotator] Pre-filter SKIP for '{card_title}': {skip_reason}")
+                            if self.tracker:
+                                job_stub = Job(
+                                    platform="linkedin",
+                                    job_id=job_id,
+                                    title=card_title,
+                                    company=card_company or "Unknown",
+                                    location="",
+                                )
+                                self.tracker.record_evaluation(job_stub, "SKIPPED", skip_reason=skip_reason)
+                            stats["jobs_skipped"] += 1
+                            consecutive_skips += 1
+                            continue
+
                     # Click card to load details using robust inner target + JS fallback
                     clicked = False
                     try:
@@ -390,15 +495,40 @@ class LinkedInRotator:
 
                     time.sleep(1.5)
 
-                    # Reset consecutive skips on a fresh viable candidate
-                    consecutive_skips = 0
-
                     # Extract job details
-                    title = LinkedInJobParser.extract_title(driver, card_element=card)
-                    company = LinkedInJobParser.extract_company(driver, card_element=card)
-                    location = LinkedInJobParser.extract_location(driver, card_element=card)
-                    description = LinkedInJobParser.extract_full_description(driver)
+                    post_title = LinkedInJobParser.extract_title(driver, card_element=card)
+                    title = post_title if isinstance(post_title, str) and not hasattr(post_title, "_mock_return_value") and post_title.strip() else (card_title or "Developer")
+                    post_company = LinkedInJobParser.extract_company(driver, card_element=card)
+                    company = post_company if isinstance(post_company, str) and not hasattr(post_company, "_mock_return_value") and post_company.strip() else (card_company or "")
+                    post_loc = LinkedInJobParser.extract_location(driver, card_element=card)
+                    location = post_loc if isinstance(post_loc, str) and not hasattr(post_loc, "_mock_return_value") else ""
+                    post_desc = LinkedInJobParser.extract_full_description(driver)
+                    description = post_desc if isinstance(post_desc, str) and not hasattr(post_desc, "_mock_return_value") else ""
                     source_url = f"https://www.linkedin.com/jobs/view/{job_id}"
+
+                    # Full qualification evaluation (experience bounds, domain skills, bad words)
+                    job = Job(
+                        platform="linkedin",
+                        job_id=job_id,
+                        title=title,
+                        company=company,
+                        location=location,
+                        description=description,
+                        source_url=source_url,
+                    )
+                    qual_res = self.qualification_engine.qualify(job)
+                    if not qual_res.accepted:
+                        print_lg(f"[LinkedInRotator] Qualification SKIP for '{title} | {company}': {qual_res.reason}")
+                        if self.tracker:
+                            self.tracker.record_evaluation(job, "SKIPPED", skip_reason=qual_res.reason)
+                        stats["jobs_skipped"] += 1
+                        consecutive_skips += 1
+                        continue
+
+                    # Reset consecutive skips on a qualified candidate
+                    consecutive_skips = 0
+                    if self.tracker:
+                        self.tracker.record_state(job, "QUALIFIED")
 
                     # Execute application
                     res = self.applier.apply_to_job(

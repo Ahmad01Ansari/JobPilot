@@ -75,17 +75,8 @@ class FounditBrowser:
         from modules.open_chrome import get_installed_chrome_major_version
         return get_installed_chrome_major_version()
 
-    def start(self) -> uc.Chrome:
-        """Starts an isolated Chrome session with persistent profile."""
-        if self.driver:
-            return self.driver
-
-        from modules.open_chrome import ensure_ssl_certificates
-        ensure_ssl_certificates()
-
-        os.makedirs(self.profile_dir, exist_ok=True)
-        _cleanup_stale_profile_locks(self.profile_dir)
-
+    def _build_options(self) -> uc.ChromeOptions:
+        """Constructs a fresh ChromeOptions instance for undetected-chromedriver."""
         options = uc.ChromeOptions()
         # Crucial for Foundit: Eager strategy stops blocking on background analytics websockets
         options.page_load_strategy = "eager"
@@ -102,27 +93,43 @@ class FounditBrowser:
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--disable-notifications")
         options.add_argument("--enable-features=HttpsFirstBalancedMode,HttpsUpgrades")
+        return options
+
+    def start(self) -> uc.Chrome:
+        """Starts an isolated Chrome session with persistent profile."""
+        if self.driver:
+            return self.driver
+
+        from modules.open_chrome import ensure_ssl_certificates
+        ensure_ssl_certificates()
+
+        os.makedirs(self.profile_dir, exist_ok=True)
+        _cleanup_stale_profile_locks(self.profile_dir)
 
         from modules.open_chrome import find_chrome_executable, get_installed_chrome_major_version
         chrome_path = find_chrome_executable()
         chrome_version = get_installed_chrome_major_version()
 
-        init_kwargs = {
-            "user_data_dir": self.profile_dir,
-            "options": options,
-        }
-        if chrome_path:
-            init_kwargs["browser_executable_path"] = chrome_path
-        if chrome_version:
-            init_kwargs["version_main"] = chrome_version
+        def _get_launch_kwargs():
+            kw = {
+                "user_data_dir": self.profile_dir,
+                "options": self._build_options(),
+            }
+            if chrome_path:
+                kw["browser_executable_path"] = chrome_path
+            if chrome_version:
+                kw["version_main"] = chrome_version
+            return kw
 
         try:
-            self.driver = uc.Chrome(**init_kwargs)
+            self.driver = uc.Chrome(**_get_launch_kwargs())
         except Exception as e:
             print_lg(f"[FounditBrowser] Failed to start Chrome: {e}. Retrying with clean lock...")
-            _cleanup_stale_profile_locks(self.profile_dir)
+            from modules.browser_lock import kill_profile_processes
+            kill_profile_processes(self.profile_dir)
             time.sleep(2)
-            self.driver = uc.Chrome(**init_kwargs)
+            # CRITICAL: Always use a fresh ChromeOptions instance on retry to avoid 'you cannot reuse the ChromeOptions object'
+            self.driver = uc.Chrome(**_get_launch_kwargs())
 
         try:
             self.driver.set_page_load_timeout(35)

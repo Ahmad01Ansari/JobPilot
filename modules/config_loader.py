@@ -94,6 +94,11 @@ def get_professional(user_id: Optional[int] = None) -> Dict[str, Any]:
                         "headline": pro_prof.headline or file_cfg.get("headline", ""),
                         "summary": pro_prof.summary or file_cfg.get("summary", ""),
                         "cover_letter": pro_prof.cover_letter or file_cfg.get("cover_letter", ""),
+                        "skills": pro_prof.skills or file_cfg.get("skills", []),
+                        "primary_skills": getattr(pro_prof, "primary_skills", None) or file_cfg.get("primary_skills", []),
+                        "secondary_skills": getattr(pro_prof, "secondary_skills", None) or file_cfg.get("secondary_skills", []),
+                        "work_experiences": pro_prof.work_experiences or file_cfg.get("work_experiences", []),
+                        "education_history": getattr(pro_prof, "education_history", None) or file_cfg.get("education_history", []),
                     }
     except Exception:
         pass

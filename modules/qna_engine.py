@@ -293,7 +293,7 @@ class QnAEngine:
             )
         )
         if is_generic_overall:
-            exp_val = self.prof.get("years_of_experience", 2)
+            exp_val = self.prof.get("years_of_experience", 1)
             try:
                 f_exp = float(exp_val)
                 exp_str = str(int(round(f_exp)))
@@ -342,28 +342,30 @@ class QnAEngine:
             or (("proficient in" in lbl or "technologies" in lbl or "tools" in lbl) and any(w in lbl for w in ["list", "which", "what", "mention", "name"]))
         )
         if is_tools_or_tech_list and not any(w in lbl for w in ["how many years", "years of experience", "rate yourself"]):
-            tech_list_ans = "Automation Anywhere 360, Python 3.11, SAP GUI Scripting, SQL, PostgreSQL, REST APIs, Git, GitHub, FastAPI, LangChain, OpenAI API, AWS Textract"
+            cand_skills = self.prof.get("skills") or []
+            if isinstance(cand_skills, list) and cand_skills:
+                tech_list_ans = ", ".join(cand_skills)
+            else:
+                tech_list_ans = self.prof.get("headline") or "Software Development, Modern Web Applications"
             ans = Answer(value=tech_list_ans, source="profile", confidence=0.98)
             return validate_answer(ans, question_label)
 
         # Priority 1e: Certifications / Training Programs
         if any(w in lbl for w in ["certifications", "training programs", "courses completed", "certified in"]) and not any(w in lbl for w in ["how many", "years of"]):
-            if any(w in lbl for w in ["list", "what", "which", "name", "please"]):
-                cert_ans = "Automation Anywhere Advanced Automation, Agentic Process Automation Developer Masterclass"
-            else:
-                cert_ans = "Yes, Automation Anywhere Advanced Automation and Agentic Automation Masterclass"
-            ans = Answer(value=cert_ans, source="profile", confidence=0.98)
+            ans_val = str(self.standard_answers.get("certifications") or "Relevant professional coursework and industry certifications completed.")
+            ans = Answer(value=ans_val, source="profile", confidence=0.98)
             return validate_answer(ans, question_label)
 
         # Priority 1f: Reason for Seeking New Opportunity / Career Change
         if any(w in lbl for w in ["reason for seeking", "seeking a new opportunity", "reason for change", "looking for a change", "reason for leaving", "why are you looking for"]):
-            ans_reason = "Seeking new challenges in enterprise RPA and agentic AI automation."
+            ans_reason = str(self.standard_answers.get("reason_for_change") or "Seeking new professional challenges and growth opportunities in modern software development.")
             ans = Answer(value=ans_reason, source="profile", confidence=0.98)
             return validate_answer(ans, question_label)
 
         # Priority 1g: Why Do You Want to Join / Why This Company
         if any(w in lbl for w in ["why do you want to join", "why this company", "why our company", "why work with us"]):
-            join_ans = "I am excited by your team's innovative engineering culture and technical vision. My background in Automation Anywhere, Python, and AI automation directly aligns with your objectives, and I am eager to contribute meaningfully."
+            cand_title = self.prof.get("title") or "software development"
+            join_ans = f"I am excited by your team's engineering culture and technical vision. My background in {cand_title} and modern technologies aligns with your objectives, and I am eager to contribute meaningfully."
             ans = Answer(value=join_ans, source="profile", confidence=0.98)
             return validate_answer(ans, question_label)
 
@@ -490,22 +492,33 @@ class QnAEngine:
                     skill_name = lbl.split(prep)[-1].replace("?", "").strip()
                     break
 
-            candidate_corpus = f"{self.ai_context} {self.resume_text}".lower()
+            # Build comprehensive candidate corpus including profile skills, title, headline, summary, and experiences
+            skills_text = " ".join(self.prof.get("skills") or [])
+            primary_text = " ".join(self.prof.get("primary_skills") or [])
+            secondary_text = " ".join(self.prof.get("secondary_skills") or [])
+            title_text = self.prof.get("title") or ""
+            headline_text = self.prof.get("headline") or ""
+            summary_text = self.prof.get("summary") or ""
+            exp_text = " ".join([
+                (e.get("description", "") or "") + " " + (e.get("title", "") or "")
+                for e in (self.prof.get("work_experiences") or [])
+                if isinstance(e, dict)
+            ])
+            candidate_corpus = f"{self.ai_context} {self.resume_text} {skills_text} {primary_text} {secondary_text} {title_text} {headline_text} {summary_text} {exp_text}".lower()
+
+            cand_exp_raw = self.prof.get("years_of_experience", 1)
+            try:
+                cand_exp_val = str(int(round(float(cand_exp_raw))))
+            except Exception:
+                cand_exp_val = str(cand_exp_raw).split(".")[0]
+
             if skill_name and len(skill_name) > 1 and skill_name in candidate_corpus:
-                exp_raw = self.prof.get("years_of_experience", 2)
-                try:
-                    exp_val = str(int(round(float(exp_raw))))
-                except Exception:
-                    exp_val = str(exp_raw).split(".")[0]
+                exp_val = cand_exp_val
             elif skill_name and len(skill_name) > 1:
                 # Skill explicitly not found in candidate resume or profile -> 0
                 exp_val = "0"
             else:
-                exp_raw = self.prof.get("years_of_experience", 2)
-                try:
-                    exp_val = str(int(round(float(exp_raw))))
-                except Exception:
-                    exp_val = str(exp_raw).split(".")[0]
+                exp_val = cand_exp_val
 
             self.save_learned_answer(question_label, exp_val, category="skills", answer_type="number", source="rule")
             ans = Answer(value=exp_val, source="rule", confidence=0.75)

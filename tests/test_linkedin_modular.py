@@ -356,6 +356,34 @@ Saved"""
         self.assertIn("checked = true", call_args[0])
         self.assertEqual(call_args[1], r_yes)
 
+    def test_seniority_title_mismatch_evaluator(self):
+        """Verifies candidate with 1.0 yr experience is not qualified for senior/principal roles."""
+        cand_exp = 1.0
+        # Senior / Principal / Lead roles must be detected as mismatch
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Principal Engineer – Node.js / TypeScript / AWS", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Senior Frontend Developer", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Senior Software Engineer", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("SDE II", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Lead Developer", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Solutions Architect", cand_exp))
+        self.assertTrue(LinkedInRotator._is_senior_title_mismatch("Director of Engineering", cand_exp))
+
+        # Junior / Associate / General roles must pass
+        self.assertFalse(LinkedInRotator._is_senior_title_mismatch("Full Stack Developer", cand_exp))
+        self.assertFalse(LinkedInRotator._is_senior_title_mismatch("Frontend Developer", cand_exp))
+        self.assertFalse(LinkedInRotator._is_senior_title_mismatch("Javascript Developer", cand_exp))
+        self.assertFalse(LinkedInRotator._is_senior_title_mismatch("Junior Software Engineer", cand_exp))
+        self.assertFalse(LinkedInRotator._is_senior_title_mismatch("Software Engineer", cand_exp))
+
+    def test_rotator_search_url_auto_experience_filter(self):
+        """Verifies candidate with <= 2 years experience automatically gets Entry level & Associate filters."""
+        rotator = LinkedInRotator(
+            browser=MagicMock(),
+            search_terms=["Javascript developer"],
+        )
+        url = rotator.build_search_url("Javascript developer")
+        self.assertIn("f_E=2%2C3", url)
+
 
 if __name__ == "__main__":
     unittest.main()
