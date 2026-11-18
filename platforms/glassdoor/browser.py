@@ -66,14 +66,8 @@ class GlassdoorBrowser:
         from modules.open_chrome import get_installed_chrome_major_version
         return get_installed_chrome_major_version()
 
-    def start(self) -> uc.Chrome:
-        """Launches Chrome driver with Glassdoor persistent profile and stealth capabilities."""
-        if self.driver:
-            return self.driver
-
-        os.makedirs(self.profile_dir, exist_ok=True)
-        _cleanup_stale_profile_locks(self.profile_dir)
-
+    def _build_options(self) -> uc.ChromeOptions:
+        """Constructs a fresh ChromeOptions instance for undetected-chromedriver."""
         options = uc.ChromeOptions()
         options.page_load_strategy = 'eager'
 
@@ -94,23 +88,34 @@ class GlassdoorBrowser:
 
         if disable_extensions:
             options.add_argument("--disable-extensions")
+        return options
+
+    def start(self) -> uc.Chrome:
+        """Launches Chrome driver with Glassdoor persistent profile and stealth capabilities."""
+        if self.driver:
+            return self.driver
+
+        os.makedirs(self.profile_dir, exist_ok=True)
+        _cleanup_stale_profile_locks(self.profile_dir)
 
         from modules.open_chrome import find_chrome_executable, get_installed_chrome_major_version
         chrome_path = find_chrome_executable()
         chrome_major = get_installed_chrome_major_version()
 
-        kwargs = {
-            "options": options,
-            "user_data_dir": self.profile_dir,
-            "headless": self.headless,
-        }
-        if chrome_path:
-            kwargs["browser_executable_path"] = chrome_path
-        if chrome_major:
-            kwargs["version_main"] = chrome_major
+        def _get_launch_kwargs():
+            kw = {
+                "options": self._build_options(),
+                "user_data_dir": self.profile_dir,
+                "headless": self.headless,
+            }
+            if chrome_path:
+                kw["browser_executable_path"] = chrome_path
+            if chrome_major:
+                kw["version_main"] = chrome_major
+            return kw
 
         try:
-            self.driver = uc.Chrome(**kwargs)
+            self.driver = uc.Chrome(**_get_launch_kwargs())
         except Exception as e:
             err_msg = str(e).strip() or repr(e)
             print_lg(f"[GlassdoorBrowser] Initial Chrome launch failed ({err_msg}), attempting lock cleanup retry...")
@@ -118,7 +123,8 @@ class GlassdoorBrowser:
             kill_profile_processes(self.profile_dir)
             time.sleep(2)
             try:
-                self.driver = uc.Chrome(**kwargs)
+                # CRITICAL: Always use a fresh ChromeOptions instance on retry to avoid 'you cannot reuse the ChromeOptions object'
+                self.driver = uc.Chrome(**_get_launch_kwargs())
             except Exception as e2:
                 err_detail = str(e2).strip() or repr(e2)
                 print_lg(f"[GlassdoorBrowser] Failed to initialize Chrome: {err_detail}")

@@ -84,8 +84,59 @@ def is_pid_alive(pid: int) -> bool:
         return False
 
 
+def find_pids_for_profile(profile_dir: str) -> list[int]:
+    """Finds process IDs of Chrome instances using the given profile directory."""
+    if not profile_dir or not os.path.exists(profile_dir):
+        return []
+    pids = []
+    norm_target = os.path.normpath(profile_dir).lower()
+
+    if sys.platform == "win32" or os.name == "nt":
+        try:
+            import subprocess
+            import json
+            ps_script = (
+                "Get-CimInstance Win32_Process -Filter \"name = 'chrome.exe'\" "
+                "| Select-Object ProcessId, CommandLine "
+                "| ConvertTo-Json -Compress"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                data = json.loads(res.stdout)
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    cmd = (item.get("CommandLine") or "").lower().replace("/", "\\")
+                    pid = item.get("ProcessId")
+                    if pid and norm_target in cmd:
+                        pids.append(int(pid))
+        except Exception:
+            pass
+    else:
+        try:
+            import subprocess
+            res = subprocess.run(
+                ["pgrep", "-f", f"user-data-dir=.*{re.escape(os.path.basename(profile_dir))}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                for line in res.stdout.strip().splitlines():
+                    if line.strip().isdigit():
+                        pids.append(int(line.strip()))
+        except Exception:
+            pass
+
+    return pids
+
+
 def cleanup_stale_profile_locks(profile_dir: str) -> None:
-    """Safely cleans up orphaned SingletonLock, SingletonCookie, and SingletonSocket files.
+    """Safely cleans up orphaned SingletonLock, SingletonCookie, SingletonSocket, and lockfile files.
     
     If a lock points to a dead PID or is broken, it unlinks the lock to prevent
     undetected-chromedriver startup crashes.
@@ -101,7 +152,7 @@ def cleanup_stale_profile_locks(profile_dir: str) -> None:
             print_lg(f"[BrowserLock] Chrome process {active_pid} is actively using profile at {profile_dir}.")
             return
 
-    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]
     for item in lock_files:
         path = os.path.join(profile_dir, item)
         if os.path.islink(path) or os.path.exists(path):
@@ -110,6 +161,13 @@ def cleanup_stale_profile_locks(profile_dir: str) -> None:
             if pid is not None and is_pid_alive(pid):
                 print_lg(f"[BrowserLock] Chrome process {pid} is actively using profile at {profile_dir}.")
                 continue
+
+            # On Windows, lockfile may exist with active Chrome processes lacking SingletonLock
+            if item == "lockfile" and (sys.platform == "win32" or os.name == "nt"):
+                active_pids = find_pids_for_profile(profile_dir)
+                if active_pids:
+                    print_lg(f"[BrowserLock] Active Chrome process(es) {active_pids} using profile at {profile_dir}.")
+                    continue
 
             try:
                 if os.path.islink(path) or os.path.isfile(path):
@@ -144,6 +202,7 @@ def kill_profile_processes(profile_dir: str) -> None:
     if not profile_dir or not os.path.exists(profile_dir):
         return
 
+    # 1. Check primary SingletonLock PID (POSIX)
     primary_lock = os.path.join(profile_dir, "SingletonLock")
     if os.path.islink(primary_lock) or os.path.exists(primary_lock):
         pid = extract_pid_from_lock(primary_lock)
@@ -155,8 +214,20 @@ def kill_profile_processes(profile_dir: str) -> None:
             except Exception as e:
                 print_lg(f"[BrowserLock] Notice terminating process {pid}: {e}")
 
-    # Remove all lock files now that process is cleared
-    for item in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+    # 2. Comprehensive check for any Chrome processes using this profile directory (Windows & POSIX)
+    active_pids = find_pids_for_profile(profile_dir)
+    if active_pids:
+        from app.services.os.process_manager import ProcessManager
+        for pid in active_pids:
+            if is_pid_alive(pid):
+                try:
+                    print_lg(f"[BrowserLock] Terminating lingering Chrome process {pid} using profile {profile_dir}...")
+                    ProcessManager.kill_process_tree(pid, timeout_seconds=1.5)
+                except Exception as e:
+                    print_lg(f"[BrowserLock] Notice terminating process {pid}: {e}")
+
+    # 3. Remove all lock files now that processes are cleared
+    for item in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
         path = os.path.join(profile_dir, item)
         if os.path.islink(path) or os.path.exists(path):
             try:

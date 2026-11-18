@@ -96,19 +96,27 @@ class QualificationEngine:
         cfg_neg = gd_plat.get("negative_title_words") or ind_plat.get("negative_title_words") or nk_plat.get("negative_title_words") or ln_plat.get("negative_title_words", [])
         self.negative_title_words = [w.lower() for w in (negative_title_words if negative_title_words is not None else cfg_neg)]
 
-        # Configurable irrelevant tech stacks (e.g. Java, React, Vue, PHP for an RPA/Python engineer)
+        # Configurable core domain skills
+        default_core = ["rpa", "automation", "python", "uipath", "blue prism", "automation anywhere", "selenium", "playwright", "process automation", "bot", "ai"]
+        if core_skills is not None:
+            self.core_skills = [w.lower() for w in core_skills]
+        else:
+            self.core_skills = [w.lower() for w in default_core]
+
+        # Configurable irrelevant tech stacks (e.g. Golang, Ruby, PHP, Java, React when not in core skills)
         default_irrelevant = [
-            "java", "angular", "react", "vue", "php", "ruby", "c++", ".net", "dotnet",
+            "java", "angular", "react", "vue", "php", "ruby", "c++", ".net", "dotnet", "golang", "rust",
             "android", "ios", "swift", "flutter", "salesforce", "sap abap", "mainframe",
             "embedded", "devops engineer", "cloud architect", "data engineer"
         ]
-        cfg_irrel = ind_plat.get("irrelevant_tech_words") or nk_plat.get("irrelevant_tech_words") or ln_plat.get("irrelevant_tech_words", default_irrelevant)
-        self.irrelevant_tech_words = [w.lower() for w in (irrelevant_tech_words if irrelevant_tech_words is not None else cfg_irrel)]
+        if irrelevant_tech_words is not None:
+            raw_irrelevant = [w.lower() for w in irrelevant_tech_words]
+        else:
+            raw_irrelevant = [w.lower() for w in default_irrelevant]
 
-        # Configurable core domain skills
-        default_core = ["rpa", "automation", "python", "uipath", "blue prism", "automation anywhere", "selenium", "playwright", "process automation", "bot", "ai"]
-        cfg_core = ind_plat.get("core_skills") or nk_plat.get("core_skills") or ln_plat.get("core_skills", default_core)
-        self.core_skills = [w.lower() for w in (core_skills if core_skills is not None else cfg_core)]
+        # Filter out candidate's verified skills so they are never classified as irrelevant
+        cand_core_set = set(self.core_skills)
+        self.irrelevant_tech_words = [w for w in raw_irrelevant if w not in cand_core_set]
 
         self.blacklisted_companies = set(c.lower() for c in (blacklisted_companies or set()))
         self.about_company_bad_words = [w.lower() for w in (about_company_bad_words if about_company_bad_words is not None else ln_plat.get("about_company_bad_words", ["crossover"]))]
@@ -116,7 +124,7 @@ class QualificationEngine:
         self.applied_job_ids = set(str(jid) for jid in (applied_job_ids or set()))
 
     def qualify_title(self, title: str, company: str = "", job_id: Optional[str] = None) -> QualificationResult:
-        """Fast Pre-Filter: checks applied status, company blacklist, and negative title words."""
+        """Fast Pre-Filter: checks applied status, company blacklist, negative title words, and irrelevant tech stacks."""
         # 1. Already Applied Check
         if job_id and str(job_id) in self.applied_job_ids:
             return QualificationResult(accepted=False, reason=f"Already applied to job ID: {job_id}", stage="ALREADY_APPLIED")
@@ -147,6 +155,8 @@ class QualificationEngine:
                             reason=f"Title contains irrelevant tech stack: '{itech}'",
                             stage="TITLE_FILTER",
                         )
+
+        return QualificationResult(accepted=True, reason=None, stage="TITLE_FILTER")
 
         return QualificationResult(accepted=True, reason=None, stage="TITLE_FILTER")
 
@@ -206,12 +216,17 @@ class QualificationEngine:
                     )
 
         # 3. Experience Requirement Check
-        return self._evaluate_experience(description=description, required_experience_min=required_experience_min)
+        return self._evaluate_experience(
+            description=description,
+            required_experience_min=required_experience_min,
+            title=title,
+        )
 
     def _evaluate_experience(
         self,
         description: str,
-        required_experience_min: Optional[int] = None
+        required_experience_min: Optional[int] = None,
+        title: Optional[str] = None,
     ) -> QualificationResult:
         """Compares required experience with candidate experience, including Masters allowance."""
         # Calculate masters degree allowance (+2 years if candidate has masters and job mentions 'master')
@@ -223,6 +238,16 @@ class QualificationEngine:
         if req_exp is None and description:
             extracted_min, _ = extract_experience_bounds(description)
             req_exp = extracted_min
+
+        # If required experience is not stated in text, infer conservative lower bound from title
+        if req_exp is None and title:
+            lower_title = title.lower()
+            if any(re.search(r'\b' + re.escape(w) + r'\b', lower_title) for w in ["principal", "director", "vice president", "head of", "chief", "fellow"]):
+                req_exp = 8
+            elif any(re.search(r'\b' + re.escape(w) + r'\b', lower_title) for w in ["staff", "architect", "lead", "tech lead", "sde 3", "sde iii", "sde-3", "sde-iii"]):
+                req_exp = 5
+            elif any(re.search(r'\b' + re.escape(w) + r'\b', lower_title) for w in ["senior", "sr", "sr.", "sde 2", "sde ii", "sde-2", "sde-ii"]):
+                req_exp = 3
 
         # If required experience is specified and exceeds candidate's qualifications
         if req_exp is not None and self.candidate_experience > -1:

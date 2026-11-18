@@ -4,6 +4,13 @@ from modules.qna_engine import QnAEngine
 class TestLinkedInFormValidation(unittest.TestCase):
     def setUp(self):
         self.engine = QnAEngine()
+        self.engine.prof.update({
+            "skills": ["Automation Anywhere 360", "Python 3.11", "SAP GUI Scripting", "SQL"],
+        })
+        self.engine.standard_answers.update({
+            "certifications": "Automation Anywhere Advanced Automation, Agentic Process Automation Developer Masterclass",
+            "reason_for_change": "Seeking new challenges in enterprise RPA and agentic AI automation.",
+        })
 
     def test_tools_and_platforms_not_intercepted_by_github_key(self):
         q = "Which tools, platforms, or technologies are you proficient in? (e.g., Jira, GitHub, MS Project, AI tools, etc.)*"

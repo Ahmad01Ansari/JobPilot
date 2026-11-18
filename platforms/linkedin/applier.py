@@ -373,7 +373,10 @@ class LinkedInApplier:
                     except Exception:
                         pass
 
-                answer = "3"
+                cand_exp = "1"
+                if self.qna_engine and hasattr(self.qna_engine, "prof"):
+                    cand_exp = str(int(round(float(self.qna_engine.prof.get("years_of_experience", 1)))))
+                answer = cand_exp
                 if prompt and self.qna_engine:
                     ans = self.qna_engine.answer_text_question(prompt, job_description=job_description, work_location=work_location)
                     if ans:

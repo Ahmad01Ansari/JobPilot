@@ -5,6 +5,14 @@ from modules.qna_engine import QnAEngine, Answer, validate_answer
 class TestQnAProvenanceAndValidation(unittest.TestCase):
     def setUp(self):
         self.engine = QnAEngine(ai_client=None)
+        self.engine.desired_salary = 550000
+        self.engine.current_ctc = 350000
+        self.engine.prof.update({
+            "years_of_experience": 2,
+            "desired_salary": 550000,
+            "current_ctc": 350000,
+            "notice_period_days": 30,
+        })
 
     def test_provenance_calculation(self):
         # 1. CTC in Lakhs -> calculation
