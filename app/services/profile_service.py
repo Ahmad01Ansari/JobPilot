@@ -350,7 +350,7 @@ class ProfileService:
                 ("LinkedIn URL", bool(pro and pro.linkedin_url)),
                 ("Skills", bool(pro and pro.skills and len(pro.skills) > 0)),
                 ("Summary / Bio", bool(pro and pro.summary)),
-                ("Portfolio URL", bool(pro and pro.portfolio_url)),
+                ("Portfolio URL", bool(pro and (pro.portfolio_url or pro.github_url))),
             ]
 
             missing_critical = [name for name, present in critical if not present]

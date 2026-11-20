@@ -227,12 +227,23 @@ class TestUniversalWorkerLifecycle(unittest.TestCase):
 
     def tearDown(self):
         for w in getattr(self, "_active_workers", []):
-            if w.isRunning():
-                w.request_stop()
-                w.wait(2000)
-        if self.manager.is_running() and self.manager._current_worker:
-            self.manager.request_stop()
-            self.manager._current_worker.wait(2000)
+            try:
+                if w and w.isRunning():
+                    w.request_stop()
+                    if not w.wait(3000):
+                        w.terminate()
+                        w.wait(1000)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, "manager") and self.manager and self.manager._current_worker:
+                if self.manager._current_worker.isRunning():
+                    self.manager.request_stop()
+                    if not self.manager._current_worker.wait(3000):
+                        self.manager._current_worker.terminate()
+                        self.manager._current_worker.wait(1000)
+        except Exception:
+            pass
 
         self.engine.dispose()
         shutil.rmtree(self.temp_dir, ignore_errors=True)

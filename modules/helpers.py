@@ -101,6 +101,7 @@ def _get_helpers_dispatcher():
         return None
     if _helpers_dispatcher is None:
         class _QtHelpersDispatcher(QObject):
+            request_alert = Signal(object)
             request_confirm = Signal(object)
             request_goal = Signal(object)
 
@@ -108,8 +109,13 @@ def _get_helpers_dispatcher():
                 super().__init__()
                 self.confirm_result = None
                 self.goal_result = None
+                self.request_alert.connect(self._handle_alert, Qt.BlockingQueuedConnection)
                 self.request_confirm.connect(self._handle_confirm, Qt.BlockingQueuedConnection)
                 self.request_goal.connect(self._handle_goal, Qt.BlockingQueuedConnection)
+
+            @Slot(object)
+            def _handle_alert(self, params):
+                _show_qt_alert(**params)
 
             @Slot(object)
             def _handle_confirm(self, params):
@@ -541,135 +547,151 @@ def show_modern_alert(
     if "unittest" in sys.modules or os.environ.get("TESTING") == "1":
         return
 
-    if sys.platform != "win32" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         return
 
-    # 1. Try modern PySide6 dialog first
+    # 1. Try modern PySide6 dialog safely across threads
+    app = None
     try:
-        _show_qt_alert(text=msg, title=title, button=button, poll_condition=poll_condition)
-        return
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QThread
+        app = QApplication.instance()
+        if app:
+            if QThread.currentThread() == app.thread():
+                _show_qt_alert(text=msg, title=title, button=button, poll_condition=poll_condition)
+                return
+            dispatcher = _get_helpers_dispatcher()
+            if dispatcher:
+                dispatcher.request_alert.emit({
+                    "text": msg,
+                    "title": title,
+                    "button": button,
+                    "poll_condition": poll_condition,
+                })
+                return
     except Exception as qt_err:
         pass
 
-    # 2. Resilient Tkinter fallback
-    try:
-        import tkinter as tk
-        import tkinter.font as tkfont
-
-        root = tk.Tk()
-        root.title(str(title))
-        root.configure(bg="#0F1117")
-        root.minsize(480, 200)
-        root.resizable(False, False)
-
+    # 2. Resilient Tkinter fallback only when no Qt GUI application is active
+    if app is None:
         try:
-            root.tk.call('tk', 'scaling', 1.33)
-        except Exception:
-            pass
+            import tkinter as tk
+            import tkinter.font as tkfont
 
-        try:
-            root.attributes("-topmost", True)
-        except Exception:
-            pass
+            root = tk.Tk()
+            root.title(str(title))
+            root.configure(bg="#0F1117")
+            root.minsize(480, 200)
+            root.resizable(False, False)
 
-        families = set(tkfont.families(root))
-        sys_font = "sans-serif"
-        for candidate in ["texgyreheros", "nimbus sans l", "latin modern sans", "helvetica", "avantgarde"]:
-            if candidate in families:
-                sys_font = candidate
-                break
-
-        header = tk.Frame(root, bg="#161B22", padx=20, pady=12, highlightbackground="#262C36", highlightthickness=1)
-        header.pack(fill="x")
-
-        hdr_lbl = tk.Label(
-            header,
-            text=str(title),
-            font=(sys_font, 11, "bold"),
-            fg="#FF5F15",
-            bg="#161B22",
-            anchor="w",
-        )
-        hdr_lbl.pack(fill="x")
-
-        body = tk.Frame(root, bg="#0F1117", padx=20, pady=16)
-        body.pack(fill="both", expand=True)
-
-        msg_lbl = tk.Label(
-            body,
-            text=msg,
-            font=(sys_font, 10),
-            fg="#F0F6FC",
-            bg="#0F1117",
-            wraplength=440,
-            justify="left",
-            anchor="w",
-        )
-        msg_lbl.pack(fill="both", expand=True)
-
-        btn_bar = tk.Frame(root, bg="#161B22", padx=20, pady=12, highlightbackground="#262C36", highlightthickness=1)
-        btn_bar.pack(fill="x", side="bottom")
-
-        def _close(event=None):
             try:
-                root.destroy()
+                root.tk.call('tk', 'scaling', 1.33)
             except Exception:
                 pass
 
-        def _bind_keys():
             try:
-                root.bind("<Return>", _close)
-                root.bind("<Escape>", _close)
+                root.attributes("-topmost", True)
             except Exception:
                 pass
-        root.after(1000, _bind_keys)
 
-        btn = tk.Button(
-            btn_bar,
-            text=str(button),
-            command=_close,
-            bg="#FF5F15",
-            fg="#FFFFFF",
-            activebackground="#E04F0F",
-            activeforeground="#FFFFFF",
-            font=(sys_font, 10, "bold"),
-            padx=20,
-            pady=6,
-            cursor="hand2",
-            relief="flat",
-            bd=0,
-        )
-        btn.pack(side="right")
+            families = set(tkfont.families(root))
+            sys_font = "sans-serif"
+            for candidate in ["texgyreheros", "nimbus sans l", "latin modern sans", "helvetica", "avantgarde"]:
+                if candidate in families:
+                    sys_font = candidate
+                    break
 
-        if poll_condition:
-            def _poll_check():
+            header = tk.Frame(root, bg="#161B22", padx=20, pady=12, highlightbackground="#262C36", highlightthickness=1)
+            header.pack(fill="x")
+
+            hdr_lbl = tk.Label(
+                header,
+                text=str(title),
+                font=(sys_font, 11, "bold"),
+                fg="#FF5F15",
+                bg="#161B22",
+                anchor="w",
+            )
+            hdr_lbl.pack(fill="x")
+
+            body = tk.Frame(root, bg="#0F1117", padx=20, pady=16)
+            body.pack(fill="both", expand=True)
+
+            msg_lbl = tk.Label(
+                body,
+                text=msg,
+                font=(sys_font, 10),
+                fg="#F0F6FC",
+                bg="#0F1117",
+                wraplength=440,
+                justify="left",
+                anchor="w",
+            )
+            msg_lbl.pack(fill="both", expand=True)
+
+            btn_bar = tk.Frame(root, bg="#161B22", padx=20, pady=12, highlightbackground="#262C36", highlightthickness=1)
+            btn_bar.pack(fill="x", side="bottom")
+
+            def _close(event=None):
                 try:
-                    if poll_condition():
-                        _close()
-                        return
+                    root.destroy()
                 except Exception:
                     pass
+
+            def _bind_keys():
                 try:
-                    root.after(1000, _poll_check)
+                    root.bind("<Return>", _close)
+                    root.bind("<Escape>", _close)
                 except Exception:
                     pass
-            root.after(1000, _poll_check)
+            root.after(1000, _bind_keys)
 
-        root.update_idletasks()
-        w = max(root.winfo_width(), 480)
-        h = max(root.winfo_height(), 200)
-        x = (root.winfo_screenwidth() // 2) - (w // 2)
-        y = (root.winfo_screenheight() // 2) - (h // 2)
-        root.geometry(f"{w}x{h}+{x}+{y}")
+            btn = tk.Button(
+                btn_bar,
+                text=str(button),
+                command=_close,
+                bg="#FF5F15",
+                fg="#FFFFFF",
+                activebackground="#E04F0F",
+                activeforeground="#FFFFFF",
+                font=(sys_font, 10, "bold"),
+                padx=20,
+                pady=6,
+                cursor="hand2",
+                relief="flat",
+                bd=0,
+            )
+            btn.pack(side="right")
 
-        root.lift()
-        root.after_idle(root.attributes, "-topmost", True)
-        root.after(100, root.lift)
-        root.after(200, root.focus_force)
-        body.focus_set()
-        root.mainloop()
-    except Exception as e:
-        print(f"[show_modern_alert fallback] {e}")
+            if poll_condition:
+                def _poll_check():
+                    try:
+                        if poll_condition():
+                            _close()
+                            return
+                    except Exception:
+                        pass
+                    try:
+                        root.after(1000, _poll_check)
+                    except Exception:
+                        pass
+                root.after(1000, _poll_check)
+
+            root.update_idletasks()
+            w = max(root.winfo_width(), 480)
+            h = max(root.winfo_height(), 200)
+            x = (root.winfo_screenwidth() // 2) - (w // 2)
+            y = (root.winfo_screenheight() // 2) - (h // 2)
+            root.geometry(f"{w}x{h}+{x}+{y}")
+
+            root.lift()
+            root.after_idle(root.attributes, "-topmost", True)
+            root.after(100, root.lift)
+            root.after(200, root.focus_force)
+            body.focus_set()
+            root.mainloop()
+        except Exception as e:
+            print(f"[show_modern_alert fallback] {e}")
 
 
 alert = show_modern_alert
@@ -700,7 +722,7 @@ def show_modern_confirm(
     if os.environ.get("TESTING") == "1":
         return btns[0] if btns else "OK"
 
-    if sys.platform != "win32" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         return btns[0] if btns else "OK"
 
     # 1. Try modern PySide6 dialog first
@@ -930,7 +952,7 @@ def show_modern_goal_dialog(
     if os.environ.get("TESTING") == "1":
         return False, 0
 
-    if sys.platform != "win32" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         return False, 0
 
     # 1. Try modern PySide6 dialog first

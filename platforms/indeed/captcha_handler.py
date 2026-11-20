@@ -258,7 +258,7 @@ class IndeedCaptchaHandler:
         driver: Optional[Any] = None,
         job_title: str = "",
         company: str = "",
-        timeout: int = 60,
+        timeout: int = 300,
         stop_check: Optional[Callable[[], bool]] = None,
         automation_bridge: Optional[Any] = None,
     ) -> bool:
@@ -275,13 +275,20 @@ class IndeedCaptchaHandler:
 
         print_lg("\n" + "=" * 70)
         print_lg("[IndeedCaptchaHandler] ⚠️  CAPTCHA CHALLENGE DETECTED ON INDEED!")
-        print_lg(f"[IndeedCaptchaHandler] Job: '{job_title}' | Company: '{company}'")
-        print_lg("[IndeedCaptchaHandler] ACTION REQUIRED: Please check 'I'm not a robot' in the Chrome browser window.")
-        print_lg(f"[IndeedCaptchaHandler] Waiting up to {timeout} seconds for manual resolution...")
+        if job_title or company:
+            print_lg(f"[IndeedCaptchaHandler] Context: '{job_title}' at '{company}'")
+        print_lg("[IndeedCaptchaHandler] ACTION REQUIRED: Please check 'I'm not a robot' or solve challenge in Chrome window.")
+        print_lg(f"[IndeedCaptchaHandler] Waiting up to {timeout} seconds for human resolution...")
         print_lg("=" * 70 + "\n")
 
-        # Emit intervention event to Desktop UI / Manager
         bridge = automation_bridge or self.automation_bridge
+        if bridge and hasattr(bridge, "set_intervention_active"):
+            try:
+                bridge.set_intervention_active(True)
+            except Exception:
+                pass
+
+        # Emit intervention event to Desktop UI / Manager
         if bridge and hasattr(bridge, "handle_intervention"):
             try:
                 from app.services.automation_events import AutomationInterventionEvent, InterventionType
@@ -313,30 +320,80 @@ class IndeedCaptchaHandler:
             while time.time() - start_time < timeout:
                 if stop_check and stop_check():
                     print_lg("[IndeedCaptchaHandler] Cooperative stop/pause triggered during CAPTCHA wait.")
+                    if bridge and hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
                     return False
 
-                # 1. Check if user clicked 'I have resolved the CAPTCHA' in Desktop UI dialog
-                if bridge and hasattr(bridge, "is_captcha_resolved_by_user") and bridge.is_captcha_resolved_by_user():
+                # 1. Check if user clicked 'Skip / Cancel' on Desktop UI dialog
+                if bridge and hasattr(bridge, "is_captcha_cancelled_by_user"):
+                    try:
+                        if bridge.is_captcha_cancelled_by_user() is True:
+                            print_lg("[IndeedCaptchaHandler] User opted to cancel/skip challenge via Human-in-the-Loop dialog.")
+                            if hasattr(bridge, "dismiss_intervention"):
+                                bridge.dismiss_intervention()
+                            return False
+                    except Exception:
+                        pass
+
+                # 2. Check if user confirmed resolution via UI dialog
+                is_resolved_ui = False
+                if bridge:
+                    try:
+                        if hasattr(bridge, "is_captcha_resolved_by_user") and bridge.is_captcha_resolved_by_user() is True:
+                            is_resolved_ui = True
+                        elif hasattr(bridge, "is_captcha_resolved") and bridge.is_captcha_resolved() is True:
+                            is_resolved_ui = True
+                    except Exception:
+                        pass
+
+                if is_resolved_ui:
                     print_lg("[IndeedCaptchaHandler] ✅ CAPTCHA confirmed resolved by user via Human-in-the-Loop dialog! Proceeding.")
+                    if hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
                     time.sleep(1.0)
                     return True
 
-                # 2. Check if DOM detects CAPTCHA token / checkbox completion
+                # 3. Check if DOM detects CAPTCHA token / checkbox completion in Chrome
                 if self.is_captcha_solved(drv):
                     print_lg("[IndeedCaptchaHandler] ✅ CAPTCHA challenge resolved in browser!")
+                    if hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
                     time.sleep(1.5)  # Allow React state / submit button to update
                     return True
 
-                time.sleep(1)
+                time.sleep(1.0)
 
                 elapsed = int(time.time() - start_time)
-                if elapsed - last_logged >= 10:
+                if elapsed - last_logged >= 15:
                     remaining = timeout - elapsed
-                    print_lg(f"[IndeedCaptchaHandler] Still awaiting CAPTCHA solution in browser ({remaining}s remaining)...")
+                    print_lg(f"[IndeedCaptchaHandler] Awaiting CAPTCHA solution in browser or dialog response ({remaining}s remaining)...")
                     last_logged = elapsed
 
             print_lg(f"[IndeedCaptchaHandler] ❌ CAPTCHA was not resolved within {timeout}s.")
+            if bridge and hasattr(bridge, "dismiss_intervention"):
+                try:
+                    bridge.dismiss_intervention()
+                except Exception:
+                    pass
             return False
         finally:
-            if bridge and hasattr(bridge, "reset_captcha_status"):
-                bridge.reset_captcha_status()
+            if bridge:
+                if hasattr(bridge, "set_intervention_active"):
+                    try:
+                        bridge.set_intervention_active(False)
+                    except Exception:
+                        pass
+                if hasattr(bridge, "reset_captcha_status"):
+                    try:
+                        bridge.reset_captcha_status()
+                    except Exception:
+                        pass

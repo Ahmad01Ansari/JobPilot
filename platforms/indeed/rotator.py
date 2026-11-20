@@ -15,37 +15,7 @@ from modules.helpers import print_lg
 from platforms.indeed.browser import IndeedBrowser
 from platforms.indeed.search import IndeedSearch, IndeedJobItem
 from platforms.indeed.applier import IndeedApplier
-
-
-def is_job_relevant(job_title: str, search_term: str) -> bool:
-    """Verifies that the job title has meaningful relevance to the search term."""
-    if not job_title or not search_term:
-        return True
-    
-    title_lower = job_title.lower()
-    term_lower = search_term.lower()
-    
-    # 1. Direct substring check
-    if term_lower in title_lower or title_lower in term_lower:
-        return True
-        
-    stop_words = {"in", "and", "or", "for", "the", "of", "to", "at", "a", "an", "with", "senior", "junior", "lead", "sr", "jr"}
-    term_words = [w for w in re.findall(r'\b\w+\b', term_lower) if w not in stop_words]
-    title_words = [w for w in re.findall(r'\b\w+\b', title_lower) if w not in stop_words]
-    
-    if not term_words:
-        return True
-        
-    # Check if any significant term word matches or is a prefix/stem of a title word (e.g. dev in developer)
-    for tw in term_words:
-        for tlw in title_words:
-            if tw == tlw:
-                return True
-            # Prefix check for abbreviations (dev -> developer, auto -> automation, etc.)
-            if (len(tw) >= 3 and len(tlw) >= 3) and (tw.startswith(tlw) or tlw.startswith(tw)):
-                return True
-
-    return False
+from modules.qualification_engine import is_job_relevant
 
 
 @dataclass
@@ -167,8 +137,8 @@ class IndeedRotator:
 
         try:
             for term in self.config.search_terms:
-                if stop_check and stop_check():
-                    print_lg("[IndeedRotator] Stop check triggered. Stopping rotation.")
+                if (stop_check and stop_check()) or (self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive()):
+                    print_lg("[IndeedRotator] Stop check triggered or browser disconnected. Halting rotation.")
                     break
 
                 if self.stats.jobs_applied >= self.config.daily_application_goal:
@@ -181,8 +151,8 @@ class IndeedRotator:
                 active_freshness = self.config.freshness_days
 
                 for page in range(1, self.config.max_pages_per_search + 1):
-                    if stop_check and stop_check():
-                        print_lg("[IndeedRotator] Stop check triggered. Stopping pagination.")
+                    if (stop_check and stop_check()) or (self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive()):
+                        print_lg("[IndeedRotator] Stop check triggered or browser disconnected. Stopping pagination.")
                         break
 
                     if term_applied >= self.config.switch_number:
@@ -280,8 +250,8 @@ class IndeedRotator:
 
                     # 2. Iterate and process application lifecycle
                     for job in jobs:
-                        if stop_check and stop_check():
-                            print_lg("[IndeedRotator] Stop check triggered. Halting job applications.")
+                        if (stop_check and stop_check()) or (self.browser and hasattr(self.browser, "is_alive") and not self.browser.is_alive()):
+                            print_lg("[IndeedRotator] Stop check triggered or browser disconnected. Halting job applications.")
                             break
 
                         if term_applied >= self.config.switch_number:
@@ -293,7 +263,7 @@ class IndeedRotator:
                         self.stats.jobs_evaluated += 1
 
                         # Pre-filter 1: Keyword Relevance Guard (rejects unrelated recommendations like 'Similar to jobs you explored')
-                        if not is_job_relevant(job.title, term):
+                        if not is_job_relevant(job.title, term, negative_words=self.config.negative_title_words):
                             skip_msg = f"Title '{job.title}' does not match keyword '{term}'"
                             print_lg(f"[IndeedRotator] Relevance check SKIP for '{job.title}': {skip_msg}")
                             self.stats.jobs_skipped += 1
@@ -417,6 +387,10 @@ class IndeedRotator:
                             self.stats.jobs_skipped += 1
                             if self.tracker:
                                 self.tracker.record_state(job_obj, "MANUAL_REQUIRED", reason=message)
+                            user_cancelled = self.automation_bridge and hasattr(self.automation_bridge, "is_captcha_cancelled_by_user") and self.automation_bridge.is_captcha_cancelled_by_user()
+                            if "captcha" in message.lower() and not user_cancelled:
+                                print_lg("[IndeedRotator] ⚠️ CAPTCHA challenge was not resolved. Halting rotation to allow manual resolution and protect session.")
+                                break
                         else:
                             self.stats.jobs_failed += 1
                             if self.tracker:

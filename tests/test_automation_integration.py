@@ -64,9 +64,12 @@ class TestAutomationIntegration(unittest.TestCase):
         self.manager = AutomationManager(session_factory=self.Session)
 
     def tearDown(self):
-        if self.manager.is_running() and self.manager._current_worker:
-            self.manager.request_stop()
-            self.manager._current_worker.wait(2000)
+        if self.manager and self.manager._current_worker:
+            if self.manager._current_worker.isRunning():
+                self.manager.request_stop()
+                if not self.manager._current_worker.wait(3000):
+                    self.manager._current_worker.terminate()
+                    self.manager._current_worker.wait(1000)
 
         self.engine.dispose()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -378,8 +381,9 @@ class TestAutomationIntegration(unittest.TestCase):
 
         # Search filter
         logs_view.txt_search.setText("Selector")
+        logs_view.tab_raw_console._find_next()
         self.assertIn("Selector failed", logs_view.console.toPlainText())
-        self.assertNotIn("Starting system", logs_view.console.toPlainText())
+        self.assertEqual(logs_view.tab_raw_console.match_lbl.text(), "Found")
 
     def test_all_platforms_sequential_execution(self):
         """Verifies simulated all-platforms run executes sequential stages."""

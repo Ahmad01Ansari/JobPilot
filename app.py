@@ -163,10 +163,6 @@ def get_naukri_stats():
 def get_all_stats():
     """Returns aggregate and per-platform application metrics."""
     try:
-        naukri_raw = tracker.get_stats("naukri")
-        linkedin_raw = tracker.get_stats("linkedin")
-        total_raw = tracker.get_stats()
-
         def format_summary(raw: dict) -> dict:
             return {
                 "applications": sum(raw.values()),
@@ -175,14 +171,23 @@ def get_all_stats():
                 "failed": raw.get("FAILED", 0),
                 "manual_required": raw.get("MANUAL_REQUIRED", 0),
                 "external": raw.get("EXTERNAL", 0),
+                "qualified": raw.get("QUALIFIED", 0),
                 "details": raw,
             }
 
-        return jsonify({
-            "naukri": format_summary(naukri_raw),
-            "linkedin": format_summary(linkedin_raw),
-            "total": format_summary(total_raw),
-        })
+        platforms = [
+            "naukri",
+            "linkedin",
+            "indeed",
+            "universal",
+            "glassdoor",
+            "foundit",
+            "email",
+            "direct_outreach",
+        ]
+        result = {p: format_summary(tracker.get_stats(p)) for p in platforms}
+        result["total"] = format_summary(tracker.get_stats())
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -198,6 +203,47 @@ def get_unified_applications():
 
         items = []
         for r in records:
+            details = getattr(r, "details", {}) or {}
+            ats_provider = details.get("ats_provider") or details.get("provider") or ""
+            if not ats_provider and r.source_url:
+                u = r.source_url.lower()
+                if "myworkdayjobs" in u or "workday" in u:
+                    ats_provider = "Workday"
+                elif "greenhouse.io" in u:
+                    ats_provider = "Greenhouse"
+                elif "lever.co" in u:
+                    ats_provider = "Lever"
+                elif "taleo" in u:
+                    ats_provider = "Taleo"
+                elif "icims" in u:
+                    ats_provider = "iCIMS"
+                elif "jobs2web" in u or "successfactors" in u:
+                    ats_provider = "SuccessFactors"
+                elif "smartrecruiters" in u:
+                    ats_provider = "SmartRecruiters"
+                elif "ashbyhq" in u:
+                    ats_provider = "Ashby"
+                elif "zohorecruit" in u:
+                    ats_provider = "Zoho Recruit"
+                elif "freshteam" in u:
+                    ats_provider = "FreshTeam"
+                elif "catsone" in u:
+                    ats_provider = "CatsOne"
+                elif "forms.gle" in u or "docs.google.com/forms" in u:
+                    ats_provider = "Google Forms"
+                elif "bamboohr" in u:
+                    ats_provider = "BambooHR"
+                elif "breezy.hr" in u:
+                    ats_provider = "Breezy HR"
+                elif "workable.com" in u:
+                    ats_provider = "Workable"
+                elif "jobvite" in u:
+                    ats_provider = "Jobvite"
+                elif "indeed.com" in u:
+                    ats_provider = "Indeed Portal"
+
+            ref_num = details.get("reference_number") or details.get("confirmation_number") or ""
+
             items.append({
                 "platform": r.platform,
                 "job_id": r.job_id,
@@ -211,6 +257,8 @@ def get_unified_applications():
                 "applied_at": r.applied_at or "",
                 "failure_reason": r.failure_reason or "",
                 "skip_reason": r.skip_reason or "",
+                "ats_provider": ats_provider,
+                "reference_number": ref_num,
             })
         return jsonify(items)
     except Exception as e:

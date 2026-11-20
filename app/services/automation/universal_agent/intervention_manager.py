@@ -114,7 +114,9 @@ class InterventionManager:
     async def wait_for_resolution(self, timeout_seconds: Optional[float] = None) -> InterventionRequest:
         """Asynchronously blocks until a human operator resolves, takes over, or cancels."""
         if not self._resolution_event:
-            raise RuntimeError("No active intervention event to wait on.")
+            if self._current_request and self._current_request.is_resolved:
+                return self._current_request
+            self._resolution_event = asyncio.Event()
 
         if timeout_seconds:
             try:

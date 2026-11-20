@@ -6,20 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.4.8-beta] — 2026-11-19
+## [0.4.8-beta] — 2026-11-20
 
-### AI Career Copilot RAG Grounding, Chrome Process Recovery, and LinkedIn Seniority Gate
+### Multi-Platform Analytics Dashboard, ATS Archetype Tracking, and Outreach Attachment Pipeline
 
-This release introduces the grounded AI Career Copilot with zero-hallucination platform navigation, interactive reasoning streams, cross-platform Chrome process recovery, and automated LinkedIn seniority qualification gates.
+This release delivers the unified multi-platform automation dashboard (`index.html` + `app.py`) tracking 1,800+ applications across all 7 supported platforms, automated ATS archetype and reference code extraction, grounded email outreach resume attachment dispatch, and cross-platform GUI/thread lifecycle hardening.
 
 #### Added
-- **AI Career Copilot & Grounded RAG Knowledge Base**: Implemented `PlatformKnowledgeBase` providing grounded UI navigation flows and feature explanations across JobPilot's desktop views (Daily Apply Limit in Platforms View, Email Outreach Workspace, Universal ATS Agent, Instant Skip Rules, QnA screening profile facts).
+- **Multi-Platform Analytics & Automation Dashboard (`templates/index.html` + `app.py`)**: Upgraded web dashboard to automatically aggregate and display applications across all 7 engines (`naukri`, `linkedin`, `indeed`, `universal`, `glassdoor`, `foundit`, `email`/`direct_outreach`) with dynamic platform-aware metric cards.
+- **ATS Archetype Detection & Confirmation Tracking**: Integrated live detection for Workday, Greenhouse, Lever, Taleo, iCIMS, SuccessFactors, CatsOne, Google Forms, FreshTeam, Zoho Recruit, and Ashby, rendering styled archetype pills and confirmation reference numbers.
+- **Email Outreach Attachment Pipeline**: Grounded Copilot email application flow with automatic discovery and resolution of candidate's default resume PDF (`AppPaths.get_resumes_dir() / default_resume_filename`), attaching physical files to direct outreach emails.
+- **AI Career Copilot & Grounded RAG Knowledge Base**: Implemented `PlatformKnowledgeBase` providing grounded UI navigation flows and feature explanations across JobPilot's desktop views.
 - **Interactive Simulation & Reasoning Stream**: Implemented real-time interactive thought stream cards (`PilotMessageCard` with animated milestones, pulsing execution steps, and live console logging for automation workers).
 - **Semantic Intent Routing & Human Behavior Test Suite**: Built semantic intent router handling complex human inquiries (application status checks, skip keyword additions/removals, compensation queries, and offer audits) with 60 comprehensive unit tests.
 - **Single-Instance Application Lock**: Added `SingleInstanceLock` in `app/services/os/single_instance.py` to prevent duplicate concurrent processes from locking SQLite databases or Chrome profiles.
 - **Smooth UI Wheel Event Filtering**: Added `app/ui/wheel_filter.py` to prevent accidental value changes on spinboxes and combo boxes during view scrolling.
 
 #### Fixed & Enhanced
+- **Dashboard JS Syntax & Header Deduplication**: Corrected unclosed brace syntax in `templates/index.html` preventing dashboard script execution, and eliminated duplicate title rendering in header.
+- **Test Worker Thread Safety**: Fixed cooperative thread wait handling during test fixture teardowns in `test_automation_integration.py` and `test_universal_worker_lifecycle.py`, eliminating `QThread: Destroyed while thread is still running` aborts.
+- **LogsView Compatibility**: Restored backward-compatible `console` and `txt_search` properties on `LogsView` to satisfy existing test harnesses and legacy callers.
 - **Cross-Platform Chrome Lock & Process Recovery**: Added `find_pids_for_profile` using Windows PowerShell (`Get-CimInstance Win32_Process`) and POSIX (`pgrep`) to reliably locate and terminate lingering Chrome instances. Added `lockfile` cleanup to `cleanup_stale_profile_locks`.
 - **ChromeOptions Reusability Across All Platforms**: Refactored `FounditBrowser`, `GlassdoorBrowser`, `IndeedBrowser`, `LinkedInBrowser`, and `NaukriBrowser` to use `_build_options()` and `_get_launch_kwargs()`, eliminating the undetected-chromedriver crash (`cannot reuse the ChromeOptions object`) on retry attempts.
 - **LinkedIn Seniority Mismatch Gate**: Added `_is_senior_title_mismatch` in `LinkedInRotator` to pre-filter and skip senior, principal, lead, and director roles when candidate experience is below required thresholds.

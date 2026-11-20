@@ -54,7 +54,7 @@ class GlassdoorCaptchaHandler:
     def handle_captcha(
         self,
         driver: Optional[Any] = None,
-        max_wait_seconds: int = 60,
+        max_wait_seconds: int = 300,
         stop_check: Optional[Callable[[], bool]] = None,
     ) -> bool:
         """Cooperatively waits for user to resolve verification challenge."""
@@ -65,23 +65,54 @@ class GlassdoorCaptchaHandler:
         print_lg("[GlassdoorCaptchaHandler] ⚠️ Security Challenge Detected on Glassdoor!")
         print_lg(f"[GlassdoorCaptchaHandler] Pausing for up to {max_wait_seconds}s for human resolution...")
 
-        if self.automation_bridge:
+        bridge = self.automation_bridge
+        if bridge:
             try:
-                self.automation_bridge.emit_captcha_detected("glassdoor")
+                from app.services.automation_events import AutomationInterventionEvent, InterventionType
+                bridge.handle_intervention(
+                    AutomationInterventionEvent(
+                        run_id="glassdoor_run",
+                        platform="glassdoor",
+                        intervention_type=InterventionType.CAPTCHA_DETECTED,
+                        message="Security challenge detected on Glassdoor. Please solve it in the browser window.",
+                    )
+                )
             except Exception:
                 pass
 
         start_time = time.time()
-        while time.time() - start_time < max_wait_seconds:
-            if stop_check and stop_check():
-                print_lg("[GlassdoorCaptchaHandler] Stop signal received during CAPTCHA wait.")
-                return False
+        try:
+            while time.time() - start_time < max_wait_seconds:
+                if stop_check and stop_check():
+                    print_lg("[GlassdoorCaptchaHandler] Stop signal received during CAPTCHA wait.")
+                    if bridge and hasattr(bridge, "dismiss_intervention"):
+                        bridge.dismiss_intervention()
+                    return False
 
-            if not self.is_captcha_present(drv):
-                print_lg("[GlassdoorCaptchaHandler] Challenge cleared. Resuming automation.")
-                return True
+                if bridge and hasattr(bridge, "is_captcha_cancelled_by_user") and bridge.is_captcha_cancelled_by_user():
+                    print_lg("[GlassdoorCaptchaHandler] User opted to cancel/skip challenge via UI dialog.")
+                    if hasattr(bridge, "dismiss_intervention"):
+                        bridge.dismiss_intervention()
+                    return False
 
-            time.sleep(1.5)
+                if bridge and hasattr(bridge, "is_captcha_resolved_by_user") and bridge.is_captcha_resolved_by_user():
+                    print_lg("[GlassdoorCaptchaHandler] Challenge confirmed resolved via UI dialog.")
+                    if hasattr(bridge, "dismiss_intervention"):
+                        bridge.dismiss_intervention()
+                    return True
 
-        print_lg("[GlassdoorCaptchaHandler] Timed out waiting for manual verification resolution.")
-        return False
+                if not self.is_captcha_present(drv):
+                    print_lg("[GlassdoorCaptchaHandler] Challenge cleared in browser. Resuming automation.")
+                    if bridge and hasattr(bridge, "dismiss_intervention"):
+                        bridge.dismiss_intervention()
+                    return True
+
+                time.sleep(1.5)
+
+            print_lg("[GlassdoorCaptchaHandler] Timed out waiting for manual verification resolution.")
+            if bridge and hasattr(bridge, "dismiss_intervention"):
+                bridge.dismiss_intervention()
+            return False
+        finally:
+            if bridge and hasattr(bridge, "reset_captcha_status"):
+                bridge.reset_captcha_status()

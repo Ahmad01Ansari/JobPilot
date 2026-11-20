@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.services.automation.universal_agent.browser_agent.base import BrowserAgent
 from app.services.automation.universal_agent.field_mapper import FieldMapping, MappingResult
 from app.services.automation.universal_agent.file_uploader import FileUploader
+from app.services.automation.universal_agent.page_analyzer import FormFieldInfo
 
 logger = logging.getLogger(__name__)
 
@@ -212,48 +213,10 @@ class FormFiller:
                     return False, err
                 return True, None
 
-            # 2. Select Dropdown (Native <select> or Custom Workday/Combobox)
+            # 2. Select Dropdown (Native <select> or Custom Workday/Combobox/SuccessFactors)
             elif input_type in ["select", "combobox"]:
-                is_custom = getattr(f_info, "is_custom_dropdown", False) or any(
-                    k in selector.lower() for k in ["dropdown", "prompt", "combobox", "button", "div"]
-                )
-
-                if is_custom:
-                    ok, err = await self._fill_workday_dropdown(agent, selector, val, f_info.label)
-                    if ok:
-                        return True, None
-
-                # Primary: Playwright select_option for standard <select> elements
-                ok = await agent.select_option(selector, val)
-                if not ok:
-                    # Fallback 1: JavaScript value assignment and event dispatch
-                    js_select = f"""(() => {{
-                        const el = document.querySelector({json.dumps(selector)});
-                        if (!el) return false;
-                        if (el.tagName.toLowerCase() !== 'select') return false;
-                        el.value = {json.dumps(val)};
-                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        return el.value === {json.dumps(val)};
-                    }})()"""
-                    try:
-                        ok = bool(await agent.evaluate(js_select))
-                    except Exception:
-                        ok = False
-
-                if not ok:
-                    # Fallback 2: Workday / Custom Dropdown handler
-                    ok, err = await self._fill_workday_dropdown(agent, selector, val, f_info.label)
-
-                if not ok:
-                    # Fallback 3: Stagehand AI act
-                    try:
-                        await agent.act(f"Select '{val}' in dropdown '{f_info.label}'")
-                        ok = True
-                    except Exception as e:
-                        return False, f"Dropdown selection failed: {e}"
-
-                return ok, None if ok else "Failed to select option."
+                ok, err = await self._fill_dropdown_field(agent, f_info, val)
+                return ok, None if ok else (err or "Failed to select option.")
 
             # 3. Radio Group or Radio Button
             elif input_type in ["radio_group", "radio"]:
@@ -808,6 +771,176 @@ class FormFiller:
             logger.debug("Typeahead fill encountered error: %s", e)
             return False, str(e)
 
+    async def _fill_dropdown_field(
+        self, agent: BrowserAgent, f_info: FormFieldInfo, val: Any
+    ) -> Tuple[bool, Optional[str]]:
+        """Universally selects an option in native <select> elements or custom dropdown/combobox widgets.
+
+        Attempts smart DOM option matching by value, label, text, and boolean equivalence,
+        firing full event cascades (including jQuery triggers), and falls back to custom
+        flyout listbox selection, Playwright select_option, and Stagehand AI act.
+        """
+        val_clean = str(val).strip()
+        selector = f_info.selector
+        label_hint = f_info.label or ""
+
+        # Step 1: Smart JavaScript selection for native or wrapped <select> elements
+        js_smart_select = f"""(() => {{
+            const rawSel = {json.dumps(selector)};
+            const targetVal = {json.dumps(val_clean)};
+            const targetLower = targetVal.toLowerCase();
+
+            // Locate element by selector, or fallback to query by ID / name
+            let el = null;
+            try {{
+                el = document.querySelector(rawSel);
+            }} catch(e) {{
+                const parts = rawSel.split(',');
+                for (const p of parts) {{
+                    try {{
+                        const found = document.querySelector(p.trim());
+                        if (found) {{ el = found; break; }}
+                    }} catch(err) {{}}
+                }}
+            }}
+            if (!el && {json.dumps(f_info.field_id or "")}) {{
+                try {{ el = document.getElementById({json.dumps(f_info.field_id or "")}); }} catch(e) {{}}
+            }}
+            if (!el && {json.dumps(f_info.name or "")}) {{
+                try {{ el = document.querySelector('select[name=' + {json.dumps(f_info.name or "")} + ']'); }} catch(e) {{}}
+            }}
+            if (!el) return {{ ok: false, reason: "Element not found in DOM" }};
+
+            // If the element itself is not a select, check if it wraps a select or has an adjacent select
+            let sel = el;
+            if (sel.tagName.toLowerCase() !== 'select') {{
+                const childSel = sel.querySelector('select');
+                if (childSel) {{
+                    sel = childSel;
+                }} else if (sel.parentElement) {{
+                    const siblingSel = sel.parentElement.querySelector('select');
+                    if (siblingSel) sel = siblingSel;
+                }}
+            }}
+
+            if (sel && sel.tagName.toLowerCase() === 'select') {{
+                const options = Array.from(sel.options);
+                if (options.length === 0) return {{ ok: false, reason: "Select has no options" }};
+
+                const isPlaceholder = (t) => /^(select|choose|no\\s*selection|please\\s*select|none|select\\s*one|select\\s*an?\\s*option|\\s*)$/i.test(t);
+
+                const getOptText = (o) => (o.text || o.label || o.innerText || '').trim().toLowerCase();
+                const getOptVal = (o) => (o.value || '').trim().toLowerCase();
+
+                let targetIdx = -1;
+
+                // 1. Exact value match
+                targetIdx = options.findIndex(o => getOptVal(o) === targetLower);
+
+                // 2. Exact text/label match
+                if (targetIdx === -1) {{
+                    targetIdx = options.findIndex(o => getOptText(o) === targetLower);
+                }}
+
+                // 3. Boolean equivalence matching (Yes / No / True / False / 1 / 0)
+                if (targetIdx === -1) {{
+                    if (['no', 'false', '0', 'n'].includes(targetLower)) {{
+                        targetIdx = options.findIndex(o => {{
+                            const t = getOptText(o);
+                            const v = getOptVal(o);
+                            if (isPlaceholder(t)) return false;
+                            return ['no', 'false', '0', 'n'].includes(v) ||
+                                   t === 'no' || t === 'false' ||
+                                   /^\\s*no\\b/i.test(t) ||
+                                   (/\\bno\\b/i.test(t) && !/\\bno\\s*selection\\b/i.test(t));
+                        }});
+                    }} else if (['yes', 'true', '1', 'y'].includes(targetLower)) {{
+                        targetIdx = options.findIndex(o => {{
+                            const t = getOptText(o);
+                            const v = getOptVal(o);
+                            if (isPlaceholder(t)) return false;
+                            return ['yes', 'true', '1', 'y'].includes(v) ||
+                                   t === 'yes' || t === 'true' ||
+                                   /^\\s*yes\\b/i.test(t) ||
+                                   /\\byes\\b/i.test(t);
+                        }});
+                    }}
+                }}
+
+                // 4. Substring / contains match (strictly excluding placeholders)
+                if (targetIdx === -1) {{
+                    targetIdx = options.findIndex(o => {{
+                        const t = getOptText(o);
+                        const v = getOptVal(o);
+                        if (isPlaceholder(t)) return false;
+                        return t === targetLower || t.includes(targetLower) || targetLower.includes(t) || v === targetLower;
+                    }});
+                }}
+
+                if (targetIdx !== -1) {{
+                    try {{ sel.scrollIntoView({{ behavior: 'instant', block: 'center' }}); }} catch(e) {{}}
+                    try {{ sel.focus(); }} catch(e) {{}}
+
+                    sel.selectedIndex = targetIdx;
+                    const chosenVal = options[targetIdx].value;
+                    sel.value = chosenVal;
+
+                    // Dispatch full event sequence
+                    sel.dispatchEvent(new Event('focus', {{ bubbles: true }}));
+                    sel.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    sel.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    sel.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+
+                    // Trigger jQuery change event if page uses jQuery (SuccessFactors & older ATS)
+                    if (window.jQuery) {{
+                        try {{ window.jQuery(sel).val(chosenVal).trigger('change'); }} catch(e) {{}}
+                    }} else if (window.$) {{
+                        try {{ window.$(sel).val(chosenVal).trigger('change'); }} catch(e) {{}}
+                    }}
+
+                    // If stylized span or label displays current selection, update it
+                    const parentWrap = sel.closest('.select-wrapper, .custom-select, div, span');
+                    if (parentWrap) {{
+                        const displaySpan = parentWrap.querySelector('.select-value, .select-text, .selected-option, .current');
+                        if (displaySpan) {{
+                            displaySpan.innerText = options[targetIdx].text;
+                        }}
+                    }}
+
+                    return {{ ok: true, method: "native_select", value: chosenVal, text: options[targetIdx].text }};
+                }}
+            }}
+
+            return {{ ok: false, reason: "Not a select or option not matched" }};
+        }})()"""
+
+        try:
+            res = await agent.evaluate(js_smart_select)
+            if isinstance(res, dict) and res.get("ok"):
+                return True, None
+        except Exception as e:
+            logger.debug("Smart JS select error for %s: %s", selector, e)
+
+        # Step 2: Try native Playwright locator select_option
+        try:
+            ok = await agent.select_option(selector, val_clean)
+            if ok:
+                return True, None
+        except Exception:
+            pass
+
+        # Step 3: Custom dropdown handler (Workday, SuccessFactors, SAP UI5, Bootstrap flyout listbox)
+        ok, err = await self._fill_workday_dropdown(agent, selector, val_clean, label_hint)
+        if ok:
+            return True, None
+
+        # Step 4: Fallback to Stagehand AI act if available
+        try:
+            await agent.act(f"Select '{val_clean}' in dropdown '{label_hint}'")
+            return True, None
+        except Exception as e:
+            return False, f"Dropdown selection failed: {e}"
+
     async def _fill_workday_dropdown(self, agent: BrowserAgent, selector: str, val: str, label_hint: str = "") -> Tuple[bool, Optional[str]]:
         """Handles custom Workday comboboxes, popup prompt widgets, and ARIA listboxes."""
         val_clean = str(val).strip()
@@ -838,6 +971,7 @@ class FormFiller:
                     'button[data-automation-id*="select" i], [data-automation-id*="select-one" i], [data-automation-id*="selectOne" i], ' +
                     'button[data-automation-id*="combobox" i], button[data-automation-id*="option" i], ' +
                     'button[aria-haspopup="listbox"], button[aria-haspopup], div[role="combobox"], [data-automation-id="sourceDropdown"], ' +
+                    'button.dropdown-toggle, div.sapMSelect, [class*="sapMSelect" i], .custom-select, [class*="dropdown-trigger" i], ' +
                     '[data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], ' +
                     '[data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phone" i], button[data-automation-id*="device" i], ' +
                     '[data-automation-id*="phone-device" i], [data-automation-id*="phoneDevice" i], [id*="phoneType" i], [id*="phoneNumber" i], ' +
@@ -913,6 +1047,9 @@ class FormFiller:
             const listbox = document.querySelector(
                 '[data-automation-id="popup-listbox"], [role="listbox"], ' +
                 'div[data-automation-id="select-options-list"], ul[role="listbox"], ' +
+                'ul.dropdown-menu, div.dropdown-menu, .sapMSelect-menu, ul.sapMSelectList, div[id$="-popup"], ' +
+                'div[class*="select-menu" i], div[class*="options" i], ul.select2-results, div.chosen-drop, ' +
+                'div.ui-selectmenu-open, ul.ui-selectmenu-menu, ' +
                 'div[role="dialog"], [data-automation-id="wd-popup-content"], div[id*="popup" i], ' +
                 'div[data-automation-id*="popup" i], ul[data-automation-id*="popup" i]'
             );
@@ -937,11 +1074,13 @@ class FormFiller:
                 '[role="option"], [data-automation-id="menuItem"], [data-automation-id*="promptOption" i], ' +
                 'li, div[data-automation-id*="option" i], [data-automation-id="select-option"], ' +
                 'div[data-automation-id*="item" i], div[data-automation-id*="leaf" i], [role="treeitem"], ' +
-                'div[data-automation-id*="row" i], [role="menuitem"], [role="button"]'
+                'div[data-automation-id*="row" i], [role="menuitem"], [role="button"], a.dropdown-item, button.dropdown-item'
             )).filter(opt => {{
                 const s = window.getComputedStyle(opt);
                 return s.display !== 'none' && s.visibility !== 'hidden';
             }});
+
+            const isPlaceholder = (t) => /^(select|choose|no\\s*selection|please\\s*select|none|select\\s*one|select\\s*an?\\s*option|\\s*)$/i.test(t);
 
             const getOptText = (o) => {{
                 const autoLabel = o.getAttribute('data-automation-label') || '';
@@ -949,12 +1088,33 @@ class FormFiller:
                 return (autoLabel || inner).trim().toLowerCase();
             }};
 
-            // 1. Exact match
-            let matched = options.find(o => getOptText(o) === targetLower);
-            // 2. Contains match
+            // 1. Exact match (excluding placeholder options)
+            let matched = options.find(o => {{
+                const t = getOptText(o);
+                return !isPlaceholder(t) && t === targetLower;
+            }});
+
+            // 1b. Boolean equivalence matching (Yes / No / True / False / 1 / 0)
+            if (!matched && ['no', 'false', '0', 'n'].includes(targetLower)) {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    if (isPlaceholder(t)) return false;
+                    return t === 'no' || t === 'false' || /^\\s*no\\b/i.test(t) || (/\\bno\\b/i.test(t) && !/\\bno\\s*selection\\b/i.test(t));
+                }});
+            }}
+            if (!matched && ['yes', 'true', '1', 'y'].includes(targetLower)) {{
+                matched = options.find(o => {{
+                    const t = getOptText(o);
+                    if (isPlaceholder(t)) return false;
+                    return t === 'yes' || t === 'true' || /^\\s*yes\\b/i.test(t) || /\\byes\\b/i.test(t);
+                }});
+            }}
+
+            // 2. Contains match (strictly excluding placeholders)
             if (!matched) {{
                 matched = options.find(o => {{
                     const t = getOptText(o);
+                    if (isPlaceholder(t)) return false;
                     return t === targetLower || t.includes(targetLower) || targetLower.includes(t);
                 }});
             }}

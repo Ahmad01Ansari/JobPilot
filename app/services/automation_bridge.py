@@ -29,21 +29,60 @@ class AutomationBridge:
         self.job_service = JobService(session_factory=self._session_factory)
         self.app_service = ApplicationService(session_factory=self._session_factory)
         self._captcha_resolved = False
+        self._captcha_cancelled = False
+        self._intervention_active = False
+        self._pending_input = None
+        self._pending_input_id = None
         self.on_intervention = None
+        self.on_dismiss_intervention = None
+        self.on_input_provided = None
 
     def mark_captcha_resolved(self) -> None:
         """Signals that the user has manually resolved a CAPTCHA challenge via UI."""
         logger.info("[AutomationBridge] CAPTCHA marked as resolved by user.")
         self._captcha_resolved = True
+        self._captcha_cancelled = False
+
+    def mark_captcha_cancelled(self) -> None:
+        """Signals that the user chose to skip/cancel the CAPTCHA challenge via UI."""
+        logger.info("[AutomationBridge] CAPTCHA challenge marked as cancelled/skipped by user.")
+        self._captcha_cancelled = True
+        self._captcha_resolved = False
 
     def reset_captcha_status(self) -> None:
-        """Resets manual CAPTCHA resolution flag for subsequent challenges."""
-        logger.info("[AutomationBridge] CAPTCHA resolution flag reset.")
+        """Resets manual CAPTCHA resolution and cancellation flags for subsequent challenges."""
+        logger.info("[AutomationBridge] CAPTCHA resolution flags reset.")
         self._captcha_resolved = False
+        self._captcha_cancelled = False
 
     def is_captcha_resolved_by_user(self) -> bool:
         """Checks if user has clicked 'I have resolved the CAPTCHA' in the UI."""
         return bool(self._captcha_resolved)
+
+    def is_captcha_resolved(self) -> bool:
+        """Alias for is_captcha_resolved_by_user for detector compatibility."""
+        return self.is_captcha_resolved_by_user()
+
+    def is_captcha_cancelled_by_user(self) -> bool:
+        """Checks if user has clicked 'Skip / Cancel' on the CAPTCHA dialog in the UI."""
+        return bool(self._captcha_cancelled)
+
+    def set_intervention_active(self, active: bool) -> None:
+        """Sets whether a human-in-the-loop intervention is currently in progress."""
+        self._intervention_active = bool(active)
+
+    def is_intervention_active(self) -> bool:
+        """Returns True if a human-in-the-loop intervention dialog/challenge is currently active."""
+        return bool(self._intervention_active)
+
+    def dismiss_intervention(self) -> None:
+        """Signals the UI to dismiss any active intervention dialog."""
+        self._intervention_active = False
+        if callable(self.on_dismiss_intervention):
+            try:
+                self.on_dismiss_intervention()
+            except Exception as e:
+                logger.debug("Notice dismissing intervention dialog via callback: %s", e)
 
     def handle_job_discovered(self, event: JobDiscoveredEvent) -> Optional[int]:
         """Upserts a discovered job listing idempotently based on SHA-256 fingerprint."""
@@ -159,6 +198,7 @@ class AutomationBridge:
     def handle_intervention(self, event: AutomationInterventionEvent) -> None:
         """Logs and relays intervention request to any registered listeners."""
         try:
+            self._intervention_active = True
             logger.warning(
                 "INTERVENTION_REQUIRED [%s]: %s (Platform: %s)",
                 getattr(event, "intervention_type", "UNKNOWN"),
@@ -170,3 +210,36 @@ class AutomationBridge:
                 listener(event)
         except Exception as exc:
             logger.error("Error in handle_intervention: %s", exc)
+
+    def provide_input(self, value: str, intervention_id: Optional[str] = None, metadata: Optional[dict] = None) -> None:
+        """Stores human user input (OTP, screening answer, captcha confirmation) and signals consumers."""
+        clean_val = str(value).strip()
+        logger.info("[AutomationBridge] User input provided: '%s' (intervention_id: %s)", clean_val, intervention_id)
+        self._pending_input = clean_val
+        self._pending_input_id = intervention_id
+        if clean_val.lower() in ("solved", "done", "fixed", "captcha_solved"):
+            self.mark_captcha_resolved()
+        if callable(getattr(self, "on_input_provided", None)):
+            try:
+                self.on_input_provided(clean_val, intervention_id, metadata)
+            except Exception as e:
+                logger.error("[AutomationBridge] Error in on_input_provided listener: %s", e)
+        self.dismiss_intervention(intervention_id)
+
+    def get_pending_input(self, clear: bool = True) -> Optional[str]:
+        """Retrieves and optionally clears pending user input delivered via chat or UI."""
+        val = self._pending_input
+        if clear and val is not None:
+            self._pending_input = None
+            self._pending_input_id = None
+        return val
+
+    def dismiss_intervention(self, intervention_id: Optional[str] = None) -> None:
+        """Dismisses the active intervention across the UI and registered listeners."""
+        self._intervention_active = False
+        listener = getattr(self, "on_dismiss_intervention", None)
+        if callable(listener):
+            try:
+                listener(intervention_id)
+            except Exception as e:
+                logger.error("[AutomationBridge] Error in on_dismiss_intervention listener: %s", e)

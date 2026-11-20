@@ -56,7 +56,7 @@ class TestApplicationRun(unittest.TestCase):
 
     def test_all_13_navigation_views_render_cleanly(self):
         """Iterates through every registered navigation item in NAV_ITEMS and verifies switching."""
-        self.assertEqual(len(NAV_ITEMS), 14)
+        self.assertEqual(len(NAV_ITEMS), 15)
 
         for item in NAV_ITEMS:
             with self.subTest(view_id=item.id, title=item.title):

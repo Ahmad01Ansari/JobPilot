@@ -116,11 +116,16 @@ def main() -> int:
         pass
 
     # Startup Splash Screen (displayed during database initialization in desktop mode)
+    import time
     splash = None
+    splash_start_time = 0.0
+    watchdog_timer = None
     is_offscreen = os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "--offscreen" in sys.argv
 
     def _dismiss_splash():
         nonlocal splash
+        if watchdog_timer and watchdog_timer.isActive():
+            watchdog_timer.stop()
         if splash is not None:
             try:
                 splash.close()
@@ -134,23 +139,49 @@ def main() -> int:
         if not splash_pix.isNull():
             from PySide6.QtWidgets import QSplashScreen
             from PySide6.QtCore import Qt, QTimer
-            from PySide6.QtGui import QColor
-            # Use FramelessWindowHint without WindowStaysOnTopHint so splash doesn't trap modals
-            splash = QSplashScreen(splash_pix, Qt.FramelessWindowHint)
-            splash.showMessage("JobPilot Autopilot initializing...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#94A3B8"))
+            from PySide6.QtGui import QColor, QFont
+            splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+            if not app_icon.isNull():
+                splash.setWindowIcon(app_icon)
+            splash.setFont(QFont("Inter", 10))
             splash.show()
-            app.processEvents()
-            # Safety timeout: splash screen will never remain on screen longer than 2.5 seconds
-            QTimer.singleShot(2500, _dismiss_splash)
+            for _ in range(3):
+                app.processEvents()
+
+            # Center splash screen on the active display
+            primary_screen = app.primaryScreen()
+            if primary_screen:
+                screen_geo = primary_screen.geometry()
+                splash_geo = splash.geometry()
+                x = screen_geo.x() + (screen_geo.width() - splash_geo.width()) // 2
+                y = screen_geo.y() + (screen_geo.height() - splash_geo.height()) // 2
+                splash.move(x, y)
+
+            splash.showMessage("JobPilot Autopilot initializing...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#FF5F15"))
+            splash.raise_()
+            splash.activateWindow()
+            splash.repaint()
+            for _ in range(3):
+                app.processEvents()
+            splash_start_time = time.time()
+            # Safety watchdog: auto-dismiss splash after 30 seconds if startup hangs
+            watchdog_timer = QTimer()
+            watchdog_timer.setSingleShot(True)
+            watchdog_timer.timeout.connect(_dismiss_splash)
+            watchdog_timer.start(30000)
 
     # Initialize and diagnose database connection safely
     from app.db import init_db, check_connection
     from app.ui.state import AppState
 
     state = AppState()
-    if splash:
-        splash.showMessage("Connecting to database...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#94A3B8"))
-        app.processEvents()
+    if splash is not None:
+        try:
+            splash.showMessage("Connecting to database...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#FF5F15"))
+            splash.repaint()
+            app.processEvents()
+        except Exception:
+            pass
     try:
         success, err = init_db()
         if success:
@@ -183,20 +214,43 @@ def main() -> int:
     except Exception as exc:
         state.update_status("database", f"Error: {exc}")
 
-    # Instantiate Main Window
-    window = MainWindow(state=state)
+    # Instantiate Main Window with live splash loading updates
+    window = MainWindow(state=state, splash=splash)
     if instance_mgr:
         instance_mgr.register_main_window(window)
-    if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
-        window.showMaximized()
-        window.raise_()
-        window.activateWindow()
-    if splash:
+
+    def _finish_and_show():
+        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            window.showMaximized()
+            window.raise_()
+            window.activateWindow()
+        if splash is not None:
+            try:
+                splash.finish(window)
+            except Exception:
+                pass
+            _dismiss_splash()
+
+    if watchdog_timer and watchdog_timer.isActive():
+        watchdog_timer.stop()
+
+    if splash is not None and splash_start_time > 0:
+        elapsed = time.time() - splash_start_time
+        min_display_time = 1.0  # Ensure splash is visible for at least 1.0s
+        rem_ms = int(max(0, (min_display_time - elapsed) * 1000))
         try:
-            splash.finish(window)
+            splash.showMessage("Ready! Opening JobPilot...", Qt.AlignBottom | Qt.AlignHCenter, QColor("#FF5F15"))
+            splash.repaint()
+            app.processEvents()
         except Exception:
             pass
-        _dismiss_splash()
+        if rem_ms > 0:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(rem_ms, _finish_and_show)
+        else:
+            _finish_and_show()
+    else:
+        _finish_and_show()
 
     # Pre-flight self-test support
     from PySide6.QtCore import QTimer

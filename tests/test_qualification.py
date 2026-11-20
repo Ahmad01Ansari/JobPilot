@@ -246,6 +246,43 @@ class TestQualificationEngine(unittest.TestCase):
         post_res_good = self.engine.qualify_job_post_click(good_job)
         self.assertTrue(post_res_good.accepted)
 
+    def test_out_of_domain_professions_rejected(self):
+        # Disallow HR, Recruiter, Talent Acquisition, Sales, Accountant for RPA candidate
+        for title in ["HR Specialist", "HR Manager", "Talent Acquisition Lead", "Technical Recruiter", "Accountant", "Sales Executive"]:
+            job = job_from_linkedin(f"ood_{title}", title, "Global Corp", "Mumbai")
+            res = self.engine.qualify(job)
+            self.assertFalse(res.accepted, f"Expected {title} to be rejected")
+            self.assertEqual(res.stage, "OUT_OF_DOMAIN")
+
+    def test_is_job_relevant_logic(self):
+        from modules.qualification_engine import is_job_relevant
+        # Role collision prevention
+        self.assertFalse(is_job_relevant("HR Developer", "RPA Developer"))
+        self.assertFalse(is_job_relevant("PHP Developer", "RPA Developer"))
+        self.assertFalse(is_job_relevant("Java Developer", "RPA Developer"))
+        self.assertFalse(is_job_relevant("Civil Engineer", "Automation Engineer"))
+        self.assertFalse(is_job_relevant("HR Specialist", "RPA Developer"))
+        self.assertFalse(is_job_relevant("Sales Representative", "RPA Developer"))
+        
+        # Valid domain matches
+        self.assertTrue(is_job_relevant("RPA Developer", "RPA Developer"))
+        self.assertTrue(is_job_relevant("RPA Developer - Kofax", "RPA Developer"))
+        self.assertTrue(is_job_relevant("Senior Automation Engineer", "Automation Engineer"))
+        self.assertTrue(is_job_relevant("UiPath Developer", "RPA Developer", core_skills=["uipath", "rpa"]))
+
+    def test_safety_gate_pre_submission_validation(self):
+        from platforms.indeed.safety_gate import IndeedSafetyGate
+        gate = IndeedSafetyGate(pause_mode=False)
+        
+        # Unrelated domain rejected
+        res_hr = gate.evaluate(job_title="HR Specialist", company="Tech Corp")
+        self.assertFalse(res_hr.approved)
+        self.assertIn("out-of-domain", res_hr.reason)
+        
+        # Matching role approved
+        res_rpa = gate.evaluate(job_title="RPA Developer", company="Tech Corp")
+        self.assertTrue(res_rpa.approved)
+
 
 if __name__ == "__main__":
     unittest.main()

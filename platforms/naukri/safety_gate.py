@@ -10,6 +10,7 @@ Enforces the Phase 11 hard safety lock: pause_before_submit is strictly respecte
 '''
 
 import os
+import re
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict, Literal, Callable
@@ -382,7 +383,7 @@ def show_gui_review_dialog(summary: ApplicationReviewSummary) -> Optional[Review
         return None
 
     # Check if graphical display is available
-    if sys.platform != "win32" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         return None
 
     # 1. Try modern PySide6 Qt6 dialog first
@@ -736,6 +737,37 @@ class NaukriSafetyGate:
 
         # Output summary to console
         print_lg(summary.format_table())
+
+        # Automated Pre-Submission Domain & Negative Keyword Verification
+        title_lower = (job.title or "").strip().lower()
+        if title_lower:
+            from modules.qualification_engine import OUT_OF_DOMAIN_KEYWORDS, is_job_relevant
+            naukri_cfg = get_platform("naukri") or {}
+            neg_words = naukri_cfg.get("negative_title_words", [])
+            for neg in neg_words:
+                n_clean = str(neg).strip().lower()
+                if n_clean and re.search(r'\b' + re.escape(n_clean) + r'\b', title_lower):
+                    print_lg(f"[NaukriSafetyGate] Rejected: Title '{job.title}' contains negative keyword '{neg}'.")
+                    return SafetyGateResult(
+                        decision="DISCARD",
+                        summary=summary,
+                        approved=False,
+                        notes=f"Safety Gate rejected submission: Job title contains negative keyword '{neg}'.",
+                    )
+
+            # Check out-of-domain words
+            search_terms = naukri_cfg.get("search_terms", [])
+            for ood in OUT_OF_DOMAIN_KEYWORDS:
+                if re.search(r'\b' + re.escape(ood) + r'\b', title_lower):
+                    matches_term = any(is_job_relevant(job.title, term) for term in search_terms) if search_terms else False
+                    if not matches_term:
+                        print_lg(f"[NaukriSafetyGate] Rejected: Title '{job.title}' is outside candidate domain ('{ood}').")
+                        return SafetyGateResult(
+                            decision="DISCARD",
+                            summary=summary,
+                            approved=False,
+                            notes=f"Safety Gate rejected submission: Job title belongs to out-of-domain profession '{ood}'.",
+                        )
 
         # Check pause setting: use explicit if passed, otherwise check dynamic config
         if self._explicit_pause:

@@ -18,7 +18,7 @@ class TestUniversalSessionManager(unittest.TestCase):
 
     def test_session_manager_defaults(self) -> None:
         mgr = UniversalSessionManager()
-        self.assertTrue(mgr.get_user_data_dir().endswith(".jobpilot-universal-profile"))
+        self.assertTrue(mgr.get_user_data_dir().endswith("universal") or mgr.get_user_data_dir().endswith(".jobpilot-universal-profile"))
         self.assertTrue(os.path.exists(mgr.get_user_data_dir()))
 
         opts = mgr.get_launch_options(headless=True)
@@ -26,6 +26,17 @@ class TestUniversalSessionManager(unittest.TestCase):
         self.assertEqual(opts["viewport_width"], 1280)
         self.assertEqual(opts["viewport_height"], 800)
         self.assertTrue(opts["preserve_user_data_dir"])
+
+    def test_session_manager_headed_launch_options_start_maximized(self) -> None:
+        """Verifies that non-headless launch options configure Chrome for maximized launch without default fixed size."""
+        mgr = UniversalSessionManager()
+        opts = mgr.get_launch_options(headless=False)
+        self.assertFalse(opts["headless"])
+        self.assertIsNone(opts["viewport_width"])
+        self.assertIsNone(opts["viewport_height"])
+        self.assertIn("--start-maximized", opts["args"])
+        self.assertIn("--window-position=0,0", opts["args"])
+        self.assertIn("--window-size=1280,800", opts.get("ignore_default_args", []))
 
 
 class TestStagehandBrowserAgent(unittest.IsolatedAsyncioTestCase):
@@ -92,6 +103,33 @@ class TestStagehandBrowserAgent(unittest.IsolatedAsyncioTestCase):
         # 8. Close
         await self.agent.close()
         self.assertFalse(self.agent.is_initialized)
+
+    async def test_ensure_maximized_invokes_cdp_set_window_bounds(self) -> None:
+        """Verifies that _ensure_maximized issues CDP Browser.setWindowBounds with maximized state."""
+        await self.agent.initialize(headless=True)
+        self.agent._headless = False
+
+        commands_sent = []
+        attachment = getattr(self.agent.browser, "_attachment", None)
+        if attachment and hasattr(attachment, "cdp_client"):
+            orig_send = attachment.cdp_client.send_command
+            async def mock_send(cmd: str, params: dict = None):
+                commands_sent.append((cmd, params))
+                if cmd == "Browser.getWindowForTarget":
+                    return {"windowId": 9999}
+                if cmd == "Browser.setWindowBounds":
+                    return {}
+                return await orig_send(cmd, params)
+            attachment.cdp_client.send_command = mock_send
+
+        await self.agent._ensure_maximized(self.agent.page)
+
+        cdp_methods = [c[0] for c in commands_sent]
+        self.assertIn("Browser.getWindowForTarget", cdp_methods)
+        self.assertIn("Browser.setWindowBounds", cdp_methods)
+        set_bounds_call = next(c for c in commands_sent if c[0] == "Browser.setWindowBounds")
+        self.assertEqual(set_bounds_call[1]["bounds"]["windowState"], "maximized")
+        self.assertEqual(set_bounds_call[1]["windowId"], 9999)
 
 
 if __name__ == "__main__":

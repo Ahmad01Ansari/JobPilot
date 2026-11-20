@@ -6,6 +6,7 @@ Chrome Session Management
 from modules.helpers import get_default_temp_profile, make_directories
 import os
 import sys
+import time
 import re
 import subprocess
 from typing import Optional
@@ -138,12 +139,19 @@ def find_chrome_executable(allow_fallback_chromium: bool = True) -> Optional[str
                 return cand_alt_which
 
     elif sys.platform == "darwin":
+        from pathlib import Path
+        home = Path.home()
         mac_candidates = [
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            str(home / "Applications" / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome"),
             "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+            str(home / "Applications" / "Google Chrome Canary.app" / "Contents" / "MacOS" / "Google Chrome Canary"),
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            str(home / "Applications" / "Chromium.app" / "Contents" / "MacOS" / "Chromium"),
             "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            str(home / "Applications" / "Brave Browser.app" / "Contents" / "MacOS" / "Brave Browser"),
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            str(home / "Applications" / "Microsoft Edge.app" / "Contents" / "MacOS" / "Microsoft Edge"),
         ]
         for cand in mac_candidates:
             if os.path.isfile(cand):

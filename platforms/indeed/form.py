@@ -86,8 +86,15 @@ class IndeedForm:
     @staticmethod
     def _resolve_safe_option(question_text: str, options: List[str], raw_val: str, qna_match: Optional[str]) -> str:
         """Picks the safest matching option without blind-defaulting to option[0] (which may be Afghanistan or Fiji Dollar)."""
-        if qna_match and qna_match in options:
-            return qna_match
+        if qna_match:
+            for opt in options:
+                if opt.lower() == qna_match.lower():
+                    return opt
+        if raw_val:
+            for opt in options:
+                if opt.lower() == str(raw_val).lower():
+                    return opt
+
         q_lower = question_text.lower()
 
         # Country / Phone Dial Code
@@ -110,7 +117,8 @@ class IndeedForm:
                     return opt
 
         # Currency / Salary Unit
-        if any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
+        has_currency_options = any(any(curr in o.lower() for curr in ["inr", "rupee", "₹", "usd", "dollar", "eur", "euro", "gbp", "pound", "cad", "aud"]) for o in options)
+        if any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]) or has_currency_options:
             for opt in options:
                 opt_l = opt.lower()
                 if any(curr in opt_l for curr in ["inr", "rupee", "₹", "indian"]):
@@ -134,7 +142,11 @@ class IndeedForm:
         if any(w in q_lower for w in ["hear about", "referral source", "how did you hear"]):
             for opt in options:
                 opt_l = opt.lower()
-                if "indeed" in opt_l or "linkedin" in opt_l or "online" in opt_l:
+                if any(k in opt_l for k in ["indeed", "linkedin", "online", "website", "social", "job board", "internet", "career", "search", "other"]):
+                    return opt
+            for opt in options:
+                opt_l = opt.lower()
+                if opt_l not in ["select an option", "choose an option", "select...", "choose one"]:
                     return opt
 
         # Experience / Numeric ranges (strictly when question asks for experience/years/numerical level)
@@ -145,6 +157,357 @@ class IndeedForm:
                     return opt
 
         return options[0] if options else ""
+
+    def _select_native_option(self, select_elem, target_opt_text: str) -> str:
+        """Selects an option in a native <select> element using React prototype descriptors and dispatches synthetic events."""
+        try:
+            res = self.driver.execute_script("""
+                const sel = arguments[0];
+                const targetText = (arguments[1] || '').trim().toLowerCase();
+                if (!sel || !sel.options || sel.options.length === 0) return '';
+
+                let matchedIdx = -1;
+                // 1. Exact match on text or value
+                for (let i = 0; i < sel.options.length; i++) {
+                    const opt = sel.options[i];
+                    const txt = (opt.text || opt.innerText || '').trim().toLowerCase();
+                    const val = (opt.value || '').trim().toLowerCase();
+                    if (txt === targetText || val === targetText) {
+                        matchedIdx = i;
+                        break;
+                    }
+                }
+                // 2. Currency match
+                if (matchedIdx === -1 && (targetText.includes('inr') || targetText.includes('rupee'))) {
+                    for (let i = 0; i < sel.options.length; i++) {
+                        const opt = sel.options[i];
+                        const txt = (opt.text || opt.innerText || '').trim().toLowerCase();
+                        if (txt.includes('inr') || txt.includes('rupee') || txt.includes('₹') || txt.includes('indian')) {
+                            matchedIdx = i;
+                            break;
+                        }
+                    }
+                }
+                // 3. Substring match
+                if (matchedIdx === -1 && targetText) {
+                    for (let i = 0; i < sel.options.length; i++) {
+                        const opt = sel.options[i];
+                        const txt = (opt.text || opt.innerText || '').trim().toLowerCase();
+                        if (txt.includes(targetText) || targetText.includes(txt)) {
+                            matchedIdx = i;
+                            break;
+                        }
+                    }
+                }
+                // 4. Fallback to first non-placeholder option if still not matched
+                if (matchedIdx === -1) {
+                    for (let i = 0; i < sel.options.length; i++) {
+                        const opt = sel.options[i];
+                        const txt = (opt.text || opt.innerText || '').trim().toLowerCase();
+                        if (txt && !txt.includes('select an option') && !txt.includes('choose')) {
+                            matchedIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (matchedIdx >= 0) {
+                    sel.selectedIndex = matchedIdx;
+                    for (let i = 0; i < sel.options.length; i++) {
+                        sel.options[i].selected = (i === matchedIdx);
+                    }
+                    const targetVal = sel.options[matchedIdx].value;
+
+                    // Reset React value tracker if present so React does not discard the change event
+                    if (sel._valueTracker) {
+                        try {
+                            sel._valueTracker.setValue('');
+                        } catch(e) {}
+                    }
+
+                    // Set value using prototype descriptor so React tracker sees it
+                    try {
+                        const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+                        if (descriptor && descriptor.set) {
+                            descriptor.set.call(sel, targetVal);
+                        } else {
+                            sel.value = targetVal;
+                        }
+                    } catch (e) {
+                        sel.value = targetVal;
+                    }
+
+                    // Dispatch full synthetic event sequence with bubbles & composed
+                    sel.dispatchEvent(new Event('focus', { bubbles: true }));
+                    sel.dispatchEvent(new Event('input', { bubbles: true }));
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    sel.dispatchEvent(new Event('blur', { bubbles: true }));
+                    return sel.options[matchedIdx].text || targetVal;
+                }
+                return '';
+            """, select_elem, target_opt_text)
+
+            # Secondary Selenium Select fallback as safety confirmation
+            try:
+                sel = Select(select_elem)
+                if target_opt_text:
+                    sel.select_by_visible_text(target_opt_text)
+            except Exception:
+                pass
+
+            return str(res or "")
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in _select_native_option: {e}")
+            return ""
+
+    def _get_custom_combobox_options(self, elem) -> List[str]:
+        """Extracts available option labels from an expandable custom combobox / listbox without altering state."""
+        try:
+            opts = self.driver.execute_script("""
+                const el = arguments[0];
+                let listboxId = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+                let listbox = listboxId ? document.getElementById(listboxId) : null;
+                if (!listbox) {
+                    listbox = el.closest('div, fieldset')?.querySelector('[role="listbox"], ul[role="listbox"], ul, .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                }
+                if (!listbox) {
+                    listbox = document.querySelector('[role="listbox"]:not([aria-hidden="true"]), ul[role="listbox"], .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                }
+                if (listbox) {
+                    const items = Array.from(listbox.querySelectorAll('[role="option"], li, button, [data-testid*="option"], div[role="option"]'));
+                    return items.map(o => (o.innerText || o.textContent || '').trim()).filter(t => t.length > 0 && !t.toLowerCase().includes('select an option') && !t.toLowerCase().includes('choose'));
+                }
+                // Check if backed by a native select inside the same container
+                const backingSelect = el.closest('div, fieldset')?.querySelector('select');
+                if (backingSelect && backingSelect.options && backingSelect.options.length > 0) {
+                    return Array.from(backingSelect.options).map(o => (o.text || o.innerText || '').trim()).filter(t => t.length > 0 && !t.toLowerCase().includes('select an option') && !t.toLowerCase().includes('choose'));
+                }
+                return [];
+            """, elem) or []
+            return [str(o) for o in opts if o]
+        except Exception:
+            return []
+
+    def _select_custom_combobox_option(self, elem, target_opt_text: str = "", question_context: str = "") -> str:
+        """Expands custom combobox / button dropdown and clicks matching option using full pointer & mouse sequences."""
+        try:
+            from selenium.webdriver.common.action_chains import ActionChains
+            from selenium.webdriver.common.keys import Keys
+        except Exception:
+            pass
+
+        try:
+            # Step 1: Check if backing native <select> exists in the immediate container
+            try:
+                backing_sel = self.driver.execute_script("""
+                    const el = arguments[0];
+                    return el.closest('div, fieldset')?.querySelector('select');
+                """, elem)
+                if backing_sel and target_opt_text:
+                    native_chosen = self._select_native_option(backing_sel, target_opt_text)
+                    if native_chosen:
+                        time.sleep(0.2)
+            except Exception:
+                pass
+
+            # Step 2: Check expansion state and open only if closed
+            is_open = False
+            try:
+                is_open = bool(self.driver.execute_script("""
+                    const el = arguments[0];
+                    return el.getAttribute('aria-expanded') === 'true' ||
+                           Boolean(document.querySelector('[role="listbox"]:not([aria-hidden="true"]), ul[role="listbox"], [data-testid*="menu"]'));
+                """, elem))
+            except Exception:
+                is_open = False
+
+            if not is_open:
+                try:
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", elem)
+                    time.sleep(0.1)
+                    elem.click()
+                except Exception:
+                    try:
+                        ActionChains(self.driver).move_to_element(elem).click().perform()
+                    except Exception:
+                        try:
+                            self.driver.execute_script("""
+                                const el = arguments[0];
+                                el.focus();
+                                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                            """, elem)
+                        except Exception:
+                            pass
+                time.sleep(0.35)
+
+            # Step 3: Query options and select via DOM JavaScript
+            res = self.driver.execute_script("""
+                const btn = arguments[0];
+                const targetText = (arguments[1] || '').trim().toLowerCase();
+                const qContext = (arguments[2] || '').trim().toLowerCase();
+
+                // 1. Locate options scoped to container, listbox, or popup dialog
+                const listboxId = btn.getAttribute('aria-controls') || btn.getAttribute('aria-owns');
+                let listbox = listboxId ? document.getElementById(listboxId) : null;
+                if (!listbox) {
+                    listbox = btn.closest('div, fieldset')?.querySelector('[role="listbox"], ul[role="listbox"], ul, .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                }
+                if (!listbox) {
+                    listbox = document.querySelector('[role="listbox"]:not([aria-hidden="true"]), div[role="dialog"] [role="listbox"], .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                }
+
+                let optionEls = [];
+                if (listbox) {
+                    optionEls = Array.from(listbox.querySelectorAll('[role="option"], li, button, [data-testid*="option"], div[role="option"]'));
+                }
+                if (optionEls.length === 0) {
+                    optionEls = Array.from(document.querySelectorAll(
+                        '[role="listbox"]:not([aria-hidden="true"]) [role="option"], [role="option"], li[role="option"], [data-testid*="select-option"], [data-testid*="option"], .icl-Select-option, ul[class*="menu" i] li, ul[class*="list" i] li, div[class*="popover" i] li, div[class*="dropdown" i] li, div[class*="menu" i] [role="menuitem"], div[class*="menu" i] button, div[class*="option" i], button[class*="option" i]'
+                    ));
+                }
+
+                // Filter visible options
+                const validOptions = optionEls.filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+                });
+                const searchPool = validOptions.length > 0 ? validOptions : optionEls;
+
+                let matched = null;
+                // A. Exact match
+                if (targetText) {
+                    for (const opt of searchPool) {
+                        const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                        if (txt === targetText) {
+                            matched = opt;
+                            break;
+                        }
+                    }
+                }
+
+                // B. Currency-specific matching
+                const poolHasCurrency = searchPool.some(opt => {
+                    const t = (opt.innerText || opt.textContent || '').toLowerCase();
+                    return ['inr', 'rupee', '₹', 'usd', 'dollar', 'eur', 'euro'].some(c => t.includes(c));
+                });
+                const isCurrency = qContext.includes('currency') || targetText.includes('inr') || targetText.includes('rupee') || poolHasCurrency;
+                if (!matched && isCurrency) {
+                    for (const opt of searchPool) {
+                        const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                        if (txt.includes('inr') || txt.includes('rupee') || txt.includes('₹') || txt.includes('indian')) {
+                            matched = opt;
+                            break;
+                        }
+                    }
+                    if (!matched) {
+                        for (const opt of searchPool) {
+                            const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                            if (txt.includes('usd') || txt.includes('dollar')) {
+                                matched = opt;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // C. Referral / hearing source matching
+                const poolHasReferral = searchPool.some(opt => {
+                    const t = (opt.innerText || opt.textContent || '').toLowerCase();
+                    return ['indeed', 'linkedin', 'company website', 'referral', 'online'].some(c => t.includes(c));
+                });
+                const isReferral = qContext.includes('hear about') || qContext.includes('referral') || qContext.includes('source') || qContext.includes('sds') || poolHasReferral;
+                if (!matched && isReferral) {
+                    for (const opt of searchPool) {
+                        const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                        if (['indeed', 'linkedin', 'company website', 'online', 'website', 'search', 'job board', 'internet', 'other'].some(k => txt.includes(k))) {
+                            matched = opt;
+                            break;
+                        }
+                    }
+                }
+
+                // D. Substring match
+                if (!matched && targetText) {
+                    for (const opt of searchPool) {
+                        const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                        if (txt.includes(targetText) || targetText.includes(txt)) {
+                            matched = opt;
+                            break;
+                        }
+                    }
+                }
+
+                // E. Fallback to first non-placeholder option
+                if (!matched && searchPool.length > 0) {
+                    for (const opt of searchPool) {
+                        const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                        if (txt && !txt.includes('select an option') && !txt.includes('choose an option') && !txt.includes('select...')) {
+                            matched = opt;
+                            break;
+                        }
+                    }
+                }
+
+                if (matched) {
+                    const matchedText = (matched.innerText || matched.textContent || '').trim();
+                    matched.scrollIntoView({block: 'nearest'});
+
+                    try { matched.focus(); } catch(e) {}
+                    try { matched.click(); } catch(e) {}
+
+                    // Dispatch full pointer and mouse sequence to trigger React's selection
+                    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                        try {
+                            matched.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        } catch(e) {}
+                    });
+
+                    // Synchronize any underlying native <select> or hidden input
+                    const container = btn.closest('div, fieldset');
+                    if (container) {
+                        const hiddenSelect = container.querySelector('select');
+                        if (hiddenSelect && hiddenSelect.options) {
+                            for (let i = 0; i < hiddenSelect.options.length; i++) {
+                                const hTxt = (hiddenSelect.options[i].text || '').toLowerCase();
+                                const hVal = (hiddenSelect.options[i].value || '').toLowerCase();
+                                if (hTxt === matchedText.toLowerCase() || (targetText && (hTxt.includes(targetText) || hVal.includes(targetText)))) {
+                                    hiddenSelect.selectedIndex = i;
+                                    hiddenSelect.options[i].selected = true;
+                                    hiddenSelect.dispatchEvent(new Event('input', { bubbles: true }));
+                                    hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    return matchedText;
+                }
+                return '';
+            """, elem, target_opt_text, question_context)
+
+            chosen_text = str(res or "").strip()
+
+            # Step 4: Verification - Check if combobox displayed text updated
+            time.sleep(0.3)
+            current_disp = self.driver.execute_script("return (arguments[0].innerText || arguments[0].textContent || arguments[0].value || '').trim();", elem)
+            current_disp_lower = str(current_disp).lower()
+            if not current_disp or "select an option" in current_disp_lower or "choose an option" in current_disp_lower:
+                # Fallback: ActionChains and Keyboard Enter navigation
+                try:
+                    ActionChains(self.driver).move_to_element(elem).click().send_keys(Keys.ARROW_DOWN).send_keys(Keys.ENTER).perform()
+                    time.sleep(0.3)
+                    new_disp = self.driver.execute_script("return (arguments[0].innerText || arguments[0].textContent || arguments[0].value || '').trim();", elem)
+                    if new_disp and "select an option" not in new_disp.lower() and "choose an option" not in new_disp.lower():
+                        chosen_text = new_disp
+                except Exception:
+                    pass
+
+            return chosen_text
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in _select_custom_combobox_option: {e}")
+            return ""
 
     def wait_for_spinner(self, timeout: int = 10) -> None:
         """Waits for any loading spinner / overlay to clear."""
@@ -424,14 +787,10 @@ class IndeedForm:
             )
             for cs in country_selects:
                 if cs.is_displayed():
-                    sel = Select(cs)
-                    opts = [o.text.strip() for o in sel.options if o.text.strip()]
+                    opts = [o.text.strip() for o in Select(cs).options if o.text.strip()]
                     best_country = self._resolve_safe_option("country", opts, "", None)
                     if best_country:
-                        try:
-                            sel.select_by_visible_text(best_country)
-                        except Exception:
-                            pass
+                        self._select_native_option(cs, best_country)
         except Exception:
             pass
 
@@ -634,20 +993,53 @@ class IndeedForm:
                 print_lg(f"[IndeedForm] Error answering fieldset: {e}")
                 continue
 
-        # 2. Process Standalone Inputs (Text, Number, Textarea, Select)
+        # 2. Process Standalone Inputs (Text, Number, Textarea, Select, Custom Comboboxes)
         standalone_elems = []
         try:
             standalone_elems = self.driver.find_elements(
                 By.XPATH,
-                "//input[not(@type='hidden') and not(@type='submit') and not(@type='button') and not(@type='file')] | //textarea | //select"
+                "//input[not(@type='hidden') and not(@type='submit') and not(@type='button') and not(@type='file')] "
+                "| //textarea "
+                "| //select "
+                "| //button[not(@type='submit') and not(contains(., 'Continue')) and not(contains(., 'Review')) and not(contains(., 'Submit')) and not(contains(., 'Back'))] "
+                "| //*[@role='combobox'] "
+                "| //*[@aria-haspopup='listbox' or @aria-haspopup='true' or @aria-haspopup='menu']"
             )
         except Exception:
             pass
 
         for elem in standalone_elems:
             try:
-                if elem in handled_inputs or not elem.is_displayed():
+                if elem in handled_inputs:
                     continue
+
+                tag_name = elem.tag_name.lower()
+                if tag_name in ("html", "body", "main", "form", "section", "article"):
+                    continue
+                if tag_name == "div" and elem.get_attribute("role") != "combobox" and not elem.get_attribute("aria-haspopup"):
+                    continue
+
+                inp_type = (elem.get_attribute("type") or "text").lower()
+
+                # For <select> elements, do not skip if parent/wrapper is displayed (even if select itself has CSS opacity: 0)
+                if tag_name == "select":
+                    if not elem.is_displayed():
+                        try:
+                            parent_disp = bool(self.driver.execute_script("""
+                                const el = arguments[0];
+                                const parent = el.parentElement;
+                                if (!parent) return false;
+                                const rect = parent.getBoundingClientRect();
+                                const style = window.getComputedStyle(parent);
+                                return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+                            """, elem))
+                            if not parent_disp:
+                                continue
+                        except Exception:
+                            continue
+                else:
+                    if not elem.is_displayed():
+                        continue
 
                 # Skip standard name/email inputs if they belong to contact info (keep phone to handle questions step)
                 name_attr = (elem.get_attribute("name") or "").lower()
@@ -655,31 +1047,45 @@ class IndeedForm:
                 if any(k in name_attr or k in id_attr for k in ["first-name", "last-name", "email", "age", "recaptcha"]):
                     continue
 
-                tag_name = elem.tag_name.lower()
-                inp_type = (elem.get_attribute("type") or "text").lower()
-
                 # Extract Question Label
                 question_text = ""
-                elem_id = elem.get_attribute("id")
-                if elem_id:
+                # 1. aria-labelledby
+                aria_labelledby = elem.get_attribute("aria-labelledby")
+                if aria_labelledby:
+                    for l_id in aria_labelledby.split():
+                        try:
+                            l_elem = self.driver.find_element(By.ID, l_id)
+                            if l_elem and l_elem.text.strip():
+                                question_text = l_elem.text.strip().replace("\n", " ")
+                                break
+                        except Exception:
+                            pass
+                # 2. label[for='{elem_id}']
+                elem_id = elem.get_attribute("id") or ""
+                if not question_text and elem_id:
                     try:
                         lbls = self.driver.find_elements(By.CSS_SELECTOR, f"label[for='{elem_id}']")
                         if lbls and lbls[0].text.strip():
                             question_text = lbls[0].text.strip().replace("\n", " ")
                     except Exception:
                         pass
+                # 3. aria-label
                 if not question_text:
                     aria_lbl = elem.get_attribute("aria-label")
                     if aria_lbl and aria_lbl.strip():
                         question_text = aria_lbl.strip().replace("\n", " ")
+                # 4. Nearest preceding label, legend, or heading
                 if not question_text:
                     try:
-                        # Nearest preceding label is much more accurate than ancestor div label
-                        prec_lbls = elem.find_elements(By.XPATH, "preceding::label[1]")
+                        prec_lbls = elem.find_elements(
+                            By.XPATH,
+                            "preceding::label[1] | preceding::legend[1] | preceding::h1[1] | preceding::h2[1] | preceding::h3[1] | preceding::h4[1] | preceding::span[contains(@class, 'label') or contains(@class, 'Label')][1]"
+                        )
                         if prec_lbls and prec_lbls[0].is_displayed() and prec_lbls[0].text.strip():
                             question_text = prec_lbls[0].text.strip().replace("\n", " ")
                     except Exception:
                         pass
+                # 5. Ancestor label or container label
                 if not question_text:
                     try:
                         p_lbl = elem.find_element(By.XPATH, "ancestor::label[1]")
@@ -689,13 +1095,20 @@ class IndeedForm:
                         pass
                 if not question_text:
                     try:
-                        p_lbl = elem.find_element(By.XPATH, "ancestor::div[contains(@class, 'item') or @data-testid or contains(@class, 'Group')][1]//label[1]")
+                        p_lbl = elem.find_element(
+                            By.XPATH,
+                            "ancestor::div[contains(@class, 'item') or @data-testid or contains(@class, 'Group') or contains(@class, 'Field') or contains(@class, 'form-group')][1]//label[1]"
+                        )
                         if p_lbl and p_lbl.text.strip():
                             question_text = p_lbl.text.strip().replace("\n", " ")
                     except Exception:
                         pass
+                # 6. Fallback from name/id/placeholder
                 if not question_text:
-                    question_text = elem.get_attribute("placeholder") or name_attr or "Question"
+                    if "currency" in name_attr or "currency" in id_attr:
+                        question_text = "Select currency type"
+                    else:
+                        question_text = elem.get_attribute("placeholder") or name_attr or elem_id or "Question"
 
                 q_lower = question_text.lower()
 
@@ -725,40 +1138,79 @@ class IndeedForm:
 
                 # Dropdowns (<select>)
                 if tag_name == "select":
+                    handled_inputs.add(elem)
                     sel_elem = Select(elem)
                     raw_options = [o.text.strip() for o in sel_elem.options if o.text.strip()]
                     clean_options = [o for o in raw_options if o.lower() not in ["select an option", "select...", "choose an option", "choose one", "select", "-- select --"]]
                     options_for_qna = clean_options if clean_options else raw_options
 
-                    sel_obj: Answer = self.qna_engine.answer_question(
-                        question=question_text,
-                        options=options_for_qna,
-                        field_type="select",
-                        job_context={"title": job_title, "company": company_name}
+                    is_currency = (
+                        any(w in question_text.lower() for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
+                        or "currency" in name_attr
+                        or "currency" in id_attr
+                        or any(any(c in o.lower() for c in ["inr", "rupee", "₹", "usd", "dollar", "eur", "euro"]) for o in options_for_qna)
                     )
-                    raw_val = sel_obj.value if sel_obj else ""
-                    qna_match = self.qna_engine._match_option(str(raw_val), options_for_qna) if raw_val else None
-                    best_opt = self._resolve_safe_option(question_text, options_for_qna, str(raw_val), qna_match)
 
-                    selected_ok = False
-                    if best_opt:
-                        try:
-                            sel_elem.select_by_visible_text(best_opt)
-                            selected_ok = True
-                        except Exception:
-                            for idx, o in enumerate(sel_elem.options):
-                                if o.text.strip().lower() == best_opt.lower() or best_opt.lower() in o.text.strip().lower():
-                                    sel_elem.select_by_index(idx)
-                                    selected_ok = True
-                                    break
-                    if not selected_ok and options_for_qna:
-                        try:
-                            sel_elem.select_by_visible_text(best_opt or options_for_qna[0])
-                        except Exception:
-                            sel_elem.select_by_index(min(1, len(raw_options) - 1))
+                    if is_currency:
+                        best_opt = self._resolve_safe_option("Select currency type", options_for_qna, "INR", "INR")
+                    else:
+                        sel_obj: Answer = self.qna_engine.answer_question(
+                            question=question_text,
+                            options=options_for_qna,
+                            field_type="select",
+                            job_context={"title": job_title, "company": company_name}
+                        )
+                        raw_val = sel_obj.value if sel_obj else ""
+                        qna_match = self.qna_engine._match_option(str(raw_val), options_for_qna) if raw_val else None
+                        best_opt = self._resolve_safe_option(question_text, options_for_qna, str(raw_val), qna_match)
 
-                    print_lg(f"[IndeedForm] Q: '{question_text[:60]}' -> Select: '{best_opt}'")
-                    answered.append({"question": question_text, "answer": str(best_opt)})
+                    selected_val = self._select_native_option(elem, best_opt)
+                    print_lg(f"[IndeedForm] Q: '{question_text[:60]}' -> Select: '{selected_val or best_opt}'")
+                    answered.append({"question": question_text, "answer": str(selected_val or best_opt)})
+                    continue
+
+                # Custom Comboboxes / Dropdown Buttons
+                is_combobox_or_btn = (
+                    tag_name == "button"
+                    or elem.get_attribute("role") == "combobox"
+                    or elem.get_attribute("aria-haspopup") in ("listbox", "true", "menu")
+                    or "select" in (elem.get_attribute("data-testid") or "").lower()
+                    or "select" in (elem.get_attribute("class") or "").lower()
+                    or "select an option" in (elem.text or "").lower()
+                    or "choose an option" in (elem.text or "").lower()
+                )
+
+                if is_combobox_or_btn:
+                    handled_inputs.add(elem)
+                    is_currency = (
+                        any(w in question_text.lower() for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
+                        or "currency" in name_attr
+                        or "currency" in id_attr
+                    )
+                    is_referral = any(w in question_text.lower() for w in ["hear about", "referral", "source", "sds"])
+
+                    if is_currency:
+                        best_opt = "INR"
+                    elif is_referral:
+                        best_opt = "Indeed"
+                    else:
+                        cb_options = self._get_custom_combobox_options(elem)
+                        if cb_options:
+                            sel_obj: Answer = self.qna_engine.answer_question(
+                                question=question_text,
+                                options=cb_options,
+                                field_type="select",
+                                job_context={"title": job_title, "company": company_name}
+                            )
+                            raw_val = sel_obj.value if sel_obj else ""
+                            qna_match = self.qna_engine._match_option(str(raw_val), cb_options) if raw_val else None
+                            best_opt = self._resolve_safe_option(question_text, cb_options, str(raw_val), qna_match)
+                        else:
+                            best_opt = self._resolve_safe_option(question_text, [], "", None)
+
+                    selected_val = self._select_custom_combobox_option(elem, best_opt, question_context=question_text)
+                    print_lg(f"[IndeedForm] Q: '{question_text[:60]}' -> Custom Combobox: '{selected_val or best_opt}'")
+                    answered.append({"question": question_text, "answer": str(selected_val or best_opt)})
                     continue
 
                 # Check if this input is a combobox, searchable select, or has an active listbox/dropdown attached
@@ -866,7 +1318,11 @@ class IndeedForm:
                     or any(w in q_lower for w in ["phone", "mobile", "contact number"])
                 )
                 is_salary_amount_field = (
-                    any(w in q_lower for w in ["enter the amount", "please enter the amount", "salary amount", "desired salary", "expected salary", "compensation amount"])
+                    any(w in q_lower for w in [
+                        "enter the amount", "please enter the amount", "salary amount", "desired salary",
+                        "expected salary", "compensation amount", "salary expectation", "salary expectations",
+                        "annual salary", "compensation expectation"
+                    ])
                 )
                 is_seeking_employment_field = (
                     any(w in q_lower for w in ["why are you currently seeking employment", "reason for seeking", "why are you looking for a change", "reason for leaving"])
@@ -949,6 +1405,11 @@ class IndeedForm:
                             ans_str = str(cand_exp) if any(w in q_lower for w in ["experience", "years"]) else "0"
 
                 existing_val = (elem.get_attribute("value") or "").strip()
+                # If field is already populated with valid content and not flagged invalid, preserve it
+                if existing_val and elem.get_attribute("aria-invalid") != "true":
+                    if not is_numeric_field or existing_val.isdigit():
+                        continue
+
                 if not existing_val or existing_val != ans_str:
                     self._clear_and_type_input(elem, ans_str)
                     print_lg(f"[IndeedForm] Q: '{question_text[:60]}' -> Input: '{ans_str}'")
@@ -984,6 +1445,89 @@ class IndeedForm:
                         chosen
                     )
                     print_lg(f"[IndeedForm] Fallback selected radio in group '{name}'.")
+        except Exception:
+            pass
+
+        # 4. Safety Fallback: Ensure no visible dropdown / select or combobox is left unselected or on placeholder
+        try:
+            all_selects = self.driver.find_elements(By.TAG_NAME, "select")
+            for sel in all_selects:
+                try:
+                    # Check if unselected or showing placeholder
+                    is_unselected = bool(self.driver.execute_script("""
+                        const sel = arguments[0];
+                        if (!sel || !sel.options || sel.options.length === 0) return false;
+                        if (sel.selectedIndex <= 0 && (!sel.value || sel.value === '')) return true;
+                        const curText = (sel.options[sel.selectedIndex]?.text || '').toLowerCase();
+                        return curText.includes('select an option') || curText.includes('choose an option') || curText.includes('select...');
+                    """, sel))
+
+                    if is_unselected:
+                        q_name = (sel.get_attribute("name") or "").lower()
+                        q_id = (sel.get_attribute("id") or "").lower()
+                        aria_l = (sel.get_attribute("aria-label") or "").lower()
+
+                        opts = self.driver.execute_script("""
+                            const sel = arguments[0];
+                            return Array.from(sel.options).map(o => (o.text || o.innerText || '').trim()).filter(t => t.length > 0);
+                        """, sel) or []
+
+                        clean_opts = [o for o in opts if o.lower() not in ["select an option", "choose an option", "select...", "choose one", "select"]]
+                        is_curr = (
+                            any(w in (q_name + q_id + aria_l) for w in ["currency", "payunit", "salary"])
+                            or any(any(c in o.lower() for c in ["inr", "rupee", "₹", "usd", "dollar"]) for o in clean_opts)
+                        )
+
+                        if is_curr:
+                            target = self._resolve_safe_option("Select currency type", clean_opts or opts, "INR", "INR")
+                        else:
+                            target = clean_opts[0] if clean_opts else (opts[1] if len(opts) > 1 else "")
+
+                        if target:
+                            chosen = self._select_native_option(sel, target)
+                            print_lg(f"[IndeedForm] Fallback selected dropdown option '{chosen}' for field '{q_id or q_name or 'select'}'.")
+                            answered.append({"question": q_id or q_name or "Select", "answer": chosen})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 5. Safety Fallback: Ensure no custom combobox or button dropdown is left showing 'Select an option'
+        try:
+            custom_unselected = self.driver.find_elements(
+                By.XPATH,
+                "//button[contains(., 'Select an option') or contains(., 'Choose an option')] "
+                "| //div[@role='combobox' and (contains(., 'Select an option') or contains(., 'Choose an option'))] "
+                "| //*[self::div or self::span][@role='combobox' or @aria-haspopup][contains(., 'Select an option') or contains(., 'Choose an option')] "
+                "| //*[not(self::option)][normalize-space(text())='Select an option' or normalize-space(.)='Select an option']"
+            )
+            for c_elem in custom_unselected:
+                try:
+                    c_text = (c_elem.text or "").lower()
+                    if "select an option" in c_text or "choose an option" in c_text:
+                        q_cxt = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const ariaId = el.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const pLbl = el.closest('div, fieldset')?.querySelector('label, legend, [class*="label"], [class*="heading"]');
+                            return pLbl ? pLbl.innerText.trim() : '';
+                        """, c_elem) or ""
+                        q_lower = q_cxt.lower()
+                        if any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
+                            target_val = "INR"
+                        elif any(w in q_lower for w in ["hear about", "referral", "source", "sds"]):
+                            target_val = "Indeed"
+                        else:
+                            target_val = ""
+                        chosen = self._select_custom_combobox_option(c_elem, target_val, question_context=q_cxt)
+                        if chosen:
+                            print_lg(f"[IndeedForm] Fallback selected custom combobox option '{chosen}' for '{q_cxt[:40]}'.")
+                            answered.append({"question": q_cxt or "Select", "answer": chosen})
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1078,6 +1622,7 @@ class IndeedForm:
             time.sleep(0.5)
 
         if self.driver.current_url == old_url:
+            err_texts = []
             try:
                 err_texts = self.driver.execute_script("""
                     const errs = Array.from(document.querySelectorAll(
@@ -1087,47 +1632,465 @@ class IndeedForm:
                         .filter(e => e.offsetWidth > 0 && e.offsetHeight > 0)
                         .map(e => (e.innerText || e.textContent || '').trim())
                         .filter(t => t.length > 0 && !t.includes('cookie') && !t.includes('javascript'));
-                """)
+                """) or []
                 if err_texts:
                     print_lg(f"[IndeedForm] Validation error(s) preventing advance: {err_texts[:3]}")
-                    # Auto-heal: Fix any inputs with numeric errors (e.g. phone numbers containing '+' or letters)
-                    fixed_any = self.driver.execute_script("""
-                        let fixed = false;
-                        const badInputs = Array.from(document.querySelectorAll(
-                            'input[aria-invalid="true"], [class*="error"] input, [class*="invalid"] input, input[type="tel"], input[type="number"]'
-                        ));
-                        for (const inp of badInputs) {
-                            const val = (inp.value || '').trim();
-                            if (val && /\\D/.test(val)) {
-                                const digits = val.replace(/\\D/g, '');
-                                const clean = digits.length >= 10 ? digits.slice(-10) : digits;
-                                if (clean !== val) {
-                                    const proto = window.HTMLInputElement.prototype;
-                                    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-                                    if (desc && desc.set) {
-                                        desc.set.call(inp, clean);
-                                    } else {
-                                        inp.value = clean;
-                                    }
-                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                    fixed = true;
-                                }
-                            }
-                        }
-                        return fixed;
-                    """)
-                    if fixed_any:
-                        print_lg("[IndeedForm] Auto-corrected invalid input values to clean numeric digits. Re-triggering advance...")
-                        time.sleep(0.5)
-                        try:
-                            self.driver.execute_script("arguments[0].click();", cont_btn)
-                        except Exception:
-                            pass
             except Exception:
                 pass
 
+            # Execute comprehensive Runtime Form Self-Healing on DOM
+            healed = self._auto_heal_invalid_step_fields()
+            if healed > 0:
+                print_lg(f"[IndeedForm] Auto-healed {healed} invalid field(s). Re-triggering advance...")
+                time.sleep(0.5)
+                try:
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", cont_btn)
+                except Exception:
+                    pass
+                time.sleep(1)
+                self.wait_for_spinner(timeout=4)
+                for _ in range(6):
+                    if self.driver.current_url != old_url:
+                        return True
+                    time.sleep(0.5)
+
+            if self.driver.current_url == old_url and err_texts:
+                print_lg(f"[IndeedForm] Step remained blocked after self-healing (URL: {self.driver.current_url}).")
+                return False
+
         return True
+
+    def _auto_heal_invalid_step_fields(self) -> int:
+        """Runtime Form Self-Healing Engine.
+
+        Inspects the live DOM for validation errors (aria-invalid, error alerts,
+        unanswered dropdowns, unselected radios, empty required inputs) and dynamically
+        resolves and repairs them in runtime.
+
+        Returns the number of fields successfully healed.
+        """
+        print_lg("[IndeedForm] Runtime Self-Healer: Scanning DOM for validation errors and incomplete fields...")
+        healed_count = 0
+
+        # Pass 0: Direct Targeted Healing for elements flagged with "Choose an option to continue" or aria-invalid
+        try:
+            target_controls = self.driver.execute_script("""
+                const errElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                    if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
+                    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    const hasErrText = t.includes('choose an option to continue') ||
+                                       t.includes('select an option to continue') ||
+                                       t.includes('this question is required') ||
+                                       t.includes('please answer this question') ||
+                                       t.includes('please select an option') ||
+                                       t.includes('is required') ||
+                                       t === 'choose an option to continue.' ||
+                                       t === 'required';
+                    const hasErrRole = el.getAttribute('role') === 'alert' ||
+                                       el.getAttribute('aria-invalid') === 'true' ||
+                                       (el.className && typeof el.className === 'string' && el.className.toLowerCase().includes('error'));
+                    return hasErrText || hasErrRole;
+                });
+
+                const targets = [];
+                for (const err of errElements) {
+                    // 1. Check aria-describedby linkage
+                    if (err.id) {
+                        const linked = document.querySelector(`[aria-describedby*="${err.id}"]`);
+                        if (linked && !targets.includes(linked)) {
+                            targets.push(linked);
+                            continue;
+                        }
+                    }
+                    // 2. Check preceding siblings (direct or child control)
+                    let sib = err.previousElementSibling;
+                    let foundSibControl = null;
+                    while (sib && !foundSibControl) {
+                        if (sib.matches('select, button, [role="combobox"], [aria-haspopup], input, textarea')) {
+                            foundSibControl = sib;
+                        } else {
+                            foundSibControl = sib.querySelector('select, button, [role="combobox"], [aria-haspopup], input:not([type="hidden"]), textarea');
+                        }
+                        sib = sib.previousElementSibling;
+                    }
+                    if (foundSibControl && !targets.includes(foundSibControl)) {
+                        targets.push(foundSibControl);
+                        continue;
+                    }
+                    // 3. Ascendant question container
+                    const container = err.closest('fieldset, [data-testid*="question"], [class*="Questions-item"], [class*="question" i], [class*="form-group" i], [class*="field" i]');
+                    if (container) {
+                        const ctrl = container.querySelector('select, button, [role="combobox"], [aria-haspopup], input:not([type="hidden"]), textarea');
+                        if (ctrl && !targets.includes(ctrl)) {
+                            targets.push(ctrl);
+                            continue;
+                        }
+                        if (!targets.includes(container)) {
+                            targets.push(container);
+                            continue;
+                        }
+                    }
+                }
+                return targets;
+            """) or []
+
+            for node in target_controls:
+                try:
+                    # 1. Native <select> (either node itself or inside node)
+                    sel_elem = node if getattr(node, "tag_name", "").lower() == "select" else self.driver.execute_script("return arguments[0].querySelector ? arguments[0].querySelector('select') : null;", node)
+                    if sel_elem:
+                        q_txt = self.driver.execute_script("""
+                            const sel = arguments[0];
+                            const ariaId = sel.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const pLbl = sel.closest('div, fieldset')?.querySelector('label, legend, [class*="label"], [class*="heading"]');
+                            return pLbl ? pLbl.innerText.trim() : '';
+                        """, sel_elem) or "Question"
+                        clean_opts = self.driver.execute_script("""
+                            const sel = arguments[0];
+                            return Array.from(sel.options).map(o => (o.text || o.innerText || '').trim()).filter(t => t.length > 0 && !t.toLowerCase().includes('select an option') && !t.toLowerCase().includes('choose'));
+                        """, sel_elem) or []
+                        if clean_opts:
+                            best = self._resolve_safe_option(q_txt, clean_opts, "", None) or clean_opts[0]
+                            chosen = self._select_native_option(sel_elem, best)
+                            if chosen:
+                                print_lg(f"[IndeedForm] Auto-healed error-flagged dropdown '{q_txt[:50]}' -> '{chosen}'")
+                                healed_count += 1
+                                continue
+
+                    # 2. Custom Combobox / Dropdown Button
+                    combo_elem = self.driver.execute_script("""
+                        const n = arguments[0];
+                        if (n.matches && n.matches('button, [role="combobox"], [aria-haspopup], [class*="select" i]')) return n;
+                        return n.querySelector ? n.querySelector('button, [role="combobox"], [aria-haspopup], [class*="select" i]') : null;
+                    """, node)
+                    if combo_elem:
+                        q_txt = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const ariaId = el.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const pLbl = el.closest('div, fieldset')?.querySelector('label, legend, [class*="label"], [class*="heading"]');
+                            return pLbl ? pLbl.innerText.trim() : '';
+                        """, combo_elem) or "Question"
+                        q_lower = q_txt.lower()
+                        if any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
+                            target_opt = "INR"
+                        elif any(w in q_lower for w in ["hear about", "referral", "source", "sds"]):
+                            target_opt = "Indeed"
+                        else:
+                            target_opt = ""
+                        chosen = self._select_custom_combobox_option(combo_elem, target_opt, question_context=q_txt)
+                        if chosen:
+                            print_lg(f"[IndeedForm] Auto-healed error-flagged combobox '{q_txt[:50]}' -> '{chosen}'")
+                            healed_count += 1
+                            continue
+
+                    # 3. Text/Textarea input left empty or invalid
+                    input_elem = node if getattr(node, "tag_name", "").lower() in ("input", "textarea") else self.driver.execute_script("return arguments[0].querySelector ? arguments[0].querySelector('input:not([type=\"hidden\"]), textarea') : null;", node)
+                    if input_elem:
+                        q_txt = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const pLbl = el.closest('div, fieldset')?.querySelector('label, legend, [class*="label"]');
+                            return pLbl ? pLbl.innerText.trim() : '';
+                        """, input_elem) or ""
+                        val = (input_elem.get_attribute("value") or "").strip()
+                        if not val:
+                            q_l = q_txt.lower()
+                            if any(w in q_l for w in ["referral", "name of the person", "staffing agency", "if you answered yes"]):
+                                fill_val = "N/A"
+                            elif any(w in q_l for w in ["salary", "compensation"]):
+                                fill_val = "550000"
+                            elif any(w in q_l for w in ["experience", "years"]):
+                                fill_val = "2"
+                            else:
+                                fill_val = "N/A"
+                            self._clear_and_type_input(input_elem, fill_val)
+                            print_lg(f"[IndeedForm] Auto-healed empty field '{q_txt[:50]}' -> '{fill_val}'")
+                            healed_count += 1
+                            continue
+                except Exception:
+                    pass
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in pass 0 error node healing: {e}")
+
+        # Pass 1: Handle any <select> dropdowns left unselected or on placeholder
+        try:
+            selects_data = self.driver.execute_script("""
+                const selects = Array.from(document.querySelectorAll('select'));
+                return selects.map((s, idx) => {
+                    const text = (s.options[s.selectedIndex]?.text || '').trim().toLowerCase();
+                    const val = (s.value || '').trim();
+                    const isUnselected = (s.selectedIndex <= 0 && !val) || text.includes('select an option') || text.includes('choose an option') || text.includes('select...');
+                    const name = (s.getAttribute('name') || '').toLowerCase();
+                    const id = (s.getAttribute('id') || '').toLowerCase();
+                    const ariaLabel = (s.getAttribute('aria-label') || '').toLowerCase();
+                    const cleanOpts = Array.from(s.options).map(o => (o.text || o.innerText || '').trim()).filter(t => t.length > 0 && !t.toLowerCase().includes('select an option') && !t.toLowerCase().includes('choose'));
+                    return {
+                        index: idx,
+                        isUnselected: isUnselected,
+                        name: name,
+                        id: id,
+                        ariaLabel: ariaLabel,
+                        options: cleanOpts
+                    };
+                });
+            """) or []
+
+            for item in selects_data:
+                if item.get("isUnselected"):
+                    idx = item["index"]
+                    all_sels = self.driver.find_elements(By.TAG_NAME, "select")
+                    if idx >= len(all_sels):
+                        continue
+                    elem = all_sels[idx]
+                    clean_opts = item.get("options") or []
+                    if not clean_opts:
+                        continue
+
+                    context_str = f"{item.get('name')} {item.get('id')} {item.get('ariaLabel')}"
+                    try:
+                        lbl_txt = self.driver.execute_script("""
+                            const sel = arguments[0];
+                            const ariaId = sel.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const pLbl = sel.closest('div, fieldset')?.querySelector('label, legend, [class*="label"]');
+                            if (pLbl && pLbl.innerText) return pLbl.innerText.trim();
+                            return '';
+                        """, elem) or ""
+                    except Exception:
+                        lbl_txt = ""
+
+                    query = lbl_txt or context_str or "question"
+                    best = self._resolve_safe_option(query, clean_opts, "", None)
+                    if not best and clean_opts:
+                        best = clean_opts[0]
+
+                    if best:
+                        chosen = self._select_native_option(elem, best)
+                        print_lg(f"[IndeedForm] Auto-healed unselected dropdown '{query[:50]}' -> '{chosen}'")
+                        healed_count += 1
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in dropdown self-healing: {e}")
+
+        # Pass 2: Handle custom comboboxes / button selects showing placeholder or with error border
+        try:
+            custom_combos = self.driver.find_elements(
+                By.XPATH,
+                "//button[contains(., 'Select an option') or contains(., 'Choose an option') or @aria-invalid='true' or contains(@class, 'error')] "
+                "| //div[@role='combobox' and (contains(., 'Select an option') or @aria-invalid='true')] "
+                "| //*[self::div or self::span][@role='combobox' or @aria-haspopup][contains(., 'Select an option') or contains(., 'Choose an option') or @aria-invalid='true'] "
+                "| //*[not(self::option)][normalize-space(text())='Select an option' or normalize-space(.)='Select an option']"
+            )
+            for c_elem in custom_combos:
+                try:
+                    c_txt = c_elem.text.lower()
+                    if "select an option" in c_txt or "choose an option" in c_txt or c_elem.get_attribute("aria-invalid") == "true":
+                        q_txt = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const ariaId = el.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const pLbl = el.closest('div, fieldset')?.querySelector('label, legend, [class*="label"], [class*="heading"]');
+                            return pLbl ? pLbl.innerText.trim() : '';
+                        """, c_elem) or ""
+
+                        q_lower = q_txt.lower()
+                        is_currency = any(w in q_lower for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
+                        if is_currency:
+                            target_opt = "INR"
+                        elif any(w in q_lower for w in ["hear about", "referral", "source"]):
+                            target_opt = "Indeed"
+                        else:
+                            cb_opts = self._get_custom_combobox_options(c_elem)
+                            if cb_opts:
+                                target_opt = self._resolve_safe_option(q_txt, cb_opts, "", None)
+                            else:
+                                target_opt = ""
+
+                        chosen = self._select_custom_combobox_option(c_elem, target_opt, question_context=q_txt)
+                        if chosen:
+                            print_lg(f"[IndeedForm] Auto-healed custom combobox '{q_txt[:50]}' -> '{chosen}'")
+                            healed_count += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in custom combobox self-healing: {e}")
+
+        # Pass 3: Handle unselected radio groups in invalid fieldsets
+        try:
+            unselected_groups = self.driver.execute_script("""
+                const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+                const groups = {};
+                for (const r of radios) {
+                    const name = r.name || 'unnamed';
+                    if (!groups[name]) groups[name] = { selected: false };
+                    if (r.checked) groups[name].selected = true;
+                }
+                const unselected = [];
+                for (const k in groups) {
+                    if (!groups[k].selected) {
+                        unselected.push(k);
+                    }
+                }
+                return unselected;
+            """) or []
+
+            for g_name in unselected_groups:
+                try:
+                    r_list = self.driver.find_elements(By.XPATH, f"//input[@type='radio' and @name='{g_name}']")
+                    if r_list and not any(r.is_selected() for r in r_list):
+                        # Extract group question context
+                        group_q = self.driver.execute_script("""
+                            const r = arguments[0];
+                            const p = r.closest('fieldset, div[role="radiogroup"], div');
+                            const leg = p?.querySelector('legend, label, [class*="label"], [class*="heading"]');
+                            return leg ? leg.innerText.trim() : '';
+                        """, r_list[0]) or ""
+                        group_q_lower = group_q.lower()
+
+                        chosen = r_list[0]
+                        # Match experience range if experience question
+                        if any(w in group_q_lower for w in ["experience", "years", "year", "tenure"]):
+                            for r in r_list:
+                                try:
+                                    parent_t = r.find_element(By.XPATH, "..").text.strip().lower()
+                                    if "1 to 2" in parent_t or "1-2" in parent_t or "2" in parent_t:
+                                        chosen = r
+                                        break
+                                except Exception:
+                                    pass
+                        elif any(w in group_q_lower for w in ["sponsorship", "conflict", "relative", "felony", "crime", "discharged", "referred"]):
+                            for r in r_list:
+                                try:
+                                    parent_t = r.find_element(By.XPATH, "..").text.strip().lower()
+                                    if "no" in parent_t:
+                                        chosen = r
+                                        break
+                                except Exception:
+                                    pass
+                        elif any(w in group_q_lower for w in ["authorized", "eligible", "relocate", "relocation", "hybrid", "remote"]):
+                            for r in r_list:
+                                try:
+                                    parent_t = r.find_element(By.XPATH, "..").text.strip().lower()
+                                    if "yes" in parent_t:
+                                        chosen = r
+                                        break
+                                except Exception:
+                                    pass
+                        else:
+                            for r in r_list:
+                                try:
+                                    parent_t = r.find_element(By.XPATH, "..").text.strip().lower()
+                                    if "no" in parent_t:
+                                        chosen = r
+                                        break
+                                except Exception:
+                                    pass
+
+                        self.driver.execute_script(
+                            "arguments[0].click(); arguments[0].checked = true; arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
+                            chosen
+                        )
+                        print_lg(f"[IndeedForm] Auto-healed unselected radio group '{g_name}' ({group_q[:40]}).")
+                        healed_count += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in radio group self-healing: {e}")
+
+        # Pass 4: Handle empty required text / textarea inputs
+        try:
+            empty_required = self.driver.find_elements(
+                By.XPATH,
+                "//input[(@required or @aria-required='true' or @aria-invalid='true') and not(@type='hidden') and not(@type='radio') and not(@type='checkbox') and not(@type='submit') and not(@type='button')] | //textarea[@required or @aria-required='true' or @aria-invalid='true']"
+            )
+            for inp in empty_required:
+                try:
+                    val = (inp.get_attribute("value") or "").strip()
+                    p_txt = ""
+                    try:
+                        p_txt = self.driver.execute_script("""
+                            const el = arguments[0];
+                            const ariaId = el.getAttribute('aria-labelledby');
+                            if (ariaId) {
+                                const l = document.getElementById(ariaId);
+                                if (l && l.innerText) return l.innerText.trim();
+                            }
+                            const p = el.closest('div, fieldset')?.querySelector('label, legend, [class*="label"]');
+                            return p ? p.innerText.trim() : '';
+                        """, inp) or ""
+                    except Exception:
+                        pass
+
+                    if val:
+                        # Field is already filled: preserve user data without unnecessary retries
+                        print_lg(f"[IndeedForm] Field '{p_txt[:40]}' already filled ('{val}'). Preserving.")
+                        continue
+
+                    p_lower = p_txt.lower()
+                    if any(w in p_lower for w in ["refer", "staffing", "agency", "name of the person", "if you answered"]):
+                        ans = "N/A"
+                    elif any(w in p_lower for w in ["salary", "amount", "expectation", "compensation"]):
+                        salary_val = self.professional.get("desired_salary") or self.personal.get("desired_salary", 550000)
+                        ans = str(salary_val)
+                    elif any(w in p_lower for w in ["experience", "years", "number"]):
+                        ans = "2"
+                    else:
+                        ans = "N/A"
+
+                    self._clear_and_type_input(inp, ans)
+                    print_lg(f"[IndeedForm] Auto-healed empty required text field '{p_txt[:40]}' -> '{ans}'")
+                    healed_count += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            print_lg(f"[IndeedForm] Error in text input self-healing: {e}")
+
+        # Pass 5: Auto-clean non-digits in phone/number inputs
+        try:
+            fixed_digits = self.driver.execute_script("""
+                let fixed = false;
+                const badInputs = Array.from(document.querySelectorAll(
+                    'input[aria-invalid="true"], [class*="error"] input, [class*="invalid"] input, input[type="tel"], input[type="number"]'
+                ));
+                for (const inp of badInputs) {
+                    const val = (inp.value || '').trim();
+                    if (val && /\\D/.test(val)) {
+                        const digits = val.replace(/\\D/g, '');
+                        const clean = digits.length >= 10 ? digits.slice(-10) : digits;
+                        if (clean !== val) {
+                            const proto = window.HTMLInputElement.prototype;
+                            const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                            if (desc && desc.set) {
+                                desc.set.call(inp, clean);
+                            } else {
+                                inp.value = clean;
+                            }
+                            inp.dispatchEvent(new Event('input', { bubbles: true }));
+                            inp.dispatchEvent(new Event('change', { bubbles: true }));
+                            fixed = true;
+                        }
+                    }
+                }
+                return fixed;
+            """)
+            if fixed_digits:
+                healed_count += 1
+        except Exception:
+            pass
+
+        return healed_count
 
     def is_review_page_ready(self) -> bool:
         """Returns True if the final Review module is rendered and submit button is interactable."""

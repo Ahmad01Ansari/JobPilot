@@ -130,10 +130,37 @@ class TestIndeedCaptchaHandler(unittest.TestCase):
         from app.services.automation_bridge import AutomationBridge
         bridge = AutomationBridge()
         self.assertFalse(bridge.is_captcha_resolved_by_user())
+        self.assertFalse(bridge.is_captcha_cancelled_by_user())
         bridge.mark_captcha_resolved()
         self.assertTrue(bridge.is_captcha_resolved_by_user())
+        self.assertTrue(bridge.is_captcha_resolved())
+        self.assertFalse(bridge.is_captcha_cancelled_by_user())
+
+        bridge.mark_captcha_cancelled()
+        self.assertTrue(bridge.is_captcha_cancelled_by_user())
+        self.assertFalse(bridge.is_captcha_resolved_by_user())
+
         bridge.reset_captcha_status()
         self.assertFalse(bridge.is_captcha_resolved_by_user())
+        self.assertFalse(bridge.is_captcha_cancelled_by_user())
+
+    def test_handle_captcha_user_cancelled(self):
+        from app.services.automation_bridge import AutomationBridge
+        bridge = AutomationBridge()
+        def simulate_cancelling(_):
+            bridge.mark_captcha_cancelled()
+
+        with patch.object(self.handler, "is_captcha_present", return_value=True):
+            with patch.object(self.handler, "is_captcha_solved", return_value=False):
+                with patch("time.sleep", side_effect=simulate_cancelling):
+                    res = self.handler.handle_captcha(
+                        self.mock_driver,
+                        job_title="Dev",
+                        company="Co",
+                        timeout=10,
+                        automation_bridge=bridge,
+                    )
+                    self.assertFalse(res)
 
     def test_consecutive_applications_captcha_isolation(self):
         """Ensures that user solving CAPTCHA on App 1 does NOT prevent detection on App 2."""

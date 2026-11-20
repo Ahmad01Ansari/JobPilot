@@ -6,9 +6,9 @@ modern AI chat typography, and high-resolution milestone step stepper widgets.
 
 import html
 import re
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -248,6 +249,7 @@ class PilotStepItemWidget(QWidget):
     def __init__(self, step: PilotStep, parent=None):
         super().__init__(parent)
         self.step = step
+        self._visual_status: str = step.status
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -282,13 +284,19 @@ class PilotStepItemWidget(QWidget):
         self._update_badge()
 
     def _on_pulse(self):
-        if self.step.status == "running":
+        curr_status = getattr(self, "_visual_status", self.step.status)
+        if curr_status == "running":
             self._pulse_tick = (self._pulse_tick + 1) % 4
             dots = "." * self._pulse_tick
             self.badge.setText(f"● RUN{dots:<2}")
+        else:
+            if self._pulse_timer.isActive():
+                self._pulse_timer.stop()
 
     def set_status(self, status: str, detail: Optional[str] = None):
-        self.step.status = status
+        self._visual_status = status
+        if status != "wait":
+            self.step.status = status
         if detail:
             self.step.detail = detail
             self.detail_lbl.setText(detail)
@@ -296,7 +304,8 @@ class PilotStepItemWidget(QWidget):
         self._update_badge()
 
     def _update_badge(self):
-        if self.step.status == "done":
+        curr_status = getattr(self, "_visual_status", self.step.status)
+        if curr_status == "done":
             if self._pulse_timer.isActive():
                 self._pulse_timer.stop()
             self.badge.setText("✓ DONE")
@@ -312,7 +321,7 @@ class PilotStepItemWidget(QWidget):
                 }}
             """)
             self.title.setStyleSheet("color: #C9D1D9; font-size: 11px; line-height: 1.35;")
-        elif self.step.status == "failed":
+        elif curr_status == "failed":
             if self._pulse_timer.isActive():
                 self._pulse_timer.stop()
             self.badge.setText("✕ SKIP")
@@ -328,7 +337,7 @@ class PilotStepItemWidget(QWidget):
                 }}
             """)
             self.title.setStyleSheet("color: #8B949E; font-size: 11px; line-height: 1.35;")
-        elif self.step.status == "wait":
+        elif curr_status == "wait":
             if self._pulse_timer.isActive():
                 self._pulse_timer.stop()
             self.badge.setText("○ WAIT")
@@ -360,7 +369,7 @@ class PilotStepItemWidget(QWidget):
                     font-weight: 600;
                 }}
             """)
-            self.title.setStyleSheet("color: #FFFFFF; font-size: 11px; font-weight: 500; line-height: 1.35;")
+            self.title.setStyleSheet(f"color: {COLORS.get('text', '#F0F6FC')}; font-size: 11px; line-height: 1.35;")
 
 
 class NeedsYouCard(QFrame):
@@ -372,11 +381,18 @@ class NeedsYouCard(QFrame):
         super().__init__(parent)
         self.message = message
         inv = message.intervention
+        self._action_buttons: List[QPushButton] = []
+        self._input_field: Optional[QLineEdit] = None
+        self._submit_btn: Optional[QPushButton] = None
+        self._resolved_label: Optional[QLabel] = None
+
+        is_open = inv is not None and inv.status == InterventionStatus.OPEN
+        border_style = f"2px solid {COLORS.get('warning', '#D29922')}" if is_open else f"1px solid {COLORS.get('border', '#262C36')}"
 
         self.setStyleSheet(f"""
             NeedsYouCard {{
                 background-color: {COLORS.get('surface_alt', '#1C2128')};
-                border: 2px solid {COLORS.get('warning', '#D29922')};
+                border: {border_style};
                 border-radius: 12px;
                 padding: 12px;
                 margin-top: 6px;
@@ -390,9 +406,11 @@ class NeedsYouCard(QFrame):
 
         # Title strip
         title_strip = QHBoxLayout()
-        icon = QLabel("⚠️ ACTION REQUIRED")
-        icon.setStyleSheet(f"color: {COLORS.get('warning', '#D29922')}; font-weight: bold; font-size: 12px;")
-        title_strip.addWidget(icon)
+        badge_text = "ACTION REQUIRED" if is_open else "RESOLVED"
+        badge_color = COLORS.get('warning', '#D29922') if is_open else COLORS.get('text_muted', '#8B949E')
+        self.badge_lbl = QLabel(badge_text)
+        self.badge_lbl.setStyleSheet(f"color: {badge_color}; font-weight: bold; font-size: 11px; letter-spacing: 0.5px;")
+        title_strip.addWidget(self.badge_lbl)
         title_strip.addStretch()
         layout.addLayout(title_strip)
 
@@ -403,10 +421,19 @@ class NeedsYouCard(QFrame):
         layout.addWidget(prompt)
 
         # Interactive controls based on status and kind
-        if inv and inv.status == InterventionStatus.OPEN:
-            if inv.options:
+        if is_open:
+            card_options = list(inv.options) if inv.options else []
+            if not card_options:
+                if inv.kind == InterventionKind.CAPTCHA:
+                    card_options = ["I have solved the CAPTCHA"]
+                elif inv.kind == InterventionKind.MANUAL_LOGIN:
+                    card_options = ["I am logged in"]
+                elif inv.kind == InterventionKind.APPROVAL:
+                    card_options = ["Approve & Submit", "Skip Job"]
+
+            if card_options:
                 options_box = QHBoxLayout()
-                for opt in inv.options:
+                for opt in card_options:
                     btn = QPushButton(opt)
                     btn.setCursor(Qt.PointingHandCursor)
                     btn.setStyleSheet(f"""
@@ -416,18 +443,22 @@ class NeedsYouCard(QFrame):
                             border: 1px solid {COLORS.get('border', '#262C36')};
                             border-radius: 6px;
                             padding: 6px 12px;
+                            font-weight: 600;
                         }}
                         QPushButton:hover {{
                             border-color: {COLORS.get('primary', '#FF5F15')};
+                            color: {COLORS.get('primary', '#FF5F15')};
                         }}
                     """)
                     btn.clicked.connect(lambda _, val=opt: self._submit_answer(val))
                     options_box.addWidget(btn)
+                    self._action_buttons.append(btn)
                 layout.addLayout(options_box)
             else:
                 input_row = QHBoxLayout()
                 self.input_field = QLineEdit()
-                placeholder = "Enter 2FA Code..." if inv.kind == InterventionKind.TWO_FACTOR else "Enter answer..."
+                self._input_field = self.input_field
+                placeholder = "Enter OTP / 2FA Code..." if inv.kind == InterventionKind.TWO_FACTOR else "Enter answer..."
                 self.input_field.setPlaceholderText(placeholder)
                 self.input_field.setStyleSheet(f"""
                     QLineEdit {{
@@ -446,6 +477,7 @@ class NeedsYouCard(QFrame):
                 input_row.addWidget(self.input_field, 1)
 
                 submit_btn = QPushButton("Submit")
+                self._submit_btn = submit_btn
                 submit_btn.setCursor(Qt.PointingHandCursor)
                 submit_btn.setStyleSheet(f"""
                     QPushButton {{
@@ -464,18 +496,69 @@ class NeedsYouCard(QFrame):
                 input_row.addWidget(submit_btn)
                 layout.addLayout(input_row)
         else:
-            resolved_label = QLabel(f"Resolved with: {inv.answer if inv else ''}")
-            resolved_label.setStyleSheet(f"color: {COLORS.get('success', '#2EA043')}; font-size: 12px;")
-            layout.addWidget(resolved_label)
+            answer_text = (inv.answer if inv and inv.answer else "Resolved")
+            self._resolved_label = QLabel(f"Resolved with: {answer_text}")
+            self._resolved_label.setStyleSheet(f"color: {COLORS.get('success', '#2EA043')}; font-size: 12px;")
+            layout.addWidget(self._resolved_label)
+
+    def disable_controls(self, reason: Optional[str] = None):
+        """Disables all interactive inputs and transitions card to inactive/resolved state."""
+        for btn in self._action_buttons:
+            btn.setEnabled(False)
+            btn.setCursor(Qt.ArrowCursor)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS.get('surface_subtle', '#161B2288')};
+                    color: {COLORS.get('text_muted', '#8B949E')};
+                    border: 1px solid {COLORS.get('border_subtle', '#21262D')};
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    font-weight: 500;
+                }}
+            """)
+        if self._input_field:
+            self._input_field.setEnabled(False)
+        if self._submit_btn:
+            self._submit_btn.setEnabled(False)
+            self._submit_btn.setCursor(Qt.ArrowCursor)
+
+        self.setStyleSheet(f"""
+            NeedsYouCard {{
+                background-color: {COLORS.get('surface_alt', '#1C2128')};
+                border: 1px solid {COLORS.get('border', '#262C36')};
+                border-radius: 12px;
+                padding: 12px;
+                margin-top: 6px;
+                margin-bottom: 6px;
+                margin-right: 60px;
+            }}
+        """)
+        self.badge_lbl.setText("RESOLVED" if reason and "resolved" in reason.lower() else "COMPLETED")
+        self.badge_lbl.setStyleSheet(f"color: {COLORS.get('text_muted', '#8B949E')}; font-weight: bold; font-size: 11px;")
+
+        if reason:
+            if not self._resolved_label:
+                self._resolved_label = QLabel(reason)
+                self._resolved_label.setStyleSheet(f"color: {COLORS.get('text_muted', '#8B949E')}; font-size: 12px;")
+                self.layout().addWidget(self._resolved_label)
+            else:
+                self._resolved_label.setText(reason)
 
     def _on_input_submitted(self):
-        val = self.input_field.text().strip()
+        if not self._input_field:
+            return
+        val = self._input_field.text().strip()
         if val:
             self._submit_answer(val)
 
     def _submit_answer(self, val: str):
-        if self.message.intervention:
-            self.answered.emit(self.message.intervention.id, val)
+        inv = self.message.intervention
+        if not inv or inv.status != InterventionStatus.OPEN:
+            return
+        inv.status = InterventionStatus.ANSWERED
+        inv.answer = val
+        self.disable_controls(reason=f"Resolved with: {val}")
+        self.answered.emit(inv.id, val)
 
 
 class RuleChangeCard(QFrame):
@@ -663,10 +746,11 @@ class AutomationConsoleBox(QFrame):
         """)
         root_layout.addWidget(self.active_step_lbl)
 
-        # Terminal Log Stream (read-only, monospace, auto-scrolling)
+        # Terminal Log Stream (read-only, monospace, auto-scrolling with fixed compact viewport)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(250)
+        self.log_view.setFixedHeight(140)
         self.log_view.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #090D12;
@@ -682,6 +766,7 @@ class AutomationConsoleBox(QFrame):
         root_layout.addWidget(self.log_view, 1)
 
         # Live running pulse timer
+        self._is_completed: bool = False
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(450)
         self._pulse_timer.timeout.connect(self._on_pulse)
@@ -689,10 +774,17 @@ class AutomationConsoleBox(QFrame):
         self._pulse_timer.start()
 
     def _on_pulse(self):
+        if getattr(self, "_is_completed", False):
+            if self._pulse_timer.isActive():
+                self._pulse_timer.stop()
+            return
         if self.status_badge.text().startswith("●"):
             self._pulse_tick = (self._pulse_tick + 1) % 4
             dots = "." * self._pulse_tick
             self.status_badge.setText(f"● RUNNING{dots:<3}")
+        else:
+            if self._pulse_timer.isActive():
+                self._pulse_timer.stop()
 
     def update_metrics(
         self,
@@ -703,19 +795,19 @@ class AutomationConsoleBox(QFrame):
         skipped: Optional[int] = None,
     ):
         if discovered is not None:
-            self._kpi_vals["discovered"] = max(self._kpi_vals["discovered"], int(discovered))
+            self._kpi_vals["discovered"] = int(discovered)
             self.kpi_labels["discovered"].setText(str(self._kpi_vals["discovered"]))
         if evaluated is not None:
-            self._kpi_vals["evaluated"] = max(self._kpi_vals["evaluated"], int(evaluated))
+            self._kpi_vals["evaluated"] = int(evaluated)
             self.kpi_labels["evaluated"].setText(str(self._kpi_vals["evaluated"]))
         if qualified is not None:
-            self._kpi_vals["qualified"] = max(self._kpi_vals["qualified"], int(qualified))
+            self._kpi_vals["qualified"] = int(qualified)
             self.kpi_labels["qualified"].setText(str(self._kpi_vals["qualified"]))
         if applied is not None:
-            self._kpi_vals["applied"] = max(self._kpi_vals["applied"], int(applied))
+            self._kpi_vals["applied"] = int(applied)
             self.kpi_labels["applied"].setText(str(self._kpi_vals["applied"]))
         if skipped is not None:
-            self._kpi_vals["skipped"] = max(self._kpi_vals["skipped"], int(skipped))
+            self._kpi_vals["skipped"] = int(skipped)
             self.kpi_labels["skipped"].setText(str(self._kpi_vals["skipped"]))
 
     def update_from_dict(self, data: dict):
@@ -729,8 +821,12 @@ class AutomationConsoleBox(QFrame):
         self.update_metrics(discovered=disc, evaluated=evals, qualified=qual, applied=app, skipped=skip)
 
     def set_active_step(self, text: str, status: str = "running"):
+        if getattr(self, "_is_completed", False) and status != "done":
+            return
         clean = text.strip()
-        if status == "done":
+        lower = clean.lower()
+        is_termination = any(t in lower for t in ["finished", "completed", "stopped by user", "halted", "cycle finished", "stopped naturally"])
+        if status == "done" or is_termination:
             self.active_step_lbl.setText(f"✓ {clean}")
             self.active_step_lbl.setStyleSheet(f"""
                 QLabel {{
@@ -743,6 +839,8 @@ class AutomationConsoleBox(QFrame):
                     padding: 3px 8px;
                 }}
             """)
+            if is_termination and not getattr(self, "_is_completed", False):
+                self.mark_completed(summary=clean, is_stopped="stop" in lower)
         else:
             self.active_step_lbl.setText(f"● {clean}")
             self.active_step_lbl.setStyleSheet(f"""
@@ -757,48 +855,51 @@ class AutomationConsoleBox(QFrame):
                 }}
             """)
 
+    def _scroll_log_to_bottom(self):
+        try:
+            sb = self.log_view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        except Exception:
+            pass
+
     def append_log(self, text: str):
-        self.log_view.appendPlainText(text)
-        sb = self.log_view.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        clean_text = text
+        if clean_text.startswith("[WAIT]"):
+            clean_text = "[RUNNING]" + clean_text[6:]
+        self.log_view.appendPlainText(clean_text)
+        cursor = self.log_view.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.log_view.setTextCursor(cursor)
+        self.log_view.ensureCursorVisible()
+        QTimer.singleShot(25, self._scroll_log_to_bottom)
 
-        # Dynamic KPI parser from live log stream
-        lower = text.lower()
-        if "qualified" in lower:
-            self._kpi_vals["qualified"] += 1
-            self.kpi_labels["qualified"].setText(str(self._kpi_vals["qualified"]))
-            self._kpi_vals["evaluated"] = max(self._kpi_vals["evaluated"], self._kpi_vals["qualified"] + self._kpi_vals["skipped"])
-            self.kpi_labels["evaluated"].setText(str(self._kpi_vals["evaluated"]))
-        elif "skipped" in lower or "skip" in lower:
-            self._kpi_vals["skipped"] += 1
-            self.kpi_labels["skipped"].setText(str(self._kpi_vals["skipped"]))
-            self._kpi_vals["evaluated"] = max(self._kpi_vals["evaluated"], self._kpi_vals["qualified"] + self._kpi_vals["skipped"])
-            self.kpi_labels["evaluated"].setText(str(self._kpi_vals["evaluated"]))
-        elif "evaluated" in lower or "evaluating" in lower:
-            self._kpi_vals["evaluated"] += 1
-            self.kpi_labels["evaluated"].setText(str(self._kpi_vals["evaluated"]))
-        elif "application submitted" in lower or "successfully applied" in lower:
-            self._kpi_vals["applied"] += 1
-            self.kpi_labels["applied"].setText(str(self._kpi_vals["applied"]))
-        elif "discovered" in lower or "found job" in lower:
-            self._kpi_vals["discovered"] += 1
-            self.kpi_labels["discovered"].setText(str(self._kpi_vals["discovered"]))
+        # Terminal status detector from live log stream
+        lower = clean_text.lower()
+        if any(term in lower for term in ["automation finished with state:", "stopped by user", "session completed", "session ended", "automation run completed"]):
+            is_stop = "stop" in lower
+            self.mark_completed(clean_text, is_stopped=is_stop)
 
-    def mark_completed(self, summary: str = "Automation cycle completed"):
+    def mark_completed(self, summary: str = "Automation cycle completed", is_stopped: bool = False):
+        self._is_completed = True
         if self._pulse_timer.isActive():
             self._pulse_timer.stop()
-        self.status_badge.setText("✓ COMPLETED")
+        stopped = is_stopped or any(w in summary.lower() for w in ["stop", "halt", "cancel", "abort"])
+        badge_text = "■ STOPPED" if stopped else "✓ COMPLETED"
+        badge_color = COLORS.get('text_muted', '#8B949E') if stopped else COLORS.get('info', '#388BFD')
+        badge_subtle = "#30363D33" if stopped else COLORS.get('info_subtle', '#388BFD18')
+        self.status_badge.setText(badge_text)
         self.status_badge.setStyleSheet(f"""
             QLabel {{
-                background-color: {COLORS.get('info_subtle', '#388BFD18')};
-                color: {COLORS.get('info', '#388BFD')};
-                border: 1px solid {COLORS.get('info', '#388BFD')};
+                background-color: {badge_subtle};
+                color: {badge_color};
+                border: 1px solid {badge_color};
                 border-radius: 4px;
                 padding: 2px 6px;
                 font-size: 10px;
                 font-weight: bold;
             }}
         """)
+        self.counter_lbl.setText("Halted" if stopped else "Finished")
         self.set_active_step(summary, status="done")
 
 
@@ -876,13 +977,43 @@ class AgentSimulationBox(QFrame):
         header.addWidget(self.mode_lbl)
         root_layout.addLayout(header)
 
-        # Steps container - zero left/right margin to match header badge column
+        # Steps container inside bounded scrollable area to prevent vertical overflow
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setFixedHeight(126)
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #090D12;
+                width: 5px;
+                border-radius: 2px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #30363D;
+                border-radius: 2px;
+                min-height: 16px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #8B949E;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
         self.steps_container = QWidget()
         self.steps_container.setStyleSheet("background: transparent;")
         self.steps_layout = QVBoxLayout(self.steps_container)
         self.steps_layout.setContentsMargins(0, 0, 0, 0)
         self.steps_layout.setSpacing(4)
-        root_layout.addWidget(self.steps_container)
+        self.scroll_area.setWidget(self.steps_container)
+        root_layout.addWidget(self.scroll_area)
 
         # Pulse timer for header badge
         self._pulse_timer = QTimer(self)
@@ -928,6 +1059,15 @@ class AgentSimulationBox(QFrame):
         all_done = all(w.step.status in ("done", "failed") for w in self._step_widgets)
         if all_done and self._step_widgets:
             self.mark_completed(immediate=True)
+
+        QTimer.singleShot(40, self._scroll_to_bottom)
+
+    def _scroll_to_bottom(self):
+        try:
+            sb = self.scroll_area.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        except Exception:
+            pass
 
     def _advance_step_animation(self):
         if not self._step_widgets:
@@ -1033,9 +1173,21 @@ class PilotMessageCard(QFrame):
             if message.payload and isinstance(message.payload, dict):
                 p_name = message.payload.get("platform", "Automation")
             self.console_box = AutomationConsoleBox(platform_name=p_name)
+            if self.message.payload and isinstance(self.message.payload, dict):
+                self.console_box.update_from_dict(self.message.payload)
+            has_finished_step = False
+            finish_title = ""
             for s in message.steps:
                 self.console_box.set_active_step(s.title, status=s.status)
-                self.console_box.append_log(f"[{s.status.upper()}] {s.title}")
+                log_status = "RUNNING" if s.status == "wait" else s.status.upper()
+                self.console_box.append_log(f"[{log_status}] {s.title}")
+                if any(t in s.title.lower() for t in ["finished", "completed", "stopped by user", "cycle finished", "stopped naturally"]):
+                    has_finished_step = True
+                    finish_title = s.title
+
+            if has_finished_step or not self.is_live:
+                self.console_box.mark_completed(summary=finish_title or "Automation completed", is_stopped="stop" in finish_title.lower())
+
             self.main_layout.addWidget(self.console_box)
         elif message.steps:
             self._build_simulation_box()
@@ -1058,10 +1210,12 @@ class PilotMessageCard(QFrame):
             return
 
         if self.console_box:
-            self.console_box.set_active_step(step.title, status=step.status)
-            self.console_box.append_log(f"[{step.status.upper()}] {step.title}")
-            if step.status == "done" and any(k in step.title.lower() for k in ["finished", "completed"]):
-                self.console_box.mark_completed(step.title)
+            status_str = "running" if step.status == "wait" else step.status
+            self.console_box.set_active_step(step.title, status=status_str)
+            self.console_box.append_log(f"[{status_str.upper()}] {step.title}")
+            if any(k in step.title.lower() for k in ["finished", "completed", "stopped"]):
+                is_stop = "stop" in step.title.lower()
+                self.console_box.mark_completed(step.title, is_stopped=is_stop)
         elif self.simulation_box:
             self.simulation_box.add_or_update_step(step)
         else:
@@ -1075,10 +1229,16 @@ class PilotMessageCard(QFrame):
                 if self.message.payload and isinstance(self.message.payload, dict):
                     p_name = self.message.payload.get("platform", "Automation")
                 self.console_box = AutomationConsoleBox(platform_name=p_name)
+            if self.message.payload and isinstance(self.message.payload, dict):
+                self.console_box.update_from_dict(self.message.payload)
                 for s in self.message.steps:
-                    self.console_box.append_log(f"[{s.status.upper()}] {s.title}")
-                self.console_box.set_active_step(step.title, status=step.status)
-                self.console_box.append_log(f"[{step.status.upper()}] {step.title}")
+                    log_status = "RUNNING" if s.status == "wait" else s.status.upper()
+                    self.console_box.append_log(f"[{log_status}] {s.title}")
+                status_str = "running" if step.status == "wait" else step.status
+                self.console_box.set_active_step(step.title, status=status_str)
+                self.console_box.append_log(f"[{status_str.upper()}] {step.title}")
+                if any(k in step.title.lower() for k in ["finished", "completed", "stopped"]):
+                    self.console_box.mark_completed(step.title, is_stopped="stop" in step.title.lower())
                 self.main_layout.addWidget(self.console_box)
             else:
                 self._build_simulation_box()

@@ -63,6 +63,8 @@ class PageClassifier:
     LOGIN_PATTERNS = [
         r"sign\s+in\s+to\s+apply",
         r"log\s*in\s+to\s+your\s+account",
+        r"sign\s+in\s+to\s+your\s+account",
+        r"career\s*opportunities:\s*sign\s*in",
         r"welcome\s+back",
         r"forgot\s+password",
         r"enter\s+your\s+credentials",

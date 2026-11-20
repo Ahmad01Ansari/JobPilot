@@ -171,7 +171,25 @@ class StagehandBrowserAgent(BrowserAgent):
         if not page or getattr(self, "_headless", False):
             return
         try:
-            # 1. Expand viewport via Playwright set_viewport_size if supported
+            # 1. Native OS window maximization via Chrome DevTools Protocol (CDP)
+            attachment = getattr(self.browser, "_attachment", None)
+            if attachment and hasattr(attachment, "cdp_client"):
+                client = attachment.cdp_client
+                target_id = getattr(page, "page_id", None)
+                params = {"targetId": target_id} if target_id else {}
+                try:
+                    win = await client.send_command("Browser.getWindowForTarget", params)
+                    win_id = win.get("windowId") if isinstance(win, dict) else None
+                    if win_id:
+                        await client.send_command("Browser.setWindowBounds", {
+                            "windowId": win_id,
+                            "bounds": {"windowState": "maximized"}
+                        })
+                        logger.debug("Browser window maximized via CDP Browser.setWindowBounds (windowId=%s).", win_id)
+                except Exception as cdp_err:
+                    logger.debug("CDP window maximization attempt: %s", cdp_err)
+
+            # 2. Expand viewport via Playwright set_viewport_size if supported
             js_dim = """(() => {
                 const w = window.screen.availWidth || window.screen.width || 1920;
                 const h = window.screen.availHeight || window.screen.height || 1080;
@@ -188,7 +206,7 @@ class StagehandBrowserAgent(BrowserAgent):
                     except Exception:
                         pass
 
-            # 2. Maximize native window via DOM resizeTo and moveTo
+            # 3. Fallback window positioning via DOM
             await page.evaluate("""(() => {
                 try {
                     window.moveTo(0, 0);
@@ -264,6 +282,8 @@ class StagehandBrowserAgent(BrowserAgent):
                         await self.page.bring_to_front()
                     except Exception:
                         pass
+                    if not getattr(self, "_headless", False):
+                        await self._ensure_maximized(self.page)
         except Exception as e:
             logger.debug("sync_active_page error: %s", e)
 
@@ -297,8 +317,28 @@ class StagehandBrowserAgent(BrowserAgent):
             return False
 
         async def _do_nav(p: Page) -> bool:
-            await p.goto(url)
-            await p.wait_for_load_state(state="domcontentloaded")
+            try:
+                await p.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            except Exception as goto_err:
+                logger.debug("p.goto warning or timeout on %s: %s", url, goto_err)
+
+            # Check if active page reached destination despite any background script or telemetry delays
+            try:
+                curr_url = await self.get_url()
+                from urllib.parse import urlparse
+                dest_host = urlparse(url).netloc.lower()
+                curr_host = urlparse(curr_url).netloc.lower() if curr_url else ""
+                if curr_host and (dest_host in curr_host or curr_host in dest_host):
+                    await self._ensure_maximized(p)
+                    return True
+
+                has_dom = await p.evaluate("!!document.body && (document.body.children.length > 0 || (document.title || '').length > 0)")
+                if has_dom and curr_url and not curr_url.startswith("about:"):
+                    await self._ensure_maximized(p)
+                    return True
+            except Exception as state_err:
+                logger.debug("Navigation state check error: %s", state_err)
+
             await self._ensure_maximized(p)
             return True
 

@@ -10,35 +10,7 @@ from platforms.glassdoor.applier import GlassdoorApplier
 from modules.helpers import print_lg
 from modules.tracker import ApplicationTracker
 from modules.config_loader import get_platform
-from modules.qualification_engine import QualificationEngine
-
-
-def is_job_relevant(job_title: str, search_term: str) -> bool:
-    """Verifies that the job title has meaningful relevance to the search term."""
-    if not job_title or not search_term:
-        return True
-
-    title_lower = job_title.lower()
-    term_lower = search_term.lower()
-
-    if term_lower in title_lower or title_lower in term_lower:
-        return True
-
-    stop_words = {"in", "and", "or", "for", "the", "of", "to", "at", "a", "an", "with", "senior", "junior", "lead", "sr", "jr"}
-    term_words = [w for w in re.findall(r'\b\w+\b', term_lower) if w not in stop_words]
-    title_words = [w for w in re.findall(r'\b\w+\b', title_lower) if w not in stop_words]
-
-    if not term_words:
-        return True
-
-    for tw in term_words:
-        for tlw in title_words:
-            if tw == tlw:
-                return True
-            if (len(tw) >= 3 and len(tlw) >= 3) and (tw.startswith(tlw) or tlw.startswith(tw)):
-                return True
-
-    return False
+from modules.qualification_engine import QualificationEngine, is_job_relevant
 
 
 class GlassdoorRotator:

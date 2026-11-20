@@ -37,22 +37,31 @@ class WorkdayAccountService:
 
     @staticmethod
     def extract_tenant(url: str) -> Optional[str]:
-        """Extracts the tenant identifier from a Workday portal URL.
-
-        Example:
-            'https://tranetechnologies.wd12.myworkdayjobs.com/en-US/Trane_Technologies_Careers/job/...'
-            -> 'tranetechnologies'
-        """
+        """Extracts the tenant identifier from a Workday, SuccessFactors, or ATS portal URL."""
         if not url:
             return None
         try:
             parsed = urlparse(url)
+            # Check query parameter (e.g. ?company=Bunge)
+            if parsed.query:
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query)
+                if "company" in qs and qs["company"]:
+                    return qs["company"][0].strip().lower()
+
             hostname = (parsed.hostname or "").lower()
             if "myworkdayjobs.com" in hostname or "myworkday.com" in hostname:
                 parts = hostname.split(".")
                 if parts and parts[0]:
                     return parts[0].strip()
-            # Fallback: check path segments or netloc
+
+            # jobs.<company>.com or careers.<company>.com
+            if hostname.startswith("jobs.") or hostname.startswith("careers."):
+                parts = hostname.split(".")
+                if len(parts) >= 2 and parts[1]:
+                    return parts[1].strip()
+
+            # Fallback: check hostname prefix
             if hostname:
                 return hostname.split(".")[0].strip()
         except Exception as e:
@@ -62,13 +71,13 @@ class WorkdayAccountService:
     @staticmethod
     def extract_company_display_name(url: str, raw_company: Optional[str] = None) -> str:
         """Derives a human-readable company name from URL or fallback string."""
-        if raw_company and raw_company.strip():
+        if raw_company and raw_company.strip() and raw_company.strip().lower() != "target company":
             return raw_company.strip()
         tenant = WorkdayAccountService.extract_tenant(url)
-        if tenant:
+        if tenant and tenant != "unknown":
             cleaned = tenant.replace("-", " ").replace("_", " ")
             return cleaned.title()
-        return "Workday Employer"
+        return raw_company.strip() if raw_company else "Employer Portal"
 
     def list_accounts(self) -> List[Dict[str, Any]]:
         """Returns all registered company accounts on Workday."""
@@ -80,29 +89,60 @@ class WorkdayAccountService:
             return []
 
     def has_account(self, url: str, company_name: Optional[str] = None) -> bool:
-        """Checks if an account exists in the database for the given portal URL or company."""
+        """Checks if an account exists in the database for the given portal URL or company, or if master credentials exist."""
         tenant = self.extract_tenant(url)
         company_clean = (company_name or "").strip().lower()
 
         accounts = self.list_accounts()
         for acct in accounts:
+            if not acct.get("username"):
+                continue
             if tenant and acct.get("tenant") == tenant:
                 return True
             if company_clean and acct.get("company_name", "").strip().lower() == company_clean:
                 return True
+
+        # Check if master portal credentials exist in SecretsService / config_loader
+        try:
+            from modules.config_loader import get_workday_credentials
+            creds = get_workday_credentials()
+            if creds and creds.get("username") and creds.get("password"):
+                return True
+        except Exception:
+            pass
+
         return False
 
     def get_account(self, url: str, company_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Retrieves account details for a specific Workday portal."""
+        """Retrieves account details for a specific portal or company."""
         tenant = self.extract_tenant(url)
         company_clean = (company_name or "").strip().lower()
 
         accounts = self.list_accounts()
         for acct in accounts:
+            if not acct.get("username"):
+                continue
             if tenant and acct.get("tenant") == tenant:
                 return acct
             if company_clean and acct.get("company_name", "").strip().lower() == company_clean:
                 return acct
+
+        # Fallback to master portal credentials
+        try:
+            from modules.config_loader import get_workday_credentials
+            creds = get_workday_credentials()
+            if creds and creds.get("username") and creds.get("password"):
+                return {
+                    "tenant": tenant or "master",
+                    "company_name": company_name or "Company Portal",
+                    "portal_url": url,
+                    "username": creds.get("username"),
+                    "password": creds.get("password"),
+                    "status": "ACTIVE",
+                }
+        except Exception:
+            pass
+
         return None
 
     def record_account(
@@ -115,6 +155,15 @@ class WorkdayAccountService:
         tenant = self.extract_tenant(url) or "unknown"
         display_name = self.extract_company_display_name(url, company_name)
         now_iso = datetime.now(timezone.utc).isoformat()
+
+        if not username:
+            try:
+                from modules.config_loader import get_workday_credentials
+                creds = get_workday_credentials()
+                if creds and creds.get("username"):
+                    username = creds["username"]
+            except Exception:
+                pass
 
         with get_db_session(self._session_factory) as session:
             repo = SettingsRepository(session)

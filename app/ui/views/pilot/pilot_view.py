@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.services.pilot.pilot_models import (
+    InterventionStatus,
+    PilotActionType,
     PilotAuthor,
     PilotMessage,
     PilotRuleChange,
@@ -57,6 +59,15 @@ class _PilotPromptWorker(QThread):
             self.prompt_processed.emit(msg)
         except Exception as e:
             logger.error("Error processing prompt in worker: %s", str(e), exc_info=True)
+            try:
+                err_msg = self._service.add_pilot_message(
+                    f"An error occurred while executing your request: {e}. Please try again.",
+                    action_type=PilotActionType.CHAT,
+                )
+                self.prompt_processed.emit(err_msg)
+            except Exception as inner_e:
+                logger.error("Failed to emit error message to timeline: %s", inner_e)
+                self.prompt_processed.emit(None)
 
 
 class PilotView(QWidget):
@@ -88,6 +99,28 @@ class PilotView(QWidget):
 
     def set_app_state(self, state):
         self.app_state = state
+        if hasattr(self.app_state, "subscribe"):
+            try:
+                self.app_state.subscribe("automation_status", self._on_app_state_automation_status)
+            except Exception:
+                pass
+        # Wire active services from AppState into PilotService
+        if self.app_state:
+            active_mgr = getattr(self.app_state, "automation_manager", None)
+            if active_mgr and hasattr(self._service, "_hook_automation_manager"):
+                self._service._automation_service = active_mgr
+                self._service._hook_automation_manager(active_mgr)
+            active_gw = getattr(self.app_state, "ai_gateway", None)
+            if active_gw and getattr(self._service, "ai_gateway", None) is None:
+                self._service.ai_gateway = active_gw
+                if hasattr(self._service, "intent_router") and self._service.intent_router:
+                    self._service.intent_router.ai_gateway = active_gw
+
+    def _on_app_state_automation_status(self, status: str):
+        if status in ("IDLE", "COMPLETED", "STOPPED", "FAILED"):
+            for c in self._message_cards.values():
+                if hasattr(c, "console_box") and c.console_box:
+                    c.console_box.mark_completed("Automation halted", is_stopped=(status in ("IDLE", "STOPPED")))
 
     # -------------------------------------------------------------------------
     # UI Assembly
@@ -188,15 +221,37 @@ class PilotView(QWidget):
                     if msg.author == PilotAuthor.PILOT:
                         self._latest_pilot_card = card
                     self._scroll_to_bottom()
+            if msg and (msg.action_type == PilotActionType.STOP_AUTOMATION or any(k in msg.body.lower() for k in ["stop", "cycle finished", "run completed"])):
+                for c in self._message_cards.values():
+                    if hasattr(c, "console_box") and c.console_box and getattr(c.console_box, "_pulse_timer", None) and c.console_box._pulse_timer.isActive():
+                        c.console_box.mark_completed("Automation halted by user", is_stopped=True)
+                    elif isinstance(c, NeedsYouCard):
+                        c.disable_controls(reason="Automation finished")
             self._refresh_telemetry()
         elif event_name == "step_emitted":
             step = payload
+            if step is None or (hasattr(step, "title") and any(k in step.title.lower() for k in ["finished", "completed", "stopped"])):
+                for c in self._message_cards.values():
+                    if hasattr(c, "console_box") and c.console_box and getattr(c.console_box, "_pulse_timer", None) and c.console_box._pulse_timer.isActive():
+                        is_stop = step is not None and "stop" in step.title.lower()
+                        title_summary = step.title if step else "Automation finished"
+                        c.console_box.mark_completed(title_summary, is_stopped=is_stop)
+                    elif isinstance(c, NeedsYouCard):
+                        c.disable_controls(reason="Automation finished")
             if self._latest_pilot_card and hasattr(self._latest_pilot_card, "update_step"):
                 self._latest_pilot_card.update_step(step)
         elif event_name == "metrics_updated":
             if self._latest_pilot_card and hasattr(self._latest_pilot_card, "update_metrics"):
                 self._latest_pilot_card.update_metrics(payload)
-        elif event_name in ("rule_changed", "rule_undone", "intervention_created", "intervention_resolved"):
+        elif event_name in ("intervention_resolved", "intervention_dismissed"):
+            inv_id = getattr(payload, "id", None)
+            inv_ans = getattr(payload, "answer", None) or "Resolved in browser"
+            for c in self._message_cards.values():
+                if isinstance(c, NeedsYouCard):
+                    if not inv_id or (c.message.intervention and c.message.intervention.id == inv_id):
+                        c.disable_controls(reason=f"Resolved with: {inv_ans}")
+            self._refresh_telemetry()
+        elif event_name in ("rule_changed", "rule_undone", "intervention_created"):
             self._render_initial_timeline()
             self._refresh_telemetry()
 
@@ -224,6 +279,10 @@ class PilotView(QWidget):
             return UserMessageCard(msg)
 
         if msg.intervention:
+            mgr = getattr(self._service, "automation_manager", None)
+            if mgr and not mgr.is_running() and msg.intervention.status == InterventionStatus.OPEN:
+                msg.intervention.status = InterventionStatus.DISMISSED
+                msg.intervention.answer = "Automation completed"
             card = NeedsYouCard(msg)
             card.answered.connect(self._on_intervention_answered)
             return card

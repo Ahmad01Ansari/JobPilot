@@ -106,6 +106,25 @@ class TestProcessManager(unittest.TestCase):
         ProcessManager.safe_terminate_process(proc, timeout_seconds=1.0)
         self.assertFalse(ProcessManager.is_pid_alive(proc.pid))
 
+    def test_kill_process_tree_same_pgrp_does_not_kill_self(self):
+        """Verifies kill_process_tree terminates a child in the same process group without suicide."""
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        child_pid = proc.pid
+        self.assertTrue(ProcessManager.is_pid_alive(child_pid))
+
+        # Must terminate child without killing current test runner
+        res = ProcessManager.kill_process_tree(child_pid, timeout_seconds=1.0)
+        try:
+            proc.wait(timeout=0.5)
+        except Exception:
+            pass
+        self.assertTrue(res)
+        self.assertFalse(ProcessManager.is_pid_alive(child_pid))
+        self.assertTrue(ProcessManager.is_pid_alive(os.getpid()))
+
+        # Must refuse to kill own process PID
+        self.assertFalse(ProcessManager.kill_process_tree(os.getpid()))
+
     def test_suspend_and_resume_process(self):
         """Verifies suspend_process and resume_process methods execute without unhandled exceptions."""
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
@@ -183,6 +202,65 @@ class TestApplicationLifecycleManager(unittest.TestCase):
             ApplicationLifecycleManager.shutdown_application(timeout_ms=500)
             self.assertTrue(ApplicationLifecycleManager.is_shutting_down())
             mock_pool_shutdown.assert_called()
+
+
+class TestCrossPlatformInvariants(unittest.TestCase):
+    """Verifies cross-platform module integrity across Linux, Windows, and macOS."""
+
+    def test_modules_open_chrome_imports(self):
+        """Verifies modules.open_chrome imports time and contains valid macOS candidates."""
+        import modules.open_chrome as moc
+        self.assertTrue(hasattr(moc, "time"))
+        self.assertIsNotNone(moc.time)
+
+    def test_clickers_nosuchelement_import(self):
+        """Verifies modules.clickers_and_finders imports NoSuchElementException."""
+        import modules.clickers_and_finders as mcf
+        self.assertTrue(hasattr(mcf, "NoSuchElementException"))
+        from selenium.common.exceptions import NoSuchElementException
+        self.assertIs(mcf.NoSuchElementException, NoSuchElementException)
+
+    def test_foundit_rotator_by_import(self):
+        """Verifies platforms.foundit.rotator imports By."""
+        import platforms.foundit.rotator as pfr
+        self.assertTrue(hasattr(pfr, "By"))
+        from selenium.webdriver.common.by import By
+        self.assertIs(pfr.By, By)
+
+    def test_macos_chrome_candidate_search(self):
+        """Verifies macOS chrome discovery includes system and user Applications."""
+        from modules.open_chrome import find_chrome_executable
+        with patch("sys.platform", "darwin"), patch("os.path.isfile") as mock_isfile:
+            mock_isfile.side_effect = lambda p: p == "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            found = find_chrome_executable()
+            self.assertEqual(found, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+
+    def test_macos_display_guard_not_aborted(self):
+        """Verifies helpers alert/confirm/prompt are not aborted on macOS when DISPLAY is unset."""
+        from modules.helpers import alert
+        u = sys.modules.pop("unittest", None)
+        try:
+            with patch("sys.platform", "darwin"), \
+                 patch.dict(os.environ, {}, clear=True), \
+                 patch("modules.helpers._show_qt_alert") as mock_alert, \
+                 patch("PySide6.QtWidgets.QApplication.instance") as mock_app, \
+                 patch("PySide6.QtCore.QThread.currentThread") as mock_cur_thread:
+                app_inst = MagicMock()
+                mock_app.return_value = app_inst
+                mock_cur_thread.return_value = app_inst.thread()
+                alert("Test Message", title="Test Title")
+                mock_alert.assert_called_once()
+        finally:
+            if u:
+                sys.modules["unittest"] = u
+
+    def test_macos_browser_lock_ownership_graceful(self):
+        """Verifies is_process_owned_by_active_jobpilot executes on macOS without /proc errors."""
+        from modules.browser_lock import is_process_owned_by_active_jobpilot
+        with patch("sys.platform", "darwin"), patch("modules.browser_lock.is_pid_alive", return_value=True), patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="12345")
+            res = is_process_owned_by_active_jobpilot(99999)
+            self.assertIsInstance(res, bool)
 
 
 if __name__ == "__main__":

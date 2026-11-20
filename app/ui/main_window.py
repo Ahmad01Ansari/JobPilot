@@ -32,9 +32,10 @@ from app.services.search_service import SearchService
 class MainWindow(QMainWindow):
     """Main desktop application window."""
 
-    def __init__(self, state: AppState = None, parent=None):
+    def __init__(self, state: AppState = None, splash=None, parent=None):
         super().__init__(parent)
         self.state = state or AppState(self)
+        self.splash = splash
         self.page_index_map: Dict[str, int] = {}
         self.view_instances: Dict[str, QWidget] = {}
 
@@ -78,6 +79,19 @@ class MainWindow(QMainWindow):
 
         # Dynamically register all views from NAV_ITEMS
         for idx, item in enumerate(NAV_ITEMS):
+            if self.splash:
+                try:
+                    from PySide6.QtGui import QColor
+                    self.splash.showMessage(
+                        f"Loading {item.label}...",
+                        Qt.AlignBottom | Qt.AlignHCenter,
+                        QColor("#FF5F15")
+                    )
+                    self.splash.repaint()
+                    from PySide6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                except Exception:
+                    pass
             view = item.view_class()
             if hasattr(view, "data_updated"):
                 view.data_updated.connect(self.state.emit_data_updated)

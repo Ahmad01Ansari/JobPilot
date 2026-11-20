@@ -44,6 +44,7 @@ class PilotActionType(str, Enum):
     UPDATE_PROFILE = "update_profile"
     GET_INTERVIEWS_REPORT = "get_interviews_report"
     GET_RULES = "get_rules"
+    SEND_EMAIL_APPLICATION = "send_email_application"
     ANSWER_INTERVENTION = "answer_intervention"
     UNKNOWN = "unknown"
 
@@ -54,6 +55,7 @@ class InterventionKind(str, Enum):
     CHOICE = "choice"
     APPROVAL = "approval"
     CAPTCHA = "captcha"
+    MANUAL_LOGIN = "manual_login"
 
 
 class InterventionStatus(str, Enum):

@@ -45,8 +45,8 @@ class TestIndeedRotator(unittest.TestCase):
         rotator = IndeedRotator(browser=mock_browser, tracker=mock_tracker, config=config)
 
         # Mock search returning 2 jobs
-        job1 = IndeedJobItem(job_id="job1", title="Dev 1", company="Corp 1")
-        job2 = IndeedJobItem(job_id="job2", title="Dev 2", company="Corp 2")
+        job1 = IndeedJobItem(job_id="job1", title="Developer 1", company="Corp 1")
+        job2 = IndeedJobItem(job_id="job2", title="Developer 2", company="Corp 2")
         rotator.search.search = MagicMock(return_value=[job1, job2])
 
         # Mock applier

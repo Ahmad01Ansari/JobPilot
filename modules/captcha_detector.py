@@ -287,7 +287,7 @@ class CaptchaDetector:
         platform: Optional[str] = None,
         job_title: str = "",
         company: str = "",
-        timeout: int = 60,
+        timeout: int = 300,
         stop_check: Optional[Callable[[], bool]] = None,
         automation_bridge: Optional[Any] = None,
     ) -> bool:
@@ -315,10 +315,16 @@ class CaptchaDetector:
             print_lg(f"[{plat_title} Anti-Bot] Context: '{job_title}' at '{company}'")
         print_lg(f"[{plat_title} Anti-Bot] Detected: {challenge_desc}")
         print_lg(f"[{plat_title} Anti-Bot] ACTION REQUIRED: Please complete the challenge in your open Chrome browser window.")
-        print_lg(f"[{plat_title} Anti-Bot] Waiting up to {timeout} seconds for manual completion...")
+        print_lg(f"[{plat_title} Anti-Bot] Waiting up to {timeout} seconds for human resolution...")
         print_lg("=" * 70 + "\n")
 
         bridge = automation_bridge or self.automation_bridge
+        if bridge and hasattr(bridge, "set_intervention_active"):
+            try:
+                bridge.set_intervention_active(True)
+            except Exception:
+                pass
+
         if bridge and hasattr(bridge, "handle_intervention"):
             try:
                 from app.services.automation_events import AutomationInterventionEvent, InterventionType
@@ -341,25 +347,83 @@ class CaptchaDetector:
                 pass
 
         start_time = time.time()
-        while time.time() - start_time < timeout:
-            if stop_check and stop_check():
-                print_lg(f"[{plat_title} Anti-Bot] Operation paused or stopped by user.")
-                return False
+        last_logged = 0
 
-            if bridge and hasattr(bridge, "is_captcha_resolved") and bridge.is_captcha_resolved():
-                print_lg(f"[{plat_title} Anti-Bot] ✅ CAPTCHA confirmed resolved via Human-in-the-Loop dialog!")
-                return True
+        try:
+            while time.time() - start_time < timeout:
+                if stop_check and stop_check():
+                    print_lg(f"[{plat_title} Anti-Bot] Operation paused or stopped by user.")
+                    if bridge and hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
+                    return False
 
-            if self.is_captcha_solved(driver, platform=plat):
-                print_lg(f"[{plat_title} Anti-Bot] ✅ Security challenge resolved in browser! Resuming automation.")
-                if bridge and hasattr(bridge, "dismiss_intervention"):
+                # 1. Check if user clicked 'Skip / Cancel' on UI dialog
+                if bridge and hasattr(bridge, "is_captcha_cancelled_by_user"):
                     try:
-                        bridge.dismiss_intervention()
+                        if bridge.is_captcha_cancelled_by_user() is True:
+                            print_lg(f"[{plat_title} Anti-Bot] User opted to cancel/skip challenge via Human-in-the-Loop dialog.")
+                            if hasattr(bridge, "dismiss_intervention"):
+                                bridge.dismiss_intervention()
+                            return False
                     except Exception:
                         pass
-                return True
 
-            time.sleep(1.0)
+                # 2. Check if user confirmed resolution via UI dialog
+                is_resolved_ui = False
+                if bridge:
+                    try:
+                        if hasattr(bridge, "is_captcha_resolved_by_user") and bridge.is_captcha_resolved_by_user() is True:
+                            is_resolved_ui = True
+                        elif hasattr(bridge, "is_captcha_resolved") and bridge.is_captcha_resolved() is True:
+                            is_resolved_ui = True
+                    except Exception:
+                        pass
 
-        print_lg(f"[{plat_title} Anti-Bot] ❌ Challenge was not resolved within {timeout}s.")
-        return False
+                if is_resolved_ui:
+                    print_lg(f"[{plat_title} Anti-Bot] ✅ CAPTCHA confirmed resolved via Human-in-the-Loop dialog!")
+                    if hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
+                    return True
+
+                # 3. Check if DOM detects CAPTCHA token / checkbox completion in Chrome
+                if self.is_captcha_solved(driver, platform=plat):
+                    print_lg(f"[{plat_title} Anti-Bot] ✅ Security challenge resolved in browser! Resuming automation.")
+                    if bridge and hasattr(bridge, "dismiss_intervention"):
+                        try:
+                            bridge.dismiss_intervention()
+                        except Exception:
+                            pass
+                    return True
+
+                time.sleep(1.0)
+                elapsed = int(time.time() - start_time)
+                if elapsed - last_logged >= 15:
+                    remaining = timeout - elapsed
+                    print_lg(f"[{plat_title} Anti-Bot] Awaiting challenge completion in browser or dialog response ({remaining}s remaining)...")
+                    last_logged = elapsed
+
+            print_lg(f"[{plat_title} Anti-Bot] ❌ Challenge was not resolved within {timeout}s.")
+            if bridge and hasattr(bridge, "dismiss_intervention"):
+                try:
+                    bridge.dismiss_intervention()
+                except Exception:
+                    pass
+            return False
+        finally:
+            if bridge:
+                if hasattr(bridge, "set_intervention_active"):
+                    try:
+                        bridge.set_intervention_active(False)
+                    except Exception:
+                        pass
+                if hasattr(bridge, "reset_captcha_status"):
+                    try:
+                        bridge.reset_captcha_status()
+                    except Exception:
+                        pass

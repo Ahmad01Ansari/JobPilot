@@ -25,6 +25,7 @@ def gemini_create_client():
     Configures the Gemini client and validates the selected model.
     * Returns a configured Gemini model object or None if an error occurs.
     """
+    global showAiErrorAlerts
     try:
         print_lg("Configuring Gemini client...")
         if not llm_api_key or "YOUR_API_KEY" in llm_api_key:

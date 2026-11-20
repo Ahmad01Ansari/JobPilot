@@ -107,6 +107,8 @@ class SingleInstanceManager:
         if (
             "--test-run" in sys.argv
             or "--allow-multiple" in sys.argv
+            or "--force" in sys.argv
+            or "-f" in sys.argv
             or os.environ.get("JOBPILOT_ALLOW_MULTIPLE") == "1"
         ):
             return True, None
@@ -133,6 +135,11 @@ class SingleInstanceManager:
             except Exception as exc:
                 logger.debug("Failed sending ACTIVATE message to primary instance: %s", exc)
 
+            print(
+                "[JobPilot] An active instance of JobPilot is already running. Focusing the existing application window.\n"
+                "Tip: To launch another instance, run with: python run_desktop.py --allow-multiple (or pass --force)",
+                flush=True,
+            )
             logger.info(
                 "JobPilot is already running. Activated existing instance and terminating duplicate."
             )

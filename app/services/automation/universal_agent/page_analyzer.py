@@ -61,7 +61,6 @@ class FormAnalysisResult:
 # JavaScript extraction snippet executed directly inside page context
 _DOM_EXTRACTION_JS = """(() => {
     // 1. Detect security challenges & login gates
-    const hasPassword = !!document.querySelector('input[type="password"]');
     const hasCaptchaIframe = !!document.querySelector('iframe[src*="turnstile"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"]');
     const hasCaptchaContainer = !!document.querySelector('#mock-cf-turnstile, .cf-turnstile, .g-recaptcha, .h-captcha');
     
@@ -98,11 +97,28 @@ _DOM_EXTRACTION_JS = """(() => {
     const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
     const isOtpChallenge = (!!otpInput && (/enter\s+(?:the\s+)?code|verification\s+code|when\s+you\s+get\s+the\s+code|one-time|passcode|check\s+your\s+email|security\s+code|sent\s+a\s+code|enter\s+otp/i.test(bodyText) || (visibleAppInputCount <= 6 && /code|otp|pin/i.test(bodyText)))) || /confirm\s+your\s+identity/i.test(bodyText) || !!document.querySelector('.pin-code-input__input, [class*="pin-code"]');
 
-    const isAccountCreation = !!document.querySelector(
+    const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]')).filter(p => {
+        const s = window.getComputedStyle(p);
+        return s.display !== 'none' && s.visibility !== 'hidden';
+    });
+    const hasPassword = passwordInputs.length > 0;
+    const hasVerifyPassword = !!document.querySelector(
         'input[data-automation-id="verifyPassword"], input[name*="verify" i], input[id*="verify" i], ' +
-        '[data-automation-id*="createAccount" i], [data-automation-id="agreementCheckbox"], ' +
-        'button[data-automation-id="createAccountSubmitButton"], [data-automation-id="signInLink"]'
-    ) || /create\s*account|register\s*to\s*apply|sign\s*in\s*to\s*apply/i.test(bodyText);
+        'input[name*="confirm" i], input[id*="confirm" i], input[placeholder*="verify" i], input[placeholder*="confirm" i]'
+    ) || passwordInputs.length >= 2;
+
+    const isExplicitSignIn = !!document.querySelector(
+        'button[data-automation-id="signInSubmitButton"], button#signInBtn, #login_button, button[id*="signin" i], button[id*="login" i]'
+    ) || Array.from(document.querySelectorAll('button, input[type="submit"]')).some(b => {
+        const t = (b.innerText || b.value || '').trim().toLowerCase();
+        return t === 'sign in' || t === 'log in' || t === 'login' || t === 'signin';
+    });
+
+    const isLoginGate = hasPassword && !hasVerifyPassword && (visibleAppInputCount <= 3 || isExplicitSignIn);
+
+    const isAccountCreation = hasVerifyPassword || !!document.querySelector(
+        'button[data-automation-id="createAccountSubmitButton"], button#createAccountBtn, button[id*="createaccount" i]'
+    );
 
     const isEmailVerificationLinkScreen = (
         visibleAppInputCount === 0 && (
@@ -114,7 +130,7 @@ _DOM_EXTRACTION_JS = """(() => {
         challenge = "CAPTCHA_CHALLENGE";
     } else if (isEmailVerificationLinkScreen) {
         challenge = "EMAIL_VERIFICATION_REQUIRED";
-    } else if (hasPassword && !isAccountCreation) {
+    } else if (isLoginGate) {
         challenge = "LOGIN_REQUIRED";
     } else if (isOtpChallenge) {
         challenge = "TWO_FACTOR_AUTH";
@@ -190,9 +206,9 @@ _DOM_EXTRACTION_JS = """(() => {
             }
         }
         // 5b. Direct element attributes (data-automation-id, data-name, data-field-name, data-label, placeholder)
-        if (!labelText || /^(yes|no|true|false|your answer|answer)$/i.test(labelText.trim())) {
+        if (!labelText || /^(yes|no|true|false|your answer|answer|no\s*selection|select|choose|select\s*one|select\s*an?\s*option|please\s*select|\s*)$/i.test(labelText.trim())) {
             const attrLabel = el.getAttribute('data-automation-id') || el.getAttribute('data-name') || el.getAttribute('data-field-name') || el.getAttribute('data-label') || el.placeholder || '';
-            if (attrLabel && attrLabel.trim().length > 1 && !/^(your answer|answer|short answer text|long answer text)$/i.test(attrLabel.trim())) {
+            if (attrLabel && attrLabel.trim().length > 1 && !/^(your answer|answer|short answer text|long answer text|no\s*selection|select|\s*)$/i.test(attrLabel.trim())) {
                 labelText = attrLabel;
             }
         }
@@ -212,20 +228,20 @@ _DOM_EXTRACTION_JS = """(() => {
             }
         }
         // 6. Immediate field group container search
-        if (!labelText || /^(yes|no|true|false)$/i.test(labelText.trim())) {
-            const group = el.closest('.form-group, .field-group, .input-group, .form-row, td, .col-lg-12, .col-md-12, .col-sm-12');
+        if (!labelText || /^(yes|no|true|false|no\s*selection|select|choose|\s*)$/i.test(labelText.trim())) {
+            const group = el.closest('.form-group, .field-group, .input-group, .form-row, td, .col-lg-12, .col-md-12, .col-sm-12, [class*="question" i], [id*="question" i]');
             if (group) {
-                const groupLbl = group.querySelector('label, .control-label, [class*="label"]:not([class*="container"]):not([class*="form"]), h4, h5, b, span.asterisk + span');
+                const groupLbl = group.querySelector('label, .control-label, [class*="label"]:not([class*="container"]):not([class*="form"]), [class*="question" i], [class*="title" i], legend, h3, h4, h5, b, span.asterisk + span');
                 if (groupLbl && groupLbl !== el && !groupLbl.contains(el)) {
                     const txt = groupLbl.innerText.trim();
-                    if (txt && !txt.includes('CAPTCHA') && !txt.includes('human visitor')) {
+                    if (txt && !txt.includes('CAPTCHA') && !txt.includes('human visitor') && !/^(no\s*selection|select|\s*)$/i.test(txt)) {
                         labelText = txt;
                     }
                 }
             }
         }
         // 7. Preceding sibling search (stop if preceding sibling contains another form control)
-        if (!labelText || /^(yes|no|true|false)$/i.test(labelText.trim())) {
+        if (!labelText || /^(yes|no|true|false|no\s*selection|select|choose|\s*)$/i.test(labelText.trim())) {
             let prev = el.previousElementSibling;
             while (prev) {
                 // If previous sibling is or contains another form control, STOP — do NOT steal its label!
@@ -236,7 +252,7 @@ _DOM_EXTRACTION_JS = """(() => {
                     const lbl = (prev.tagName.toLowerCase() === 'label') ? prev : (prev.querySelector('label') || prev);
                     if (lbl && lbl.innerText && lbl.innerText.trim()) {
                         const txt = lbl.innerText.trim();
-                        if (!txt.includes('CAPTCHA')) {
+                        if (!txt.includes('CAPTCHA') && !/^(no\s*selection|select|\s*)$/i.test(txt)) {
                             labelText = txt;
                             break;
                         }
@@ -518,22 +534,51 @@ _DOM_EXTRACTION_JS = """(() => {
             })).filter(o => o.value !== '');
 
             let selSelector;
-            if (id && /^[a-zA-Z0-9_-]+$/.test(id)) {
+            if (id && /^[a-zA-Z0-9_-]+$/.test(id) && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) {
                 selSelector = `#${id}`;
-            } else if (name) {
-                selSelector = `select[name="${name.replace(/"/g, '\\"')}"]`;
-            } else if (id) {
+            } else if (id && document.querySelectorAll(`select[id="${id.replace(/"/g, '\\"')}"]`).length === 1) {
                 selSelector = `select[id="${id.replace(/"/g, '\\"')}"]`;
+            } else if (name && document.querySelectorAll(`select[name="${name.replace(/"/g, '\\"')}"]`).length === 1) {
+                selSelector = `select[name="${name.replace(/"/g, '\\"')}"]`;
             } else {
-                selSelector = 'select';
+                selSelector = getUniqueSelector(el);
+            }
+
+            let selLabel = label;
+            const isGenericSelLabel = !selLabel || /^(select|choose|search|select\s*one|select\s*an?\s*option|no\s*selection|please\s*select|\s*)$/i.test(selLabel.trim());
+            if (isGenericSelLabel) {
+                let p = el.parentElement;
+                for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
+                    const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], [class*="question" i], [class*="title" i], legend, h3, h4, h5, h6, p, span, b, strong');
+                    if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
+                        const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
+                        if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an?\s*option|no\s*selection|please\s*select|\s*)$/i.test(txt)) {
+                            selLabel = txt;
+                            break;
+                        }
+                    }
+                    let prev = p.previousElementSibling;
+                    while (prev) {
+                        const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                        if (prevLbl) {
+                            const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
+                            if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an?\s*option|no\s*selection|\s*)$/i.test(txt)) {
+                                selLabel = txt;
+                                break;
+                            }
+                        }
+                        prev = prev.previousElementSibling;
+                    }
+                    if (selLabel && !/^(select|choose|search|select\s*one|select\s*an?\s*option|no\s*selection|please\s*select|\s*)$/i.test(selLabel.trim())) break;
+                }
             }
 
             elementsData.push({
-                field_id: id,
+                field_id: id || getUniqueSelector(el),
                 name: name,
                 selector: selSelector,
                 input_type: 'select',
-                label: label,
+                label: selLabel,
                 placeholder: placeholder,
                 required: required,
                 options: options,
@@ -706,13 +751,13 @@ _DOM_EXTRACTION_JS = """(() => {
         });
     }
 
-    // 3c. Scan custom comboboxes, prompt buttons, and custom dropdowns (Workday, Oracle JET, etc.)
+    // 3c. Scan custom comboboxes, prompt buttons, and custom dropdowns (Workday, Oracle JET, SuccessFactors, SAP UI5, etc.)
     const customDropdownElements = Array.from(document.querySelectorAll(
         'button[data-automation-id*="dropdown" i], div[data-automation-id*="dropdown" i], ' +
         'button[data-automation-id*="prompt" i], div[data-automation-id*="prompt" i], ' +
         'button[data-automation-id*="select" i], [data-automation-id*="select-one" i], [data-automation-id*="selectOne" i], ' +
         'button[data-automation-id*="combobox" i], button[data-automation-id*="option" i], ' +
-        'button[aria-haspopup], [role="combobox"], ' +
+        'button[aria-haspopup], [role="combobox"], div.sapMSelect, [class*="sapMSelect" i], .custom-select, ' +
         '[data-automation-id="sourceDropdown"], [data-automation-id="sourcePrompt"], button[data-automation-id*="source" i], button[data-automation-id*="hear" i], ' +
         '[data-automation-id="phoneDevice-dropdown"], button[data-automation-id*="phone" i], button[data-automation-id*="device" i], ' +
         '[data-automation-id*="phone-device" i], [data-automation-id*="phoneDevice" i], ' +
@@ -738,6 +783,17 @@ _DOM_EXTRACTION_JS = """(() => {
             continue;
         }
 
+        const innerTextCheck = (el.innerText || el.textContent || '').trim().toLowerCase();
+        const ariaCheck = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+        const textToTest = innerTextCheck || ariaCheck;
+
+        // Skip action buttons, apply dropdown toggles, share buttons, auth buttons, search/filter triggers
+        if (/apply|share|login|sign\s*in|submit|register|create\s*alert|subscribe|search/i.test(textToTest) ||
+            el.classList.contains('dropdown-toggle') ||
+            el.closest('.btn-social-apply, .social-apply-button-container, .sub-options, [class*="social-apply" i]')) {
+            continue;
+        }
+
         const rawAutoId = el.getAttribute('data-automation-id') || '';
         const id = el.id || '';
         const name = el.name || '';
@@ -745,31 +801,31 @@ _DOM_EXTRACTION_JS = """(() => {
         if (alreadyAdded) continue;
 
         let label = getCleanLabel(el);
-        const isGenericLabel = !label || /^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim());
+        const isGenericLabel = !label || /^(select|choose|search|select\s*one|select\s*an?\s*option|select\s*one\s*button|no\s*selection|please\s*select|\s*)$/i.test(label.trim());
         if (isGenericLabel) {
             let p = el.parentElement;
             for (let depth = 0; depth < 8 && p && p !== document.body; depth++, p = p.parentElement) {
-                const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], legend, h3, h4, h5, p');
+                const qLabel = p.querySelector('label, [data-automation-id="formLabel"], [data-automation-id*="label" i], [class*="label" i], [class*="question" i], [class*="title" i], legend, h3, h4, h5, h6, p, span, b, strong');
                 if (qLabel && qLabel !== el && !qLabel.contains(el) && !el.contains(qLabel)) {
                     const txt = (qLabel.innerText || qLabel.textContent || '').replace(/[*:]/g, '').trim();
-                    if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(txt)) {
+                    if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an?\s*option|select\s*one\s*button|no\s*selection|please\s*select|\s*)$/i.test(txt)) {
                         label = txt;
                         break;
                     }
                 }
                 let prev = p.previousElementSibling;
                 while (prev) {
-                    const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], legend, h3, h4, h5, p');
+                    const prevLbl = prev.matches('label, [data-automation-id="formLabel"], legend, h3, h4, h5, h6, p') ? prev : prev.querySelector('label, [data-automation-id="formLabel"], [class*="label" i], [class*="question" i], legend, h3, h4, h5, h6, p, span, b');
                     if (prevLbl) {
                         const txt = (prevLbl.innerText || prevLbl.textContent || '').replace(/[*:]/g, '').trim();
-                        if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an\s*option|\s*)$/i.test(txt)) {
+                        if (txt && txt.length > 2 && !/^(select|choose|search|select\s*one|select\s*an?\s*option|no\s*selection|please\s*select|\s*)$/i.test(txt)) {
                             label = txt;
                             break;
                         }
                     }
                     prev = prev.previousElementSibling;
                 }
-                if (label && !/^(select|choose|search|select\s*one|select\s*an\s*option|select\s*one\s*button|\s*)$/i.test(label.trim())) break;
+                if (label && !/^(select|choose|search|select\s*one|select\s*an?\s*option|select\s*one\s*button|no\s*selection|please\s*select|\s*)$/i.test(label.trim())) break;
 
                 const pAuto = (p.getAttribute('data-automation-id') || p.id || '').toLowerCase();
                 if (pAuto.includes('gender') || pAuto.includes('sex')) { label = 'Gender'; break; }
@@ -869,7 +925,7 @@ _DOM_EXTRACTION_JS = """(() => {
     const isApplyUrl = /apply|application|candidate|register/i.test(currentLoc);
     const hasCandidateFields = elementsData.some(f => {
         const str = (f.name + ' ' + f.label + ' ' + f.field_id + ' ' + f.placeholder + ' ' + (f.selector || '')).toLowerCase();
-        return f.input_type === 'file' || f.input_type === 'password' || f.input_type === 'radio_group' || f.is_custom_dropdown ||
+        return f.input_type === 'file' || f.input_type === 'password' || f.input_type === 'radio_group' ||
                /name|first|last|email|phone|mobile|tel|resume|cv|address|city|country|state|postal|zip|salary|ctc|notice|experience|education|university|degree|linkedin|github|portfolio|authorization|authorized|sponsorship|relocate|travel|schedule|flexible|gender|race|veteran|disability|privacy|consent|agree|password|account|sign.?in|source|hear|device/i.test(str);
     });
 
@@ -1040,7 +1096,10 @@ _DOM_EXTRACTION_JS = """(() => {
         }
 
         // Exclude skip links, bookmarks, mailto, tel links from action buttons
-        if (href === '#' || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || cleanLower.includes('skip to') || cleanLower.startsWith('skip')) {
+        const isExplicitApplyAnchor = (btn.id && /applyoption|manual/i.test(btn.id)) ||
+                                      (btn.className && /applyoption/i.test(btn.className)) ||
+                                      /^(apply(\s+(now|online|manually))?|start\s+application)$/i.test(cleanLower);
+        if (!isExplicitApplyAnchor && (href === '#' || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || cleanLower.includes('skip to') || cleanLower.startsWith('skip'))) {
             continue;
         }
 
@@ -1055,8 +1114,20 @@ _DOM_EXTRACTION_JS = """(() => {
 
         const selector = getUniqueSelector(btn);
 
-        const isNextPattern = (isSaveAndContinue || cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') || cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') || /^(next|continue|proceed)(\s|$)/i.test(cleanLower) || ((cleanLower === 'create account' || cleanLower.startsWith('create account') || cleanLower === 'sign in' || cleanLower.startsWith('sign in')) && (dataAuto.includes('createaccountsubmit') || dataAuto.includes('signinsubmit') || dataAuto.includes('workday')))) && !btn.id.toLowerCase().includes('loginsubmit') && !btn.className.toLowerCase().includes('login');
-        const isSubmitPattern = !isSaveAndContinue && !cleanLower.includes('continue') && (cleanLower === 'submit' || cleanLower.includes('submit application') || cleanLower.includes('send application') || cleanLower.includes('complete application') || cleanLower.includes('finish application') || (btnType === 'submit' && !/cancel|reset|search|close|filter|back/i.test(cleanLower + ' ' + (btn.id || '') + ' ' + (btn.name || ''))));
+        const isAuthAction = /^(sign\s*in|log\s*in|login|signin|create\s*account|register)$/i.test(cleanLower);
+        const isNextPattern = (
+            isSaveAndContinue ||
+            cleanLower.startsWith('next') || cleanLower.startsWith('continue') || cleanLower.startsWith('proceed') ||
+            cleanLower.includes('next:') || cleanLower.includes('continue to') || cleanLower.includes('step 2') ||
+            /^(next|continue|proceed)(\s|$)/i.test(cleanLower) ||
+            isAuthAction
+        ) && !btn.id.toLowerCase().includes('loginsubmit-disabled');
+
+        const isSubmitPattern = !isAuthAction && !isSaveAndContinue && !cleanLower.includes('continue') && (
+            cleanLower === 'submit' || cleanLower.includes('submit application') || cleanLower.includes('send application') ||
+            cleanLower.includes('complete application') || cleanLower.includes('finish application') ||
+            (btnType === 'submit' && !/cancel|reset|search|close|filter|back|sign|log|create|register/i.test(cleanLower + ' ' + (btn.id || '') + ' ' + (btn.name || '')))
+        );
         const isModalTrigger = btn.getAttribute('data-bs-toggle') === 'modal' || btn.getAttribute('data-toggle') === 'modal' || btn.hasAttribute('data-bs-target') || btn.hasAttribute('data-target') || btn.getAttribute('aria-haspopup') === 'dialog';
         const isApplyPattern = !href.startsWith('mailto:') && (isModalTrigger || cleanLower === 'apply' || cleanLower.startsWith('apply now') || cleanLower.includes('apply online') || cleanLower.includes('apply on') || cleanLower.includes('apply for') || cleanLower.includes('apply to') || cleanLower.includes('start application') || cleanLower.includes('register to apply') || cleanLower.includes('apply manually') || cleanLower.includes('quick apply') || cleanLower.includes('easy apply') || dataAuto.includes('adventure') || dataAuto.includes('applymanually') || href.includes('resume-registration') || href.includes('/apply') || href.includes('action=apply') || href.includes('job-apply') || (cleanLower.includes('apply') && !/services|solutions|portfolio|integration|architecture|consulting|outsourcing/i.test(cleanLower)));
 
@@ -1064,7 +1135,7 @@ _DOM_EXTRACTION_JS = """(() => {
         if (isModalTrigger) {
             score += 120;
         }
-        if (cleanLower === 'apply manually' || dataAuto.includes('applymanually')) {
+        if (cleanLower === 'apply manually' || dataAuto.includes('applymanually') || (btn.id && /applyoption.*manual/i.test(btn.id))) {
             score += 200;
         } else if (cleanLower === 'apply' || cleanLower === 'apply now' || cleanLower.startsWith('apply now') || cleanLower === 'apply online' || cleanLower === 'apply for this job' || dataAuto.includes('adventure')) {
             score += 160;
@@ -1093,8 +1164,8 @@ _DOM_EXTRACTION_JS = """(() => {
             if (btn.tagName === 'BUTTON' || (btn.tagName === 'INPUT' && btn.type === 'submit')) nextScore += 40;
             if (btn.classList.contains('btn-primary') || /primary|submit|action/i.test(btn.className || '')) nextScore += 30;
             nextBtns.push({ selector: selector, text: text || 'Next', top: rect.top, score: nextScore });
-        } else if (isModalTrigger || !hasInputFields) {
-            // Modal trigger buttons or buttons on landing pages lead to application forms
+        } else if (isModalTrigger || !hasInputFields || cleanLower === 'apply' || cleanLower === 'apply now' || cleanLower.startsWith('apply now') || cleanLower === 'apply manually' || dataAuto.includes('adventure') || dataAuto.includes('applymanually') || (btn.id && /applyoption.*manual/i.test(btn.id))) {
+            // Modal trigger buttons, explicit entry apply buttons, or buttons on landing pages lead to application forms
             if (isApplyPattern || isSubmitPattern || isModalTrigger) {
                 applyNowBtns.push({ selector: selector, text: text || 'Apply Now', top: rect.top, score: score });
             }

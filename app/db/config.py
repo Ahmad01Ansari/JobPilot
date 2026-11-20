@@ -8,7 +8,11 @@ from typing import Optional
 class DatabaseConfig:
     """Manages database connection paths and parameters."""
 
-    DEFAULT_DIR = Path.home() / ".jobpilot"
+    try:
+        from app.services.os.app_paths import AppPaths
+        DEFAULT_DIR = AppPaths.get_user_data_dir()
+    except Exception:
+        DEFAULT_DIR = Path.home() / ".jobpilot"
     DEFAULT_FILENAME = "jobpilot.db"
 
     def __init__(self, db_path: Optional[str] = None):

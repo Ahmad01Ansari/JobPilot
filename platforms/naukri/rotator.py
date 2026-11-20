@@ -12,7 +12,7 @@ from selenium.webdriver.remote.webelement import WebElement
 
 from modules.models import Job
 from modules.config_loader import get_platform
-from modules.qualification_engine import QualificationEngine, QualificationResult
+from modules.qualification_engine import QualificationEngine, QualificationResult, is_job_relevant
 from modules.tracker import ApplicationTracker
 from platforms.naukri.search import NaukriSearch
 from platforms.naukri.parser import NaukriJobParser
@@ -202,6 +202,18 @@ class SearchRotationEngine:
 
                     job = self.parser.parse_card(card)
                     if not job:
+                        continue
+
+                    # Pre-filter 0: Keyword Relevance Guard (rejects unrelated recommendations / sponsored ads)
+                    neg_title_words = getattr(self.qualification_engine, "negative_title_words", None)
+                    core_skills = getattr(self.qualification_engine, "core_skills", None)
+                    if not is_job_relevant(job.title, term, core_skills=core_skills, negative_words=neg_title_words):
+                        skip_msg = f"Title '{job.title}' does not match keyword '{term}'"
+                        print_lg(f"[NaukriRotator] Relevance check SKIP for '{job.title}': {skip_msg}")
+                        consecutive_skips += 1
+                        term_evaluated_count += 1
+                        if self.tracker:
+                            self.tracker.record_evaluation(job, "SKIPPED", skip_reason=skip_msg)
                         continue
 
                     if self.automation_bridge:
@@ -537,6 +549,11 @@ class SearchRotationEngine:
                     elif status == "MANUAL_REQUIRED":
                         term_stats.jobs_manual_required += 1
                         stats.jobs_manual_required += 1
+                        user_cancelled = self.automation_bridge and hasattr(self.automation_bridge, "is_captcha_cancelled_by_user") and self.automation_bridge.is_captcha_cancelled_by_user()
+                        reason_str = str(app_res.get("reason", "") if isinstance(app_res, dict) else "")
+                        if "captcha" in reason_str.lower() and not user_cancelled:
+                            print_lg("[NaukriRotator] ⚠️ Security challenge was not resolved. Halting rotation to allow manual resolution and protect session.")
+                            break
                     elif status == "FAILED":
                         term_stats.jobs_failed += 1
                         stats.jobs_failed += 1

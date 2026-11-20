@@ -1,7 +1,7 @@
 """Mock Email Provider implementation for testing and offline environments."""
 
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import uuid
 
 from app.services.dto.outreach_dto import (

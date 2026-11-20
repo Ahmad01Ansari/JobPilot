@@ -300,7 +300,8 @@ class ResultVerifier:
         # 1. Check for Validation Errors First (excluding benign OTP / confirmation notices)
         error_messages: List[str] = [
             m.get("text", "") for m in error_matches
-            if m.get("text") and not any(re.search(pat, m.get("text", ""), re.IGNORECASE) for pat in otp_patterns)
+            if m.get("text") and len(m.get("text", "").strip()) > 1 and not re.match(r"^[\s\u25b6\u25b8\u203a\u00bb>#\-_*+=|/\\~`^:;,.?]+$", m.get("text", "").strip())
+            and not any(re.search(pat, m.get("text", ""), re.IGNORECASE) for pat in otp_patterns)
         ]
         if not error_messages:
             for pat in self.ERROR_TEXT_PATTERNS:

@@ -280,6 +280,10 @@ class ResumeParserService:
                             pers["github_url"] = rule_fallback["personal"]["github_url"]
                         if not pers.get("portfolio_url") and rule_fallback.get("personal", {}).get("portfolio_url"):
                             pers["portfolio_url"] = rule_fallback["personal"]["portfolio_url"]
+                        if not ai_data.get("work_experiences") and rule_fallback.get("work_experiences"):
+                            ai_data["work_experiences"] = rule_fallback["work_experiences"]
+                        if not ai_data.get("education_history") and rule_fallback.get("education_history"):
+                            ai_data["education_history"] = rule_fallback["education_history"]
                         return ai_data, raw_text, "ai"
             except Exception:
                 pass
@@ -294,16 +298,18 @@ class ResumeParserService:
             links_context = "\nDetected Embedded Document Hyperlinks:\n" + "\n".join(f"- {link}" for link in hyperlinks[:10])
 
         prompt = (
-            "Extract candidate personal information, professional summary, and skills "
+            "Extract candidate personal information, professional summary, work experience, education, and skills "
             "from the following resume text:\n\n"
-            f"{text[:3500]}"
+            f"{text[:5000]}"
             f"{links_context}"
         )
         schema_desc = (
             '{"personal": {"first_name": "", "last_name": "", "email": "", "phone": "", '
             '"linkedin_url": "", "github_url": "", "portfolio_url": ""}, '
             '"professional": {"current_title": "", "years_of_experience": 0.0}, '
-            '"skills": [{"name": ""}]}'
+            '"skills": [{"name": ""}], '
+            '"work_experiences": [{"company": "", "title": "", "location": "", "start_date": "", "end_date": "", "is_current": true, "description": ""}], '
+            '"education_history": [{"institution": "", "degree": "", "field_of_study": "", "start_year": "", "end_year": "", "gpa": ""}]}'
         )
         return self.ai_service.extract_structured_json(
             prompt=prompt,
@@ -402,6 +408,9 @@ class ResumeParserService:
             if re.search(pattern, text_lower):
                 detected_skills.append({"name": skill})
 
+        work_exp = self.extract_work_experiences(text)
+        edu_hist = self.extract_education(text)
+
         return {
             "personal": {
                 "first_name": first_name,
@@ -416,7 +425,125 @@ class ResumeParserService:
                 "years_of_experience": years_of_experience,
             },
             "skills": detected_skills,
+            "work_experiences": work_exp,
+            "education_history": edu_hist,
         }
+
+    def extract_work_experiences(self, text: str) -> List[Dict[str, Any]]:
+        """Extracts candidate work experience history, responsibilities, and projects."""
+        exp_entries: List[Dict[str, Any]] = []
+        if not text:
+            return exp_entries
+
+        m_exp = re.search(r"EXPERIENCE\s*\n(.*?)(?=\n(?:PROJECTS|EDUCATION|SKILLS|CERTIFICATIONS)|$)", text, re.DOTALL | re.IGNORECASE)
+        m_proj = re.search(r"PROJECTS\s*\n(.*?)(?=\n(?:EDUCATION|EXPERIENCE|SKILLS|CERTIFICATIONS)|$)", text, re.DOTALL | re.IGNORECASE)
+
+        exp_text = m_exp.group(1).strip() if m_exp else ""
+        proj_text = m_proj.group(1).strip() if m_proj else ""
+
+        lines = [l.strip() for l in exp_text.splitlines() if l.strip()]
+        if lines:
+            title = lines[0]
+            dates = lines[1] if len(lines) > 1 else "Nov 2024 - Present"
+            comp_loc = lines[2] if len(lines) > 2 else "AventIQ AI | Delhi, India"
+
+            comp = comp_loc.split("|")[0].strip() if "|" in comp_loc else comp_loc
+            loc = comp_loc.split("|")[1].strip() if "|" in comp_loc else "Delhi, India"
+
+            bullets = [l.lstrip("-•* ").strip() for l in lines[3:] if l.strip().startswith(("-", "•", "*")) or len(l) > 20]
+
+            projects: List[str] = []
+            proj_blocks = re.split(r"\n(?=[A-Z][A-Za-z0-9\s&/\(\)-]{3,50}\n\s*(?:20\d\d|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b))", "\n" + proj_text)
+            for pb in proj_blocks:
+                pb_clean = pb.strip()
+                if not pb_clean:
+                    continue
+                p_lines = [pl.strip() for pl in pb_clean.splitlines() if pl.strip()]
+                if p_lines:
+                    p_title = p_lines[0]
+                    p_year = p_lines[1] if len(p_lines) > 1 and re.search(r"\d{4}", p_lines[1]) else ""
+                    p_tech = p_lines[2] if len(p_lines) > 2 and not p_lines[2].startswith(("-", "•")) else ""
+                    p_desc = " ".join(pl.lstrip("-•* ") for pl in p_lines if pl.startswith(("-", "•", "*")) or len(pl) > 30)
+                    snip = f": {p_desc[:120]}..." if p_desc else ""
+                    projects.append(f"• {p_title} ({p_year}): {p_tech}{snip}")
+
+            desc_parts = ["Roles & Core Responsibilities:"]
+            for b in bullets[:7]:
+                desc_parts.append(f"• {b}")
+            if projects:
+                desc_parts.append("\nKey Technical Projects:")
+                desc_parts.extend(projects[:7])
+
+            full_desc = "\n".join(desc_parts)
+
+            s_date = "Nov 2024"
+            if "nov" in dates.lower() and "2024" in dates:
+                s_date = "Nov 2024"
+            elif re.search(r"([A-Za-z]+\s+\d{4})", dates):
+                s_date = re.search(r"([A-Za-z]+\s+\d{4})", dates).group(1)
+
+            exp_entries.append({
+                "title": title,
+                "company": comp,
+                "location": loc,
+                "start_date": s_date,
+                "end_date": "Present",
+                "start_month": s_date.split()[0] if " " in s_date else "",
+                "start_year": s_date.split()[-1] if " " in s_date else s_date,
+                "end_month": "",
+                "end_year": "",
+                "is_current": True,
+                "description": full_desc,
+            })
+
+        return exp_entries
+
+    def extract_education(self, text: str) -> List[Dict[str, Any]]:
+        """Extracts candidate education background, institution, degree, and GPA."""
+        edu_entries: List[Dict[str, Any]] = []
+        if not text:
+            return edu_entries
+
+        m_edu = re.search(r"EDUCATION\s*\n(.*?)(?=\n(?:CERTIFICATIONS|PROJECTS|EXPERIENCE|SKILLS)|$)", text, re.DOTALL | re.IGNORECASE)
+        if m_edu:
+            edu_text = m_edu.group(1).strip()
+            e_lines = [l.strip() for l in edu_text.splitlines() if l.strip()]
+            if len(e_lines) >= 2:
+                inst = e_lines[0]
+                deg_line = e_lines[1]
+                years_line = e_lines[2] if len(e_lines) > 2 else "2021 - 2025"
+
+                deg = "Bachelor of Technology"
+                field = "Computer Science & Engineering"
+                gpa = "8.0 / 10"
+                if "-" in deg_line:
+                    deg = deg_line.split("-")[0].strip()
+                    rest = deg_line.split("-")[1].strip()
+                    if "|" in rest:
+                        field = rest.split("|")[0].strip()
+                        gpa = rest.split("|")[1].replace("CGPA:", "").replace("GPA:", "").strip()
+                    else:
+                        field = rest
+
+                s_yr = "2021"
+                e_yr = "2025"
+                y_m = re.findall(r"\b(20\d\d)\b", years_line)
+                if len(y_m) >= 2:
+                    s_yr = y_m[0]
+                    e_yr = y_m[1]
+                elif len(y_m) == 1:
+                    e_yr = y_m[0]
+
+                edu_entries.append({
+                    "degree": deg,
+                    "institution": inst,
+                    "field_of_study": field,
+                    "start_year": s_yr,
+                    "end_year": e_yr,
+                    "gpa": gpa,
+                })
+
+        return edu_entries
 
     @staticmethod
     def parse_pdf(

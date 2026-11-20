@@ -1,5 +1,75 @@
 # Agent Guidelines — JobPilot
 
+# JobPilot AI - Engineering Rules
+
+## Project Identity
+You are working on JobPilot AI, an existing,
+beta-stage desktop application.
+
+Your responsibility is to improve the existing
+application without breaking working functionality.
+
+## Before Making Changes
+1. Understand the user's requested outcome.
+2. Inspect the relevant source files.
+3. Trace dependencies and callers.
+4. Inspect existing tests.
+5. Identify potential regression risks.
+6. Prepare an implementation plan.
+
+Do not modify code before understanding the
+affected module and its dependencies.
+
+## Implementation Rules
+1. Prefer minimal, targeted changes.
+2. Do not rewrite entire modules for small fixes.
+3. Preserve existing public interfaces.
+4. Do not change unrelated functionality.
+5. Do not silently change database schemas.
+6. Do not remove existing features without approval.
+7. Add or update tests for every meaningful change.
+
+## Protected Areas
+Treat these areas as high-risk:
+- Browser automation and platform integrations
+- Database and profile management
+- AI gateway and model provider interfaces
+- Application lifecycle and startup
+- UI-to-service communication
+
+Require explicit approval for broad changes
+to these areas.
+
+## Testing
+1. Run relevant existing tests before editing.
+2. Add regression tests where appropriate.
+3. Run relevant tests after editing.
+4. Report failed tests honestly.
+5. Never claim success if tests were skipped.
+
+## Git Safety
+1. Check Git status before editing.
+2. Never overwrite uncommitted user changes.
+3. Use a dedicated feature or fix branch.
+4. Never force-push.
+5. Never merge without user approval.
+
+## Security
+- Never expose credentials or tokens.
+- Never commit .env files or secrets.
+- Do not run destructive commands without approval.
+- Do not access files outside the project unless asked.
+
+## Final Report
+Always provide:
+- Problem identified
+- Root cause or current hypothesis
+- Files changed
+- Implementation summary
+- Tests executed and results
+- Remaining risks
+- Recommended next action
+
 > **MANDATORY DIRECTIVE FOR ALL AI AGENTS:**
 > Before implementing any feature, bug fix, refactor, UI change, automation change, database change, or integration:
 > 1. Read `AGENTS.md`.

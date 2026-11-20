@@ -729,7 +729,12 @@ class IndeedPlatform(BasePlatformApplier):
             cfg = self.platform_config or {}
             stealth = cfg.get("stealth_mode", True)
             headless = cfg.get("run_in_background", False)
-            self.browser = IndeedBrowser(stealth=stealth, headless=headless, user_id=self.user_id)
+            self.browser = IndeedBrowser(
+                stealth=stealth,
+                headless=headless,
+                user_id=self.user_id,
+                automation_bridge=self.automation_bridge,
+            )
             self.browser.start()
 
         from platforms.indeed.applier import IndeedApplier
@@ -765,8 +770,10 @@ class IndeedPlatform(BasePlatformApplier):
             self.initialize()
 
         from platforms.indeed.selectors import HOME_URL
+        print_lg(f"[IndeedPlatform] Navigating to Indeed portal ({HOME_URL})...")
         self.browser.navigate(HOME_URL)
         time.sleep(2)
+        print_lg("[IndeedPlatform] Dismissing transient dialogs and verifying session...")
         self.browser.dismiss_alerts_and_popups()
 
         if self.browser.is_logged_in():

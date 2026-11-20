@@ -69,10 +69,14 @@ class LogsView(QWidget):
         self,
         log_file_path: Optional[Path] = None,
         parent: Optional[QWidget] = None,
+        log_service: Optional[Any] = None,
     ):
         super().__init__(parent)
         self.app_state: Optional[AppState] = None
         self.automation_manager = None
+
+        if not log_file_path and log_service:
+            log_file_path = getattr(log_service, "log_path", None)
 
         # Core Domain Infrastructure
         self.registry = RunRegistry()
@@ -107,6 +111,14 @@ class LogsView(QWidget):
 
         # Initial read of existing logs
         self._poll_log_file()
+
+    @property
+    def console(self):
+        return self.tab_raw_console.editor
+
+    @property
+    def txt_search(self):
+        return self.tab_raw_console.search_input
 
     def closeEvent(self, event) -> None:
         try:

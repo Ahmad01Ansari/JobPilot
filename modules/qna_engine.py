@@ -239,6 +239,7 @@ class QnAEngine:
         self.desired_salary = self.prof.get("desired_salary", 550000)
         self.current_ctc = self.prof.get("current_ctc", 350000)
         self.notice_period = self.prof.get("notice_period_days", 30)
+        self.salary_currency = str(self.prof.get("salary_currency") or self.personal.get("currency") or "INR").upper()
 
         self.full_name = f"{self.personal.get('first_name', '')} {self.personal.get('middle_name', '')} {self.personal.get('last_name', '')}".replace("  ", " ").strip()
 
@@ -254,6 +255,15 @@ class QnAEngine:
         lbl = question_label.lower().strip()
 
         # Priority 1: Specific Unit conversions (Calculations)
+        is_salary_amount_query = (
+            any(w in lbl for w in ["expectation", "expected", "desired", "what are your", "enter your", "enter the amount", "how much"])
+            and any(w in lbl for w in ["salary", "pay", "compensation", "ctc"])
+        )
+        if not is_salary_amount_query and (any(w in lbl for w in ["pay unit", "salary unit", "pay currency", "salary currency", "currency type"]) or lbl.strip().rstrip("*").strip() == "currency" or "select currency" in lbl):
+            currency_code = getattr(self, "salary_currency", "INR") or "INR"
+            ans = Answer(value=currency_code, source="profile", confidence=1.0)
+            return validate_answer(ans, question_label)
+
         if any(w in lbl for w in ["ctc", "salary", "pay", "compensation"]):
             if any(u in lbl for u in ["lakh", "lac", "lpa"]):
                 salary_val = self.current_ctc if any(w in lbl for w in ["current", "present"]) else self.desired_salary
@@ -842,6 +852,10 @@ class QnAEngine:
                     target = self.personal.get("state", "Delhi")
                 else:
                     target = self.personal.get("current_city", work_location or "Delhi")
+            elif any(w in lbl for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
+                target = getattr(self, "salary_currency", "INR") or "INR"
+                source = "profile"
+                confidence = 0.99
             elif any(w in lbl for w in ["how did you hear", "hear about", "how did you learn", "learn about", "where did you hear", "where did you find", "referral source", "source of referral"]):
                 target = "LinkedIn"
                 source = "rule"
@@ -985,7 +999,32 @@ class QnAEngine:
             if opt.strip().lower() == target_lower:
                 return opt
 
-        # 2. Direct bidirectional substring match
+        # 2. Currency Specific Matching
+        currency_markers = ["inr", "usd", "eur", "gbp", "cad", "aud", "rupee", "rupees", "indian rupee", "dollar", "dollars", "₹", "$", "€", "£"]
+        target_is_currency = target_lower in currency_markers
+        pool_has_currency = any(any(c in opt.lower() for c in ["inr", "usd", "rupee", "dollar", "₹", "$"]) for opt in pool)
+        if target_is_currency or pool_has_currency:
+            pref_curr = str(getattr(self, "salary_currency", "INR") or "INR").lower()
+            if target_lower in ["inr", "rupee", "rupees", "indian rupee", "₹"] or pref_curr == "inr":
+                for opt in pool:
+                    opt_l = opt.lower()
+                    if any(c in opt_l for c in ["inr", "rupee", "₹", "indian"]):
+                        return opt
+                for opt in pool:
+                    opt_l = opt.lower()
+                    if any(c in opt_l for c in ["usd", "$", "dollar"]):
+                        return opt
+            elif target_lower in ["usd", "dollar", "dollars", "us dollar", "$"] or pref_curr == "usd":
+                for opt in pool:
+                    opt_l = opt.lower()
+                    if any(c in opt_l for c in ["usd", "$", "dollar"]):
+                        return opt
+                for opt in pool:
+                    opt_l = opt.lower()
+                    if any(c in opt_l for c in ["inr", "rupee", "₹"]):
+                        return opt
+
+        # 3. Direct bidirectional substring match
         for opt in pool:
             opt_lower = opt.strip().lower()
             if opt_lower in target_lower or target_lower in opt_lower:

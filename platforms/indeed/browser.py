@@ -70,6 +70,7 @@ class IndeedBrowser:
         self.profile_dir = profile_dir or DEFAULT_INDEED_PROFILE_DIR
         self.headless = headless if headless is not None else run_in_background
         self.stealth = stealth
+        self.automation_bridge = kwargs.get("automation_bridge") or kwargs.get("bridge")
         self.driver: Optional[Any] = None
         self.wait: Optional[WebDriverWait] = None
         self.actions: Optional[ActionChains] = None
@@ -120,6 +121,7 @@ class IndeedBrowser:
         from modules.open_chrome import find_chrome_executable, get_installed_chrome_major_version
         chrome_path = find_chrome_executable()
         chrome_major = get_installed_chrome_major_version()
+        print_lg(f"[IndeedBrowser] Initializing stealth Chrome binary (v{chrome_major or 'auto'}, headless={self.headless})...")
 
         def _get_launch_kwargs():
             kw = {
@@ -145,6 +147,7 @@ class IndeedBrowser:
             uc = _get_uc()
             self.driver = uc.Chrome(**_get_launch_kwargs())
 
+        print_lg("[IndeedBrowser] Chrome browser window active and configured.")
         self.driver.maximize_window()
         try:
             self.driver.set_page_load_timeout(35)
@@ -361,6 +364,16 @@ class IndeedBrowser:
             time.sleep(2)
             self.dismiss_alerts_and_popups()
 
+            # Dynamic OTP injection from Copilot chat or automation bridge
+            bridge = getattr(self, "automation_bridge", None)
+            if bridge and hasattr(bridge, "get_pending_input"):
+                pending = bridge.get_pending_input(clear=True)
+                if pending:
+                    digits = "".join(filter(str.isdigit, pending))
+                    if digits:
+                        print_lg(f"[IndeedBrowser] Received OTP verification code via automation bridge. Injecting into form...")
+                        self._inject_otp_code(digits)
+
             if self.is_logged_in():
                 print_lg("[IndeedBrowser] Successfully authenticated! Session saved to profile.")
                 return True
@@ -370,6 +383,65 @@ class IndeedBrowser:
                 print_lg(f"[IndeedBrowser] Waiting for login completion ({rem}s remaining)...")
 
         print_lg("[IndeedBrowser] Authentication timed out.")
+        return False
+
+    def _inject_otp_code(self, code: str) -> bool:
+        """Injects OTP verification code delivered via Copilot chat or automation bridge."""
+        if not self.driver or not code:
+            return False
+        try:
+            inp_elem = None
+            for sel in OTP_PASSCODE_INPUT:
+                try:
+                    elems = self.driver.find_elements(By.CSS_SELECTOR, sel)
+                    for el in elems:
+                        if el.is_displayed():
+                            inp_elem = el
+                            break
+                    if inp_elem:
+                        break
+                except Exception:
+                    continue
+
+            if not inp_elem:
+                try:
+                    candidates = self.driver.find_elements(
+                        By.XPATH,
+                        "//input[@type='tel' or @type='number' or contains(@id, 'passcode') or contains(@name, 'passcode') or contains(@id, 'otp') or contains(@name, 'otp') or contains(@id, 'code')]"
+                    )
+                    for el in candidates:
+                        if el.is_displayed():
+                            inp_elem = el
+                            break
+                except Exception:
+                    pass
+
+            if inp_elem:
+                inp_elem.clear()
+                inp_elem.send_keys(code)
+                time.sleep(0.5)
+
+                # Click submit
+                sub_btn = None
+                for b_sel in OTP_SUBMIT_BUTTON:
+                    try:
+                        for b in self.driver.find_elements(By.XPATH, b_sel):
+                            if b.is_displayed():
+                                sub_btn = b
+                                break
+                        if sub_btn:
+                            break
+                    except Exception:
+                        continue
+
+                if sub_btn:
+                    self.driver.execute_script("arguments[0].click();", sub_btn)
+                else:
+                    inp_elem.send_keys(Keys.ENTER)
+                time.sleep(2)
+                return True
+        except Exception as e:
+            print_lg(f"[IndeedBrowser] Error injecting OTP code: {e}")
         return False
 
     def is_alive(self) -> bool:

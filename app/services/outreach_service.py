@@ -23,6 +23,7 @@ from app.db.models import (
 from app.db.session import SessionLocal, get_db_session
 from app.repositories.application_repository import ApplicationRepository
 from app.repositories.email_template_repository import EmailTemplateRepository
+from app.repositories.user_repository import UserRepository
 from app.services.dto.outreach_dto import (
     ConnectionStatusDTO,
     DuplicateMatchResultDTO,

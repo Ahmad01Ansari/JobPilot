@@ -9,11 +9,12 @@ import time
 import random
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Callable
+from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 
 from modules.models import Job
 from modules.config_loader import get_platform
-from modules.qualification_engine import QualificationEngine, QualificationResult
+from modules.qualification_engine import QualificationEngine, QualificationResult, is_job_relevant
 from modules.tracker import ApplicationTracker
 from platforms.foundit.search import FounditSearch
 from platforms.foundit.parser import FounditJobParser
@@ -306,6 +307,21 @@ class FounditRotator:
                             self.tracker.record_state(job, "SKIPPED", skip_reason="NOT_EASY_APPLY")
                         term_stats.jobs_skipped += 1
                         rot_stats.jobs_skipped += 1
+                        continue
+
+                    # Pre-filter: Keyword Relevance Guard
+                    neg_title_words = getattr(self.qualification_engine, "negative_title_words", None)
+                    core_skills = getattr(self.qualification_engine, "core_skills", None)
+                    if not is_job_relevant(job.title, term, core_skills=core_skills, negative_words=neg_title_words):
+                        skip_msg = f"Title '{job.title}' does not match keyword '{term}'"
+                        print_lg(f"[FounditRotator] Relevance check SKIP for '{job.title}': {skip_msg}")
+                        if hasattr(self.tracker, "record_skipped"):
+                            self.tracker.record_skipped(job, reason=skip_msg)
+                        elif hasattr(self.tracker, "record_state"):
+                            self.tracker.record_state(job, "SKIPPED", skip_reason=skip_msg)
+                        term_stats.jobs_skipped += 1
+                        rot_stats.jobs_skipped += 1
+                        consecutive_skips += 1
                         continue
 
                     # Stage 1 Qualification (Fast Title & Company Check)

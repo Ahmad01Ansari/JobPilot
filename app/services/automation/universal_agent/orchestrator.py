@@ -12,7 +12,7 @@ import logging
 import os
 import random
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.services.automation.universal_agent.browser_agent.base import BrowserAgent
 from app.services.automation.universal_agent.browser_agent.session_manager import UniversalSessionManager
@@ -349,13 +349,23 @@ class UniversalApplicationOrchestrator:
             )
             nav_ok = await self.browser_agent.navigate(portal_url)
             if not nav_ok:
-                self.state_machine.pause_for_intervention(
-                    reason=InterventionReason.NAVIGATION_OR_NETWORK_STALL,
-                    message=f"Failed to navigate to {portal_url}",
-                )
-                res = await self.intervention_manager.wait_for_resolution()
-                if res.resolution_action != "RESUME":
-                    return self._build_result(current_url, job_title, company)
+                current_url = await self.browser_agent.get_url()
+                from urllib.parse import urlparse
+                dest_host = urlparse(portal_url).netloc.lower()
+                curr_host = urlparse(current_url).netloc.lower() if current_url else ""
+                if curr_host and (dest_host in curr_host or curr_host in dest_host):
+                    logger.info("Browser reached target host (%s) despite navigation timeout. Proceeding...", current_url)
+                    nav_ok = True
+                else:
+                    self.intervention_manager.trigger_intervention(
+                        self.state_machine,
+                        reason=InterventionReason.NAVIGATION_OR_NETWORK_STALL,
+                        message=f"Failed to navigate to {portal_url}. Please navigate manually or check connectivity.",
+                        details={"url": portal_url},
+                    )
+                    res = await self.intervention_manager.wait_for_resolution()
+                    if res.resolution_action != "RESUME":
+                        return self._build_result(current_url, job_title, company)
 
             # 3. Step Loop (Single page application or multi-step wizard)
             for step_idx in range(start_step, max_wizard_steps + 1):
@@ -466,8 +476,40 @@ class UniversalApplicationOrchestrator:
                         reason = InterventionReason.TWO_FACTOR_AUTH
                         msg = "One-time verification code (OTP) required. Please check your email or phone, enter the code in the browser window, then click 'I've Solved It / Continue'."
                     else:
+                        # Check if user has an existing account in SecretsService / Account Registry for this portal / company
+                        has_acct = self.workday_account_service.has_account(current_url, company_name=company)
+                        # If NO account exists in the vault, check if there is a "Create an account" / "Register" link
+                        if not has_acct:
+                            js_probe_create_acct = """(() => {
+                                const createLink = document.querySelector(
+                                    '[data-automation-id="createAccountLink"], [data-automation-id="tab-createAccount"], ' +
+                                    '#createAccountBtn, a[href*="createAccount" i], a[href*="createaccount" i], a[href*="register" i], ' +
+                                    'button[id*="createaccount" i], a[class*="create-account" i], [data-qa*="create-account" i]'
+                                ) || Array.from(document.querySelectorAll('a, button, [role="tab"], span')).find(el => {
+                                    const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                    return t === 'create an account' || t === 'create account' || t === 'register' || t === 'new user' ||
+                                           t.startsWith('create an account') || t.startsWith('create account');
+                                });
+                                if (createLink) {
+                                    try { createLink.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                                    createLink.click();
+                                    return true;
+                                }
+                                return false;
+                            })()"""
+                            try:
+                                switched_to_create = bool(await self.browser_agent.evaluate(js_probe_create_acct))
+                                if switched_to_create:
+                                    logger.info("No saved credentials for portal (%s). Proactively switched to 'Create Account'.", current_url)
+                                    await asyncio.sleep(1.5)
+                                    analysis = await self.page_analyzer.analyze(self.browser_agent)
+                                    self._last_analysis = analysis
+                                    continue
+                            except Exception as e:
+                                logger.debug("Auto-switch to Create Account error: %s", e)
+
                         reason = InterventionReason.LOGIN_REQUIRED
-                        msg = f"Security gate detected: {analysis.challenge_detected}"
+                        msg = f"Sign in required for {company or 'employer portal'}. Please sign in or provide credentials."
 
                     self.intervention_manager.trigger_intervention(
                         self.state_machine,
@@ -487,8 +529,9 @@ class UniversalApplicationOrchestrator:
                     analysis = await self.page_analyzer.analyze(self.browser_agent)
                     self._last_analysis = analysis
 
-                # Check if current page is an overview/landing page with 0 form fields
-                if len(analysis.fields) == 0:
+                # Check if current page is an overview/landing page with 0 form fields or unstarted application with entry buttons
+                is_overview_or_entry_page = (len(analysis.fields) == 0) or (latest_fill_result is None and bool(analysis.apply_now_buttons))
+                if is_overview_or_entry_page:
                     # If forms were already filled in prior steps, check if the page is already confirmed / thank-you
                     if latest_fill_result is not None:
                         verification = await self.result_verifier.verify_submission(self.browser_agent)
@@ -599,6 +642,117 @@ class UniversalApplicationOrchestrator:
                             continue
                     except Exception as e:
                         logger.debug("Workday entry modal probe error: %s", e)
+
+                    # Sequential Apply Dropdown / Multi-Stage Apply Check (e.g. Jobs2Web / SAP SuccessFactors Bunge, etc.)
+                    # If dropdown is already open and manual apply is visible, click it.
+                    # If dropdown button exists and we need an entry click, expand it.
+                    js_check_j2w_apply = """(() => {
+                        // 1. Check if direct / manual apply link is visible (in open dropdown, inline, or modal)
+                        const directApplyCandidates = Array.from(document.querySelectorAll(
+                            '#applyOption-top-manual, #applyOption-bottom-manual, ' +
+                            'a[id*="manual" i][class*="apply" i], a[id*="applyOption" i], ' +
+                            '.dropdown-menu.show a, .dropdown-menu.open a, .open > .dropdown-menu a, ' +
+                            '.btn-social-apply .dropdown-menu a, .social-apply-button-container .dropdown-menu a, ' +
+                            '.dropdown-menu a, [class*="dropdown-menu" i] a, [class*="dropdown-menu" i] button'
+                        ));
+                        for (const opt of directApplyCandidates) {
+                            if (opt.offsetWidth === 0 && opt.offsetHeight === 0) continue;
+                            const t = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                            if (/linkedin|indeed|facebook|google|twitter|social|share/i.test(t)) continue;
+                            if (/^(apply(\s*now)?|apply\s*manually|standard\s*apply|direct\s*apply)$/i.test(t) || (opt.id && /manual/i.test(opt.id))) {
+                                try { opt.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                                opt.click();
+                                return 'clicked_manual';
+                            }
+                        }
+
+                        // 2. Check if a closed social apply or multi-stage apply dropdown exists
+                        const toggleCandidates = Array.from(document.querySelectorAll(
+                            '.btn-social-apply button.dropdown-toggle, .social-apply-button-container button.dropdown-toggle, ' +
+                            'button[data-toggle="dropdown"], .dropdown-toggle[aria-haspopup="true"], [data-toggle="dropdown"]'
+                        ));
+                        for (const toggle of toggleCandidates) {
+                            if (toggle.offsetWidth === 0 && toggle.offsetHeight === 0) continue;
+                            const tTxt = (toggle.innerText || toggle.textContent || '').trim().toLowerCase();
+                            if (/apply/i.test(tTxt)) {
+                                try { toggle.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                                toggle.click();
+                                return 'opened_dropdown';
+                            }
+                        }
+                        return false;
+                    })()"""
+                    try:
+                        j2w_action_res = self.browser_agent.evaluate(js_check_j2w_apply)
+                        j2w_action = await j2w_action_res if asyncio.iscoroutine(j2w_action_res) else j2w_action_res
+                        if j2w_action == "clicked_manual":
+                            logger.info("Sequential manual apply link clicked. Waiting for ATS redirect...")
+                            self.state_machine.transition_to(
+                                AgentExecutionState.NAVIGATING,
+                                message="Sequential 'Apply Now' manual option selected.",
+                            )
+                            for _ in range(16):
+                                await asyncio.sleep(0.5)
+                                new_u = await self.browser_agent.get_url()
+                                if new_u and ("successfactors" in new_u.lower() or "apply" in new_u.lower() or "careers" in new_u.lower()):
+                                    current_url = new_u
+                                    break
+                            if hasattr(self.browser_agent, "sync_active_page"):
+                                sync_r_j = self.browser_agent.sync_active_page()
+                                if asyncio.iscoroutine(sync_r_j):
+                                    await sync_r_j
+                            current_url = await self.browser_agent.get_url()
+                            analysis = await self.page_analyzer.analyze(self.browser_agent)
+                            self._last_analysis = analysis
+                            continue
+                        elif j2w_action == "opened_dropdown":
+                            logger.info("Sequential apply dropdown opened. Settling and selecting revealed manual apply option...")
+                            await asyncio.sleep(0.5)
+                            try:
+                                sub_click_res = self.browser_agent.evaluate("""(() => {
+                                    const opts = Array.from(document.querySelectorAll(
+                                        '#applyOption-top-manual, #applyOption-bottom-manual, ' +
+                                        'a[id*="manual" i][class*="apply" i], a[id*="applyOption" i], ' +
+                                        '.dropdown-menu.show a, .dropdown-menu.open a, .open > .dropdown-menu a, ' +
+                                        '.btn-social-apply .dropdown-menu a, .social-apply-button-container .dropdown-menu a, ' +
+                                        '.dropdown-menu a, [class*="dropdown-menu" i] a'
+                                    ));
+                                    for (const opt of opts) {
+                                        if (opt.offsetWidth === 0 && opt.offsetHeight === 0) continue;
+                                        const t = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                                        if (/linkedin|indeed|facebook|google|twitter|social|share/i.test(t)) continue;
+                                        if (/^(apply(\s*now)?|apply\s*manually|standard\s*apply|direct\s*apply)$/i.test(t) || (opt.id && /manual/i.test(opt.id))) {
+                                            try { opt.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
+                                            opt.click();
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                })()""")
+                                if bool(await sub_click_res if asyncio.iscoroutine(sub_click_res) else sub_click_res):
+                                    logger.info("Revealed manual apply option clicked successfully.")
+                                    self.state_machine.transition_to(
+                                        AgentExecutionState.NAVIGATING,
+                                        message="Sequential 'Apply Now' manual option selected.",
+                                    )
+                                    for _ in range(16):
+                                        await asyncio.sleep(0.5)
+                                        new_u = await self.browser_agent.get_url()
+                                        if new_u and ("successfactors" in new_u.lower() or "apply" in new_u.lower() or "careers" in new_u.lower()):
+                                            current_url = new_u
+                                            break
+                            except Exception as sub_err:
+                                logger.debug("Sub-apply option probe error: %s", sub_err)
+                            if hasattr(self.browser_agent, "sync_active_page"):
+                                sync_r_j = self.browser_agent.sync_active_page()
+                                if asyncio.iscoroutine(sync_r_j):
+                                    await sync_r_j
+                            current_url = await self.browser_agent.get_url()
+                            analysis = await self.page_analyzer.analyze(self.browser_agent)
+                            self._last_analysis = analysis
+                            continue
+                    except Exception as e:
+                        logger.debug("Sequential apply dropdown probe error: %s", e)
 
                     # BUG-08: Check if application form is embedded inside an iframe (e.g. Greenhouse/Jobvite widget)
                     if len(analysis.fields) == 0 and not is_wizard_final_step:
@@ -833,20 +987,28 @@ class UniversalApplicationOrchestrator:
                                 return self._build_result(current_url, job_title, company)
                             continue
 
-                # Workday Proactive Sign In vs Create Account Branching
-                # Strictly isolated to Workday ATS portals to prevent mixing up with Greenhouse, Lever, etc.
+                # Universal ATS Proactive Sign In vs Create Account Branching (SuccessFactors, Workday, Taleo, etc.)
                 is_workday = WorkdayAccountService.is_workday_portal(current_url)
-                if is_workday and len(analysis.fields) > 0:
+                has_auth_gate = any(f.input_type == "password" or "password" in (f.name + " " + (f.label or "")).lower() for f in analysis.fields)
+                if has_auth_gate and len(analysis.fields) > 0:
                     has_acct = self.workday_account_service.has_account(current_url, company_name=company)
                     has_verify_pwd = any(f.name == "verifyPassword" or "verify" in (f.field_id or "").lower() or (f.label and "verify" in f.label.lower()) for f in analysis.fields)
-                    has_sign_in_btn = any("signinsubmit" in b.get("selector", "").lower() or b.get("text", "").lower() == "sign in" for b in analysis.next_buttons + analysis.submit_buttons)
+                    has_sign_in_btn = any("signinsubmit" in b.get("selector", "").lower() or b.get("text", "").lower() in ["sign in", "log in", "login"] for b in analysis.next_buttons + analysis.submit_buttons)
 
                     if has_acct and has_verify_pwd:
-                        logger.info("Workday tenant detected with existing account in DB (%s). Proactively switching to 'Sign In' tab.", current_url)
+                        logger.info("Portal account detected in DB (%s). Proactively switching to 'Sign In' tab.", current_url)
                         js_switch_signin = """(() => {
-                            const btn = document.querySelector('[data-automation-id="signInLink"], [data-automation-id="tab-signIn"]') ||
-                                        Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => (el.innerText || '').trim().toLowerCase() === 'sign in');
+                            const btn = document.querySelector(
+                                '[data-automation-id="signInLink"], [data-automation-id="tab-signIn"], ' +
+                                '#signInBtn, #login_button, a[href*="login" i], a[href*="signin" i], ' +
+                                'button[id*="signin" i], button[id*="login" i]'
+                            ) || Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => {
+                                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                return t === 'sign in' || t === 'log in' || t === 'login' || t === 'signin' ||
+                                       t.includes('already have an account') || t.startsWith('sign in');
+                            });
                             if (btn) {
+                                try { btn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
                                 btn.click();
                                 return true;
                             }
@@ -859,13 +1021,20 @@ class UniversalApplicationOrchestrator:
                                 analysis = await self.page_analyzer.analyze(self.browser_agent)
                                 self._last_analysis = analysis
                         except Exception as e:
-                            logger.debug("Workday switch to Sign In error: %s", e)
+                            logger.debug("Switch to Sign In error: %s", e)
                     elif not has_acct and has_sign_in_btn and not has_verify_pwd:
-                        logger.info("Workday tenant detected with NO existing account in DB (%s). Proactively switching to 'Create Account' tab.", current_url)
+                        logger.info("Portal detected with NO existing account in DB (%s). Proactively switching to 'Create Account' tab.", current_url)
                         js_switch_create = """(() => {
-                            const btn = document.querySelector('[data-automation-id="createAccountLink"], [data-automation-id="tab-createAccount"]') ||
-                                        Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => (el.innerText || '').trim().toLowerCase() === 'create account');
+                            const btn = document.querySelector(
+                                '[data-automation-id="createAccountLink"], [data-automation-id="tab-createAccount"], ' +
+                                '#createAccountBtn, a[href*="createAccount" i], a[href*="register" i], ' +
+                                'button[id*="createaccount" i], a[class*="create-account" i], [data-qa*="create-account" i]'
+                            ) || Array.from(document.querySelectorAll('a, button, [role="tab"]')).find(el => {
+                                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                                return t === 'create an account' || t === 'create account' || t === 'register' || t === 'new user';
+                            });
                             if (btn) {
+                                try { btn.scrollIntoView({ behavior: 'instant', block: 'center' }); } catch(e) {}
                                 btn.click();
                                 return true;
                             }
@@ -878,7 +1047,7 @@ class UniversalApplicationOrchestrator:
                                 analysis = await self.page_analyzer.analyze(self.browser_agent)
                                 self._last_analysis = analysis
                         except Exception as e:
-                            logger.debug("Workday switch to Create Account error: %s", e)
+                            logger.debug("Switch to Create Account error: %s", e)
 
                 # B. MAPPING FIELDS
                 self.state_machine.transition_to(
@@ -1079,10 +1248,13 @@ class UniversalApplicationOrchestrator:
                         if asyncio.iscoroutine(sync_r):
                             await sync_r
 
-                    # Workday account persistence: Record company registration on successful submit
-                    if is_workday and click_ok and any(k in (next_sel + ' ' + next_txt).lower() for k in ["createaccount", "create account", "signin", "sign in"]):
+                    # Portal account persistence: Record company registration on successful submit
+                    if click_ok and any(k in (next_sel + ' ' + next_txt).lower() for k in ["createaccount", "create account", "signin", "sign in"]):
                         cand_email = (
-                            self.candidate_context.get("profile", {}).get("user.email")
+                            self.candidate_context.get("user.email")
+                            or self.candidate_context.get("workday_username")
+                            or self.candidate_context.get("email")
+                            or self.candidate_context.get("profile", {}).get("user.email")
                             or self.candidate_context.get("profile", {}).get("workday_username")
                             or ""
                         )
@@ -1132,9 +1304,13 @@ class UniversalApplicationOrchestrator:
                         switched = bool(await self.browser_agent.evaluate(js_check_existing_acct))
                         if switched:
                             logger.info("Workday existing account detected. Switched to 'Sign In' mode.")
-                            if is_workday:
+                            is_jobs2web = any(k in (current_url or "").lower() for k in ["jobs2web", "successfactors"])
+                            if is_workday or is_jobs2web:
                                 cand_email = (
-                                    self.candidate_context.get("profile", {}).get("user.email")
+                                    self.candidate_context.get("user.email")
+                                    or self.candidate_context.get("workday_username")
+                                    or self.candidate_context.get("email")
+                                    or self.candidate_context.get("profile", {}).get("user.email")
                                     or self.candidate_context.get("profile", {}).get("workday_username")
                                     or ""
                                 )
@@ -1751,6 +1927,23 @@ class UniversalApplicationOrchestrator:
                     term_res = TerminalResult.SUBMISSION_STATUS_UNKNOWN
 
         is_success = (term_res == TerminalResult.SUCCESS_SUBMITTED)
+        if is_success:
+            cand_email = (
+                self.candidate_context.get("user.email")
+                or self.candidate_context.get("workday_username")
+                or self.candidate_context.get("email")
+                or self.candidate_context.get("profile", {}).get("user.email")
+                or self.candidate_context.get("profile", {}).get("workday_username")
+                or ""
+            )
+            try:
+                self.workday_account_service.record_account(
+                    url=current_url or "",
+                    company_name=company,
+                    username=cand_email,
+                )
+            except Exception as rec_err:
+                logger.debug("Failed to record company account on submission success: %s", rec_err)
         ref_num = verification.reference_number if verification else (snapshot.reference_number if snapshot else None)
 
         return OrchestrationResult(

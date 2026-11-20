@@ -294,6 +294,70 @@
             color: #9333ea;
         }
 
+        .badge-plat-indeed {
+            background: rgba(33, 100, 243, 0.15);
+            color: #2563eb;
+            border: 1px solid rgba(33, 100, 243, 0.3);
+        }
+
+        .badge-plat-universal {
+            background: rgba(124, 58, 237, 0.15);
+            color: #8b5cf6;
+            border: 1px solid rgba(124, 58, 237, 0.3);
+        }
+
+        .badge-plat-linkedin {
+            background: rgba(10, 102, 194, 0.15);
+            color: #0a66c2;
+            border: 1px solid rgba(10, 102, 194, 0.3);
+        }
+
+        .badge-plat-naukri {
+            background: rgba(2, 132, 199, 0.15);
+            color: #0284c7;
+            border: 1px solid rgba(2, 132, 199, 0.3);
+        }
+
+        .badge-plat-glassdoor {
+            background: rgba(5, 150, 105, 0.15);
+            color: #059669;
+            border: 1px solid rgba(5, 150, 105, 0.3);
+        }
+
+        .badge-plat-foundit {
+            background: rgba(217, 119, 6, 0.15);
+            color: #d97706;
+            border: 1px solid rgba(217, 119, 6, 0.3);
+        }
+
+        .badge-plat-email {
+            background: rgba(225, 29, 72, 0.15);
+            color: #e11d48;
+            border: 1px solid rgba(225, 29, 72, 0.3);
+        }
+
+        .badge-ats {
+            background: rgba(124, 58, 237, 0.18);
+            color: #a78bfa;
+            border: 1px solid rgba(124, 58, 237, 0.35);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+        }
+
+        .badge-ref {
+            background: var(--surface-hover);
+            color: var(--muted);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
+            font-family: monospace;
+            display: inline-block;
+        }
+
         /* Outreach Badges */
         .badge-waiting {
             background: rgba(217, 119, 6, 0.15);
@@ -518,34 +582,26 @@
 <body>
     <div class="container">
         <header>
-            <div>
-                <h1>JobPilot Automation Dashboard</h1>
-                <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application Tracker &
-                    Analytics</p>
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <img src="/static/img/jobpilot.png" alt="JobPilot"
-                        style="width: 44px; height: 44px; border-radius: 10px; object-fit: contain;">
-                    <div>
-                        <h1>JobPilot Automation Dashboard</h1>
-                        <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application
-                            Tracker & Analytics</p>
-                    </div>
-                </div>
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <img src="/static/img/jobpilot.png" alt="JobPilot"
+                    style="width: 44px; height: 44px; border-radius: 10px; object-fit: contain;">
                 <div>
-                    <button onclick="refreshData()"
-                        style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer; font-weight: 600;">🔄
-                        Refresh Data</button>
+                    <h1>JobPilot Automation Dashboard</h1>
+                    <p style="margin: 4px 0 0 0; color: var(--muted); font-size: 14px;">Multi-Platform Application Tracker & Analytics</p>
                 </div>
+            </div>
+            <div>
+                <button onclick="refreshData()"
+                    style="padding: 8px 16px; border-radius: 6px; background: var(--primary); color: white; border: none; cursor: pointer; font-weight: 600;">🔄
+                    Refresh Data</button>
+            </div>
         </header>
 
         <!-- Navigation Tabs -->
         <div class="tabs">
-            <button class="tab-btn active" id="btn-unified-tab" onclick="switchTab('unified-tab')">📊 Unified & Naukri
-                Overview</button>
-            <button class="tab-btn" id="btn-linkedin-legacy-tab" onclick="switchTab('linkedin-legacy-tab')">💼 LinkedIn
-                Applied History (Legacy)</button>
-            <button class="tab-btn" id="btn-outreach-tab" onclick="switchTab('outreach-tab')">✉️ Outreach
-                Center</button>
+            <button class="tab-btn active" id="btn-unified-tab" onclick="switchTab('unified-tab')">📊 Unified & Naukri Overview</button>
+            <button class="tab-btn" id="btn-linkedin-legacy-tab" onclick="switchTab('linkedin-legacy-tab')">💼 LinkedIn Applied History (Legacy)</button>
+            <button class="tab-btn" id="btn-outreach-tab" onclick="switchTab('outreach-tab')">✉️ Outreach Center</button>
         </div>
 
         <!-- TAB 1: Unified & Naukri Dashboard -->
@@ -553,27 +609,27 @@
             <!-- Metric Cards -->
             <div class="metrics-grid">
                 <div class="metric-card">
-                    <div class="metric-title">Naukri Evaluated</div>
+                    <div class="metric-title" id="lbl-metric-eval">Total Evaluated (Naukri Evaluated)</div>
                     <div class="metric-value" id="stat-naukri-eval">0</div>
                 </div>
                 <div class="metric-card success">
-                    <div class="metric-title">Naukri Success</div>
+                    <div class="metric-title" id="lbl-metric-success">Applications Submitted (Naukri Success)</div>
                     <div class="metric-value" id="stat-naukri-success">0</div>
                 </div>
                 <div class="metric-card muted">
-                    <div class="metric-title">Naukri Skipped</div>
+                    <div class="metric-title" id="lbl-metric-skipped">Skipped / Filtered</div>
                     <div class="metric-value" id="stat-naukri-skipped">0</div>
                 </div>
                 <div class="metric-card warning">
-                    <div class="metric-title">Manual Required</div>
+                    <div class="metric-title" id="lbl-metric-manual">Manual Action Required</div>
                     <div class="metric-value" id="stat-naukri-manual">0</div>
                 </div>
                 <div class="metric-card danger">
-                    <div class="metric-title">Naukri Failed</div>
+                    <div class="metric-title" id="lbl-metric-failed">Failed / Aborted</div>
                     <div class="metric-value" id="stat-naukri-failed">0</div>
                 </div>
                 <div class="metric-card info">
-                    <div class="metric-title">External Jobs</div>
+                    <div class="metric-title" id="lbl-metric-external">Company Portals & ATS</div>
                     <div class="metric-value" id="stat-naukri-external">0</div>
                 </div>
             </div>
@@ -583,13 +639,15 @@
                 <div class="filter-group">
                     <span class="filter-label">Platform:</span>
                     <select id="platformFilter" onchange="filterUnifiedJobs()">
-                        <option value="">All Platforms</option>
-                        <option value="naukri" selected>Naukri.com</option>
-                        <option value="linkedin">LinkedIn</option>
-                        <option value="email">Email Outreach</option>
+                        <option value="" selected>All Platforms (Unified)</option>
                         <option value="indeed">Indeed</option>
+                        <option value="universal">Universal ATS / Portals (Workday, Greenhouse, etc.)</option>
+                        <option value="naukri">Naukri.com</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="glassdoor">Glassdoor</option>
+                        <option value="foundit">FoundIt</option>
+                        <option value="email">Direct Outreach / Email</option>
                     </select>
-
                 </div>
                 <div class="filter-group">
                     <span class="filter-label">Status:</span>
@@ -605,8 +663,8 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <input type="text" id="searchInput" placeholder="Search by title or company..."
-                        oninput="filterUnifiedJobs()" style="width: 240px;">
+                    <input type="text" id="searchInput" placeholder="Search by title, company, ATS provider..."
+                        oninput="filterUnifiedJobs()" style="width: 260px;">
                 </div>
                 <div class="filter-group">
                     <button id="btnToggleJunk" onclick="toggleJunkMode()"
@@ -625,12 +683,18 @@
                         <th>Company</th>
                         <th>Location</th>
                         <th>Status</th>
+                        <th style="min-width: 130px;">ATS / Method</th>
                         <th>Applied At</th>
                         <th>Reason / Notes</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="unifiedTableBody">
+                    <tr>
+                        <td colspan="10" style="text-align: center; color: var(--muted); padding: 24px;">Loading applications...</td>
+                    </tr>
+                </tbody>
+            </table>
                     <tr>
                         <td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">Loading
                             applications...</td>
@@ -978,6 +1042,16 @@
     <script>
         let unifiedApplications = [];
         let legacyLinkedInJobs = [];
+        let allPlatformStats = null;
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -997,20 +1071,84 @@
             }
         }
 
+        function updateMetricsForCurrentPlatform() {
+            if (!allPlatformStats) return;
+            const platSelect = document.getElementById('platformFilter');
+            const plat = (platSelect ? platSelect.value : '').toLowerCase();
+
+            let stat = null;
+            let labelPrefix = 'Unified';
+            if (!plat) {
+                stat = allPlatformStats.total || { applications: 0, success: 0, skipped: 0, manual_required: 0, failed: 0, external: 0 };
+                labelPrefix = 'Unified';
+            } else {
+                stat = allPlatformStats[plat] || { applications: 0, success: 0, skipped: 0, manual_required: 0, failed: 0, external: 0 };
+                const nameMap = {
+                    'naukri': 'Naukri',
+                    'indeed': 'Indeed',
+                    'universal': 'Universal ATS',
+                    'linkedin': 'LinkedIn',
+                    'glassdoor': 'Glassdoor',
+                    'foundit': 'FoundIt',
+                    'email': 'Outreach'
+                };
+                labelPrefix = nameMap[plat] || plat.toUpperCase();
+            }
+
+            const evalElem = document.getElementById('stat-naukri-eval');
+            const succElem = document.getElementById('stat-naukri-success');
+            const skipElem = document.getElementById('stat-naukri-skipped');
+            const manElem = document.getElementById('stat-naukri-manual');
+            const failElem = document.getElementById('stat-naukri-failed');
+            const extElem = document.getElementById('stat-naukri-external');
+
+            if (evalElem) evalElem.textContent = stat.applications || 0;
+            if (succElem) succElem.textContent = stat.success || 0;
+            if (skipElem) skipElem.textContent = stat.skipped || 0;
+            if (manElem) manElem.textContent = stat.manual_required || 0;
+            if (failElem) failElem.textContent = stat.failed || 0;
+            if (extElem) extElem.textContent = stat.external || 0;
+
+            const lblEval = document.getElementById('lbl-metric-eval');
+            const lblSucc = document.getElementById('lbl-metric-success');
+            const lblSkip = document.getElementById('lbl-metric-skipped');
+            const lblMan = document.getElementById('lbl-metric-manual');
+            const lblFail = document.getElementById('lbl-metric-failed');
+            const lblExt = document.getElementById('lbl-metric-external');
+
+            if (lblEval) lblEval.textContent = `${labelPrefix} Evaluated (Naukri Evaluated)`;
+            if (lblSucc) lblSucc.textContent = `${labelPrefix} Submitted (Naukri Success)`;
+            if (lblSkip) lblSkip.textContent = `${labelPrefix} Skipped / Filtered`;
+            if (lblMan) lblMan.textContent = `${labelPrefix} Manual Required`;
+            if (lblFail) lblFail.textContent = `${labelPrefix} Failed`;
+            if (lblExt) lblExt.textContent = `${labelPrefix} External Portals & ATS`;
+        }
+
         async function loadNaukriStats() {
             try {
-                const res = await fetch('/api/naukri/stats');
+                const res = await fetch('/api/stats');
                 if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('stat-naukri-eval').textContent = data.applications || 0;
-                    document.getElementById('stat-naukri-success').textContent = data.success || 0;
-                    document.getElementById('stat-naukri-skipped').textContent = data.skipped || 0;
-                    document.getElementById('stat-naukri-manual').textContent = data.manual_required || 0;
-                    document.getElementById('stat-naukri-failed').textContent = data.failed || 0;
-                    document.getElementById('stat-naukri-external').textContent = data.external || 0;
+                    allPlatformStats = await res.json();
+                } else {
+                    const fallbackRes = await fetch('/api/naukri/stats');
+                    if (fallbackRes.ok) {
+                        const data = await fallbackRes.json();
+                        allPlatformStats = { naukri: data, total: data };
+                    }
                 }
+                updateMetricsForCurrentPlatform();
             } catch (err) {
-                console.error("Error loading Naukri stats:", err);
+                console.error("Error loading stats:", err);
+                try {
+                    const fallbackRes = await fetch('/api/naukri/stats');
+                    if (fallbackRes.ok) {
+                        const data = await fallbackRes.json();
+                        allPlatformStats = { naukri: data, total: data };
+                        updateMetricsForCurrentPlatform();
+                    }
+                } catch (e) {
+                    console.error("Fallback error:", e);
+                }
             }
         }
 
@@ -1023,7 +1161,6 @@
                     unifiedApplications = await res.json();
                     filterUnifiedJobs();
                 }
-                // Fetch junk count to update badge
                 const junkRes = await fetch('/api/applications?status=JUNK');
                 if (junkRes.ok) {
                     const junkData = await junkRes.json();
@@ -1093,7 +1230,49 @@
             if (st === 'FAILED') return `<span class="badge badge-failed">FAILED</span>`;
             if (st === 'EXTERNAL') return `<span class="badge badge-external">EXTERNAL</span>`;
             if (st === 'JUNK') return `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">JUNK</span>`;
-            return `<span class="badge">${st}</span>`;
+            return `<span class="badge">${escapeHtml(st)}</span>`;
+        }
+
+        function getPlatformBadge(platform) {
+            const p = (platform || 'N/A').toLowerCase();
+            if (p.includes('indeed')) {
+                return `<span class="badge badge-plat-indeed">INDEED</span>`;
+            }
+            if (p.includes('universal') || p.includes('ats')) {
+                return `<span class="badge badge-plat-universal">UNIVERSAL ATS</span>`;
+            }
+            if (p.includes('linkedin')) {
+                return `<span class="badge badge-plat-linkedin">LINKEDIN</span>`;
+            }
+            if (p.includes('naukri')) {
+                return `<span class="badge badge-plat-naukri">NAUKRI</span>`;
+            }
+            if (p.includes('glassdoor')) {
+                return `<span class="badge badge-plat-glassdoor">GLASSDOOR</span>`;
+            }
+            if (p.includes('foundit') || p.includes('monster')) {
+                return `<span class="badge badge-plat-foundit">FOUNDIT</span>`;
+            }
+            if (p.includes('email') || p.includes('outreach')) {
+                return `<span class="badge badge-plat-email">OUTREACH</span>`;
+            }
+            return `<span class="badge badge-platform">${escapeHtml((platform || 'N/A').toUpperCase())}</span>`;
+        }
+
+        function getAtsBadge(job) {
+            let html = '';
+            if (job.ats_provider) {
+                html += `<span class="badge-ats">${escapeHtml(job.ats_provider)}</span>`;
+            } else if (job.application_type) {
+                html += `<span class="badge" style="background: rgba(147, 51, 234, 0.1); color: #9333ea; font-size: 11px;">${escapeHtml(job.application_type)}</span>`;
+            } else {
+                html += `<span style="color: var(--muted); font-size: 11px;">Direct</span>`;
+            }
+
+            if (job.reference_number) {
+                html += `<div style="margin-top: 3px;"><span class="badge-ref" title="Confirmation / Reference #">#${escapeHtml(job.reference_number)}</span></div>`;
+            }
+            return html;
         }
 
         function filterUnifiedJobs() {
@@ -1101,12 +1280,17 @@
             const status = document.getElementById('statusFilter').value.toUpperCase();
             const query = document.getElementById('searchInput').value.toLowerCase().trim();
 
+            updateMetricsForCurrentPlatform();
+
             const filtered = unifiedApplications.filter(job => {
                 const matchPlat = !plat || (job.platform && job.platform.toLowerCase() === plat);
                 const matchStatus = !status || (job.status && job.status.toUpperCase() === status);
                 const matchQuery = !query ||
                     (job.title && job.title.toLowerCase().includes(query)) ||
-                    (job.company && job.company.toLowerCase().includes(query));
+                    (job.company && job.company.toLowerCase().includes(query)) ||
+                    (job.ats_provider && job.ats_provider.toLowerCase().includes(query)) ||
+                    (job.reference_number && job.reference_number.toLowerCase().includes(query)) ||
+                    (job.location && job.location.toLowerCase().includes(query));
                 return matchPlat && matchStatus && matchQuery;
             });
 
@@ -1118,27 +1302,28 @@
             tbody.innerHTML = '';
 
             if (jobs.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--muted); padding: 24px;">No matching applications found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--muted); padding: 24px;">No matching applications found.</td></tr>`;
                 return;
             }
 
             jobs.forEach((job, idx) => {
                 const tr = document.createElement('tr');
                 const reasonText = job.skip_reason || job.failure_reason || '-';
-                const linkHtml = job.source_url ? `<a href="${job.source_url}" target="_blank">View Job ↗</a>` : 'N/A';
+                const linkHtml = job.source_url ? `<a href="${encodeURI(job.source_url)}" target="_blank" rel="noopener noreferrer">View Job ↗</a>` : '<span style="color: var(--muted);">N/A</span>';
                 const actionBtn = (job.status || '').toUpperCase() === 'JUNK'
-                    ? `<button onclick="restoreJob('${job.job_id}', '${job.platform}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #10b981; background: rgba(16,185,129,0.1); color: #10b981;" title="Restore to active repository">↩ Restore</button>`
-                    : `<button onclick="junkJob('${job.job_id}', '${job.platform}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #ef4444; background: rgba(239,68,68,0.1); color: #ef4444;" title="Mark as Junk">🗑 Junk</button>`;
+                    ? `<button onclick="restoreJob('${escapeHtml(job.job_id)}', '${escapeHtml(job.platform)}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #10b981; background: rgba(16,185,129,0.1); color: #10b981;" title="Restore to active repository">↩ Restore</button>`
+                    : `<button onclick="junkJob('${escapeHtml(job.job_id)}', '${escapeHtml(job.platform)}')" style="margin-left: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; border-radius: 4px; border: 1px solid #ef4444; background: rgba(239,68,68,0.1); color: #ef4444;" title="Mark as Junk">🗑 Junk</button>`;
 
                 tr.innerHTML = `
                     <td class="sl-column">${idx + 1}</td>
-                    <td><span class="badge badge-platform">${(job.platform || 'N/A').toUpperCase()}</span></td>
-                    <td><strong>${job.title || 'Untitled'}</strong></td>
-                    <td>${job.company || 'Unknown'}</td>
-                    <td>${job.location || 'India'}</td>
+                    <td>${getPlatformBadge(job.platform)}</td>
+                    <td><strong>${escapeHtml(job.title) || 'Untitled'}</strong></td>
+                    <td>${escapeHtml(job.company) || 'Unknown'}</td>
+                    <td>${escapeHtml(job.location) || '-'}</td>
                     <td>${getStatusBadge(job.status)}</td>
+                    <td>${getAtsBadge(job)}</td>
                     <td>${job.applied_at || job.discovered_at || '-'}</td>
-                    <td style="color: var(--muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${reasonText}">${reasonText}</td>
+                    <td style="color: var(--muted); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(reasonText)}">${escapeHtml(reasonText)}</td>
                     <td>${linkHtml} ${actionBtn}</td>
                 `;
                 tbody.appendChild(tr);
@@ -1300,8 +1485,10 @@
             if (st === 'COMPLETED') return `<span class="badge badge-completed">Completed</span>`;
             if (st === 'PAUSED') return `<span class="badge badge-paused">Paused</span>`;
             return `<span class="badge badge-waiting">Awaiting Reply</span>`;
-            let outreachSearchTimer = null;
-            let currentSuggestedAction = null;
+        }
+
+        let outreachSearchTimer = null;
+        let currentSuggestedAction = null;
 
             function onOutreachSearchInput(val) {
                 if (outreachSearchTimer) clearTimeout(outreachSearchTimer);

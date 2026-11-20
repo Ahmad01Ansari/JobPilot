@@ -2652,6 +2652,20 @@ def apply_to_jobs(search_terms: list[str]) -> None:
                         if not is_already_applied:
                             consecutive_skips += 1
                         continue
+
+                    if not skip and not is_already_applied and title:
+                        from modules.qualification_engine import is_job_relevant
+                        if not is_job_relevant(title, searchTerm, negative_words=negative_title_words):
+                            skip_msg = f'Title "{title}" does not match keyword "{searchTerm}"'
+                            print_lg(f'[LinkedIn] Relevance check SKIP for "{title}": {skip_msg}')
+                            skip = True
+                            consecutive_skips += 1
+                            try:
+                                import json
+                                print(f"[TRACKER] {json.dumps({'platform': 'linkedin', 'job_id': job_id, 'title': title, 'company': company, 'location': work_location, 'status': 'SKIPPED', 'reason': skip_msg})}", flush=True)
+                            except Exception:
+                                pass
+                            continue
                     # Redundant fail safe check for applied jobs!
                     try:
                         if job_id in applied_jobs or find_by_class(driver, "jobs-s-apply__application-link", 2):

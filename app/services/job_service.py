@@ -6,7 +6,10 @@ and deterministic upserting of discovered and applied jobs.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from app.services.dto.dashboard_dto import TopOpportunityDTO
 
 from sqlalchemy.orm import Session, sessionmaker
 

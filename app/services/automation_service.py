@@ -35,6 +35,7 @@ class AutomationWorker(QThread):
     job_evaluated = Signal(object)  # JobEvaluatedEvent
     application_submitted = Signal(object)  # ApplicationSubmittedEvent
     intervention_required = Signal(object)  # AutomationInterventionEvent
+    intervention_dismissed = Signal()
     activity_logged = Signal(str, str)  # (timestamp, message)
     finished_result = Signal(object)  # AutomationRunResult
 
@@ -76,6 +77,7 @@ class AutomationWorker(QThread):
             self.user_id = 1
         self.bridge = AutomationBridge(session_factory=self._session_factory)
         self.bridge.on_intervention = self.record_intervention
+        self.bridge.on_dismiss_intervention = self.intervention_dismissed.emit
 
         self._stop_requested = False
         self._is_paused = False
@@ -115,10 +117,31 @@ class AutomationWorker(QThread):
             except Exception:
                 pass
 
+    def mark_captcha_cancelled(self) -> None:
+        """Signals bridge and active orchestrator that user has cancelled/skipped the CAPTCHA."""
+        if self.bridge:
+            self.bridge.mark_captcha_cancelled()
+        if self._active_orchestrator and hasattr(self._active_orchestrator, "intervention_manager"):
+            try:
+                self._active_orchestrator.intervention_manager.resolve_skip({"action": "CAPTCHA_CANCELLED"})
+            except Exception:
+                pass
+
     def reset_captcha_status(self) -> None:
         """Resets manual CAPTCHA resolution flag on bridge."""
         if self.bridge:
             self.bridge.reset_captcha_status()
+
+    def provide_intervention_input(self, value: str, intervention_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Delivers user input from UI or Copilot chat to the active worker and bridge."""
+        if self.bridge:
+            self.bridge.provide_input(value, intervention_id=intervention_id, metadata=metadata)
+        if self._active_orchestrator and hasattr(self._active_orchestrator, "intervention_manager"):
+            try:
+                self._active_orchestrator.intervention_manager.resolve_resume({"value": value, "intervention_id": intervention_id})
+            except Exception:
+                pass
+        self.intervention_dismissed.emit()
 
     def pause(self) -> None:
         """Cooperatively suspends execution loop without closing browsers or sessions."""
@@ -456,11 +479,12 @@ class AutomationWorker(QThread):
 
     def _run_linkedin_engine(self) -> None:
         """Executes LinkedIn automation loop."""
-        self.emit_activity("Initializing LinkedIn automation engine...")
+        self.emit_activity("Agent Action: Preparing LinkedIn browser profile and launching stealth engine...")
         try:
             from platforms.router import PlatformRouter
             router = PlatformRouter()
             self._active_router = router
+            self.emit_activity("Portal Navigation: Connecting to LinkedIn jobs search...")
             res = router.run_linkedin(
                 stop_check=self.is_stop_requested,
                 log_callback=self.emit_activity,
@@ -474,15 +498,17 @@ class AutomationWorker(QThread):
 
     def _run_naukri_engine(self) -> None:
         """Executes Naukri automation loop with browser isolation."""
-        self.emit_activity("Initializing Naukri automation engine...")
+        self.emit_activity("Agent Action: Preparing persistent Naukri profile and clearing locks...")
         try:
             from platforms.router import NaukriPlatform
             platform = NaukriPlatform()
             self._active_platform = platform
             try:
+                self.emit_activity("Agent Action: Launching isolated stealth Chrome browser for Naukri...")
                 platform.initialize()
                 if self.is_stop_requested():
                     return
+                self.emit_activity("Session State: Navigating to Naukri portal and verifying session...")
                 if not platform.login():
                     self.record_intervention(
                         AutomationInterventionEvent(
@@ -495,6 +521,7 @@ class AutomationWorker(QThread):
                     return
                 if self.is_stop_requested():
                     return
+                self.emit_activity("Portal Navigation: Active session confirmed. Beginning multi-query job search...")
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested)
                 self.emit_activity(f"Naukri session completed. Applied: {stats.get('jobs_applied', 0)}")
             finally:
@@ -507,16 +534,18 @@ class AutomationWorker(QThread):
 
     def _run_indeed_engine(self) -> None:
         """Executes Indeed automation loop with browser isolation."""
-        self.emit_activity("Initializing Indeed automation engine...")
+        self.emit_activity("Agent Action: Preparing persistent Indeed profile and clearing locks...")
         try:
             from platforms.router import IndeedPlatform
             user_id = getattr(self, "user_id", 1)
             platform = IndeedPlatform(user_id=user_id, automation_bridge=self.bridge)
             self._active_platform = platform
             try:
+                self.emit_activity("Agent Action: Launching isolated stealth Chrome browser for Indeed...")
                 platform.initialize()
                 if self.is_stop_requested():
                     return
+                self.emit_activity("Session State: Navigating to Indeed portal and checking session...")
                 if not platform.login():
                     self.record_intervention(
                         AutomationInterventionEvent(
@@ -529,6 +558,7 @@ class AutomationWorker(QThread):
                     return
                 if self.is_stop_requested():
                     return
+                self.emit_activity("Portal Navigation: Active session confirmed. Beginning multi-query rotation search...")
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested)
                 self.emit_activity(f"Indeed session completed. Applied: {stats.get('jobs_applied', 0)}")
             finally:
@@ -841,13 +871,17 @@ class AutomationWorker(QThread):
                 source_url=target_url,
             )
             self.record_application_submitted(sub_event)
-            ref_num = getattr(res, "reference_number", None) or "N/A"
-            self.emit_activity(f"Universal application submitted successfully: {title} @ {comp} (Ref: {ref_num})")
+            ref_num = getattr(res, "reference_number", None)
+            if ref_num and ref_num != "N/A":
+                self.emit_activity(f"Application reference confirmed: {ref_num}")
         elif getattr(getattr(res, "terminal_result", None), "value", None) == "MANUAL_COMPLETED":
             self.emit_activity(f"Universal application handed over to user: {title} @ {comp}")
         else:
             err_msg = getattr(res, "error_message", None) or getattr(getattr(res, "terminal_result", None), "value", "Failed")
             self.record_error(f"Universal application: {err_msg}")
+
+        # Ensure any pending intervention state is cleared
+        self.intervention_dismissed.emit()
 
 
 class AutomationManager(QObject):
@@ -859,6 +893,7 @@ class AutomationManager(QObject):
     job_evaluated = Signal(object)
     application_submitted = Signal(object)
     intervention_required = Signal(object)
+    intervention_dismissed = Signal()
     activity_logged = Signal(str, str)
     run_finished = Signal(object)  # AutomationRunResult
 
@@ -890,6 +925,18 @@ class AutomationManager(QObject):
         if self._current_worker.isRunning():
             return self._current_worker.wait(timeout_ms)
         return True
+
+    def provide_intervention_input(self, value: str, intervention_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Delivers user input from UI or Copilot chat to the active worker and bridge."""
+        if self._current_worker and self._current_worker.isRunning():
+            self._current_worker.provide_intervention_input(value, intervention_id=intervention_id, metadata=metadata)
+        self.intervention_dismissed.emit()
+
+    def dismiss_intervention(self, intervention_id: Optional[str] = None) -> None:
+        """Dismisses the active intervention dialog across the UI."""
+        if self._current_worker and hasattr(self._current_worker, "bridge") and self._current_worker.bridge:
+            self._current_worker.bridge.dismiss_intervention(intervention_id)
+        self.intervention_dismissed.emit()
 
     def _cleanup_orphaned_runs(self) -> None:
         """Recovers stale or crashed runs left in non-terminal states from prior sessions."""
@@ -999,6 +1046,7 @@ class AutomationManager(QObject):
         self._current_worker.job_evaluated.connect(self._on_worker_job_evaluated)
         self._current_worker.application_submitted.connect(self._on_worker_application_submitted)
         self._current_worker.intervention_required.connect(self._on_worker_intervention_required)
+        self._current_worker.intervention_dismissed.connect(self.intervention_dismissed.emit)
         self._current_worker.activity_logged.connect(self._on_worker_activity_logged)
         self._current_worker.finished_result.connect(self._on_worker_finished)
 
@@ -1046,6 +1094,7 @@ class AutomationManager(QObject):
         """Approves pending human review or OTP resolution on the active worker."""
         if self._current_worker and hasattr(self._current_worker, "confirm_review"):
             self._current_worker.confirm_review(notes=notes, data=data)
+            self.intervention_dismissed.emit()
             return True
         return False
 
@@ -1065,6 +1114,7 @@ class AutomationManager(QObject):
         """Transfers control of current application session to the user."""
         if self._current_worker and hasattr(self._current_worker, "takeover_manually"):
             self._current_worker.takeover_manually(notes=notes)
+            self.intervention_dismissed.emit()
             return True
         return False
 
@@ -1072,6 +1122,7 @@ class AutomationManager(QObject):
         """Cancels pending review or active application."""
         if self._current_worker and hasattr(self._current_worker, "cancel_intervention"):
             self._current_worker.cancel_intervention(reason=reason)
+            self.intervention_dismissed.emit()
             return True
         return False
 
@@ -1079,6 +1130,13 @@ class AutomationManager(QObject):
         """Signals active worker that user has resolved CAPTCHA via human-in-the-loop dialog."""
         if self._current_worker:
             self._current_worker.mark_captcha_resolved()
+            self.intervention_dismissed.emit()
+
+    def mark_captcha_cancelled(self) -> None:
+        """Signals active worker that user has cancelled/skipped CAPTCHA via human-in-the-loop dialog."""
+        if self._current_worker:
+            self._current_worker.mark_captcha_cancelled()
+            self.intervention_dismissed.emit()
 
     def reset_captcha_status(self) -> None:
         """Resets manual CAPTCHA resolution flag on current worker."""

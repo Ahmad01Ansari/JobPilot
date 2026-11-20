@@ -260,6 +260,136 @@ class TestPilotUIWidgets(unittest.TestCase):
             self.assertFalse(view._is_busy)
             self.assertTrue(view.composer.send_btn.isEnabled())
 
+    def test_automation_console_stop_transitions_badge(self):
+        from app.ui.views.pilot.timeline_cards import AutomationConsoleBox
+        console = AutomationConsoleBox("indeed")
+        self.assertTrue(console._pulse_timer.isActive())
+        self.assertIn("RUNNING", console.status_badge.text())
+
+        # Simulate user stop
+        console.append_log("Automation finished with state: COMPLETED (Stopped by user)")
+        self.assertFalse(console._pulse_timer.isActive())
+        self.assertIn("STOPPED", console.status_badge.text())
+        self.assertIn("Stopped by user", console.active_step_lbl.text())
+
+    def test_automation_console_strips_wait_in_logs(self):
+        from app.ui.views.pilot.timeline_cards import AutomationConsoleBox
+        console = AutomationConsoleBox("indeed")
+        console.append_log("[WAIT] Candidate Evaluation: Total Evaluated: 3")
+        log_text = console.log_view.toPlainText()
+        self.assertNotIn("[WAIT]", log_text)
+        self.assertIn("[RUNNING]", log_text)
+
+    def test_historical_card_with_terminal_step_not_running(self):
+        from app.ui.views.pilot.timeline_cards import PilotMessageCard
+        msg = PilotMessage(
+            author=PilotAuthor.PILOT,
+            body="Automation finished",
+            action_type=PilotActionType.START_AUTOMATION,
+            payload={"platform": "indeed"},
+            steps=[
+                PilotStep(title="Agent Action: Initializing Chrome", status="done"),
+                PilotStep(title="Automation finished with state: COMPLETED (Stopped by user)", status="done"),
+            ]
+        )
+        card = PilotMessageCard(msg, is_live=False)
+        self.assertIsNotNone(card.console_box)
+        self.assertFalse(card.console_box._pulse_timer.isActive())
+        self.assertIn("STOPPED", card.console_box.status_badge.text())
+
+    def test_automation_console_kpi_metrics_not_corrupted_by_logs(self):
+        from app.ui.views.pilot.timeline_cards import AutomationConsoleBox
+        console = AutomationConsoleBox("universal")
+
+        # Logs containing keywords should not increment metrics
+        console.append_log("[DONE] Application Execution: Application Submitted: Target Position @ Target Company")
+        console.append_log("[DONE] Application Execution: Universal application submitted successfully: Target Position @ Target Company (Ref: N/A)")
+        console.append_log("[DONE] Candidate Evaluation: Evaluated 'Target Position': Score 85% [QUALIFIED]")
+        console.append_log("[DONE] Candidate Evaluation: Qualified: Target Position @ Target Company")
+
+        self.assertEqual(console._kpi_vals["applied"], 0)
+        self.assertEqual(console._kpi_vals["evaluated"], 0)
+        self.assertEqual(console._kpi_vals["qualified"], 0)
+
+        # Authoritative structured updates accurately set the metrics
+        console.update_metrics(discovered=1, evaluated=1, qualified=1, applied=1, skipped=0)
+        self.assertEqual(console._kpi_vals["discovered"], 1)
+        self.assertEqual(console._kpi_vals["evaluated"], 1)
+        self.assertEqual(console._kpi_vals["qualified"], 1)
+        self.assertEqual(console._kpi_vals["applied"], 1)
+        self.assertEqual(console._kpi_vals["skipped"], 0)
+
+        self.assertEqual(console.kpi_labels["applied"].text(), "1")
+        self.assertEqual(console.kpi_labels["evaluated"].text(), "1")
+
+    def test_needs_you_card_disables_controls_on_answer(self):
+        from app.ui.views.pilot.timeline_cards import NeedsYouCard
+        from app.services.pilot.pilot_models import PilotIntervention, InterventionStatus, InterventionKind
+        inv = PilotIntervention(
+            kind=InterventionKind.APPROVAL,
+            prompt="Approve or skip?",
+            options=["Approve & Submit", "Skip Job"],
+            status=InterventionStatus.OPEN,
+        )
+        msg = PilotMessage(author=PilotAuthor.PILOT, body="Needs action", intervention=inv)
+        card = NeedsYouCard(msg)
+
+        self.assertEqual(len(card._action_buttons), 2)
+        self.assertTrue(card._action_buttons[0].isEnabled())
+        self.assertTrue(card._action_buttons[1].isEnabled())
+
+        answered_calls = []
+        card.answered.connect(lambda i_id, val: answered_calls.append((i_id, val)))
+
+        # Simulate user click
+        card._action_buttons[0].click()
+
+        self.assertEqual(len(answered_calls), 1)
+        self.assertEqual(answered_calls[0][1], "Approve & Submit")
+        self.assertFalse(card._action_buttons[0].isEnabled())
+        self.assertFalse(card._action_buttons[1].isEnabled())
+        self.assertEqual(inv.status, InterventionStatus.ANSWERED)
+        self.assertEqual(card.badge_lbl.text(), "RESOLVED")
+
+        # Second click does nothing
+        card._submit_answer("Skip Job")
+        self.assertEqual(len(answered_calls), 1)
+
+    def test_needs_you_card_initializes_disabled_when_not_open(self):
+        from app.ui.views.pilot.timeline_cards import NeedsYouCard
+        from app.services.pilot.pilot_models import PilotIntervention, InterventionStatus, InterventionKind
+        inv = PilotIntervention(
+            kind=InterventionKind.APPROVAL,
+            prompt="Approve or skip?",
+            options=["Approve & Submit", "Skip Job"],
+            status=InterventionStatus.DISMISSED,
+            answer="Automation completed",
+        )
+        msg = PilotMessage(author=PilotAuthor.PILOT, body="Needs action", intervention=inv)
+        card = NeedsYouCard(msg)
+
+        self.assertEqual(len(card._action_buttons), 0)
+        self.assertIsNotNone(card._resolved_label)
+        self.assertIn("Automation completed", card._resolved_label.text())
+        self.assertEqual(card.badge_lbl.text(), "RESOLVED")
+
+    def test_pilot_service_closes_interventions_on_run_finished(self):
+        from app.services.pilot.pilot_models import InterventionKind, InterventionStatus
+        from app.services.pilot.pilot_service import PilotService
+        svc = PilotService()
+        inv = svc.create_intervention(prompt="Need OTP", kind=InterventionKind.TWO_FACTOR)
+        self.assertEqual(inv.status, InterventionStatus.OPEN)
+
+        # Simulate run finished
+        class FakeResult:
+            applications_submitted = 1
+            jobs_discovered = 1
+            jobs_evaluated = 1
+
+        svc._on_bot_run_finished(FakeResult())
+        self.assertEqual(inv.status, InterventionStatus.DISMISSED)
+        self.assertEqual(inv.answer, "Automation completed")
+
 
 if __name__ == "__main__":
     unittest.main()

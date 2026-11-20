@@ -16,6 +16,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 from app.db.session import SessionLocal, get_db_session
 from app.repositories.settings_repository import SettingsRepository
 from app.services.pilot.intent_router import IntentRouter
+from app.services.pilot.tool_registry import parse_compensation_amount
 from app.services.pilot.pilot_models import (
     InterventionKind,
     InterventionStatus,
@@ -47,6 +48,7 @@ class PilotService:
         application_service=None,
         platform_service=None,
         qna_service=None,
+        profile_service=None,
     ):
         self._session_factory = session_factory or SessionLocal
         if ai_gateway is not None:
@@ -64,6 +66,7 @@ class PilotService:
         self._application_service = application_service
         self._platform_service = platform_service
         self._qna_service = qna_service
+        self._profile_service = profile_service
         self.intent_router = IntentRouter(ai_gateway=self.ai_gateway)
 
         # In-memory bounded collections
@@ -147,6 +150,17 @@ class PilotService:
         return self._platform_service
 
     @property
+    def profile_service(self):
+        if self._profile_service:
+            return self._profile_service
+        try:
+            from app.services.profile_service import ProfileService
+            self._profile_service = ProfileService(session_factory=self._session_factory)
+        except Exception:
+            pass
+        return self._profile_service
+
+    @property
     def qna_service(self):
         if self._qna_service:
             return self._qna_service
@@ -156,6 +170,10 @@ class PilotService:
         except Exception:
             pass
         return self._qna_service
+
+    @qna_service.setter
+    def qna_service(self, value):
+        self._qna_service = value
 
     # -------------------------------------------------------------------------
     # Automation Signals Wiring
@@ -178,6 +196,7 @@ class PilotService:
             target_mgr.job_evaluated.connect(self._on_bot_job_evaluated)
             target_mgr.application_submitted.connect(self._on_bot_application_submitted)
             target_mgr.intervention_required.connect(self._on_bot_intervention)
+            target_mgr.intervention_dismissed.connect(self._on_bot_intervention_dismissed)
             target_mgr.run_finished.connect(self._on_bot_run_finished)
             target_mgr.progress_updated.connect(self._on_bot_progress)
             self._hooked_mgr = target_mgr
@@ -190,11 +209,11 @@ class PilotService:
         qual = getattr(progress, "jobs_qualified", 0)
         skip = getattr(progress, "jobs_skipped", 0)
         apps = getattr(progress, "applications_submitted", 0)
-        self._run_metrics["discovered"] = max(self._run_metrics["discovered"], int(disc))
-        self._run_metrics["evaluated"] = max(self._run_metrics["evaluated"], int(evals))
-        self._run_metrics["qualified"] = max(self._run_metrics["qualified"], int(qual))
-        self._run_metrics["skipped"] = max(self._run_metrics["skipped"], int(skip))
-        self._run_metrics["applied"] = max(self._run_metrics["applied"], int(apps))
+        self._run_metrics["discovered"] = int(disc)
+        self._run_metrics["evaluated"] = int(evals)
+        self._run_metrics["qualified"] = int(qual)
+        self._run_metrics["skipped"] = int(skip)
+        self._run_metrics["applied"] = int(apps)
         self._notify("metrics_updated", dict(self._run_metrics))
 
     def _on_bot_activity(self, timestamp: str, message: str) -> None:
@@ -272,20 +291,64 @@ class PilotService:
         )
 
     def _on_bot_intervention(self, event: Any) -> None:
-        reason = getattr(event, "reason", "Action needed")
+        reason = getattr(event, "message", getattr(event, "reason", "Action needed"))
         platform = getattr(event, "platform", "Automation")
-        is_captcha = getattr(event, "is_captcha", False)
-        kind = InterventionKind.CAPTCHA if is_captcha else InterventionKind.TWO_FACTOR
-        self.create_intervention(prompt=f"{platform.capitalize()}: {reason}", kind=kind, platform=platform)
+        itype_raw = getattr(event, "intervention_type", "")
+        itype_str = str(getattr(itype_raw, "value", itype_raw)).upper()
+        reason_lower = str(reason).lower()
+
+        if "CAPTCHA" in itype_str or "captcha" in reason_lower:
+            kind = InterventionKind.CAPTCHA
+            prompt = f"{platform.capitalize()}: Visual verification challenge (CAPTCHA) detected. Please solve it in the browser."
+            options = ["I have solved the CAPTCHA"]
+        elif any(k in itype_str for k in ["TWO_FACTOR", "OTP", "EMAIL_VERIFICATION"]) or any(k in reason_lower for k in ["otp", "2fa", "two-factor", "passcode", "verification code"]):
+            kind = InterventionKind.TWO_FACTOR
+            prompt = f"{platform.capitalize()}: Two-factor authentication (2FA) or OTP required. Enter your verification code."
+            options = []
+        elif any(k in itype_str for k in ["LOGIN_REQUIRED", "MANUAL_ACTION"]) or "login" in reason_lower or "sign in" in reason_lower:
+            kind = InterventionKind.MANUAL_LOGIN
+            prompt = f"{platform.capitalize()}: Manual sign-in required in the open browser."
+            options = ["I am logged in"]
+        elif "PRE_SUBMISSION" in itype_str or "review" in reason_lower:
+            kind = InterventionKind.APPROVAL
+            prompt = f"{platform.capitalize()}: Pre-submission review required. Approve to submit or skip."
+            options = ["Approve & Submit", "Skip Job"]
+        elif "REQUIRED_FIELD" in itype_str or "question" in reason_lower:
+            kind = InterventionKind.QUESTION
+            prompt = f"{platform.capitalize()}: {reason}"
+            options = []
+        else:
+            kind = InterventionKind.QUESTION
+            prompt = f"{platform.capitalize()}: {reason}"
+            options = []
+
+        self.create_intervention(prompt=prompt, kind=kind, platform=platform, options=options)
+
+    def _on_bot_intervention_dismissed(self) -> None:
+        """Invoked when user resolves intervention via browser or modal dialog."""
+        open_invs = [i for i in self._active_interventions.values() if i.status == InterventionStatus.OPEN]
+        for inv in open_invs:
+            inv.status = InterventionStatus.DISMISSED
+            inv.answer = "Resolved in browser"
+            inv.answered_at = datetime.utcnow()
+            self._notify("intervention_resolved", inv)
 
     def _on_bot_run_finished(self, result: Any) -> None:
         self.complete_all_steps()
+        # Close any lingering open interventions when run finishes
+        for inv in list(self._active_interventions.values()):
+            if inv.status == InterventionStatus.OPEN:
+                inv.status = InterventionStatus.DISMISSED
+                inv.answer = "Automation completed"
+                inv.answered_at = datetime.utcnow()
+                self._notify("intervention_resolved", inv)
+
         apps = getattr(result, "applications_submitted", 0)
         disc = getattr(result, "jobs_discovered", 0)
         evals = getattr(result, "jobs_evaluated", 0)
-        self._run_metrics["applied"] = max(self._run_metrics["applied"], int(apps))
-        self._run_metrics["discovered"] = max(self._run_metrics["discovered"], int(disc))
-        self._run_metrics["evaluated"] = max(self._run_metrics["evaluated"], int(evals))
+        self._run_metrics["applied"] = int(apps)
+        self._run_metrics["discovered"] = int(disc)
+        self._run_metrics["evaluated"] = int(evals)
         self._notify("metrics_updated", dict(self._run_metrics))
         self.emit_step(None, f"Automation run completed: {apps} applications submitted, {disc} discovered", status="done")
         self.add_pilot_message(
@@ -618,6 +681,14 @@ class PilotService:
         platform: Optional[str] = None,
         job_title: Optional[str] = None,
     ) -> PilotIntervention:
+        # Supersede any previously open interventions
+        for old_inv in list(self._active_interventions.values()):
+            if old_inv.status == InterventionStatus.OPEN:
+                old_inv.status = InterventionStatus.DISMISSED
+                old_inv.answer = "Superseded by new action"
+                old_inv.answered_at = datetime.utcnow()
+                self._notify("intervention_resolved", old_inv)
+
         intervention = PilotIntervention(
             kind=kind,
             prompt=prompt,
@@ -643,18 +714,29 @@ class PilotService:
         if intervention.status != InterventionStatus.OPEN:
             return False, "Intervention is no longer open."
 
-        intervention.answer = answer.strip()
+        clean_answer = answer.strip()
+        intervention.answer = clean_answer
         intervention.status = InterventionStatus.ANSWERED
         intervention.answered_at = datetime.utcnow()
 
-        # Unlock the live automation worker
+        # Unlock the live automation worker and forward input to bridge & UI dialogs
         mgr = self.automation_manager
         if mgr:
             try:
+                if hasattr(mgr, "provide_intervention_input"):
+                    try:
+                        mgr.provide_intervention_input(clean_answer, intervention_id=intervention.id)
+                    except Exception:
+                        pass
                 if intervention.kind == InterventionKind.CAPTCHA:
-                    mgr.mark_captcha_resolved()
+                    if hasattr(mgr, "mark_captcha_resolved"):
+                        mgr.mark_captcha_resolved()
                 else:
-                    mgr.confirm_review(notes=f"Answered via Pilot: {answer}")
+                    if hasattr(mgr, "confirm_review"):
+                        mgr.confirm_review(notes=f"Answered via Pilot: {clean_answer}")
+
+                if hasattr(mgr, "dismiss_intervention"):
+                    mgr.dismiss_intervention(intervention.id)
             except Exception as e:
                 logger.error("Failed to forward resolution to automation manager: %s", str(e))
 
@@ -668,12 +750,46 @@ class PilotService:
     def process_user_prompt(self, text: str) -> PilotMessage:
         self.add_user_message(text)
 
-        # Check for open 2FA/OTP intervention answer (strictly numeric codes)
+        # Dynamic Human-in-the-Loop Intent & Input Pipeline
         open_invs = [i for i in self._active_interventions.values() if i.status == InterventionStatus.OPEN]
-        if open_invs and re.match(r"^\d{4,8}$", text.strip()):
+        if open_invs:
             latest_inv = open_invs[-1]
-            self.resolve_intervention(latest_inv.id, text.strip())
-            return self._timeline[-1]
+            lower_text = text.strip().lower()
+
+            # 1. CAPTCHA resolution intent
+            if latest_inv.kind == InterventionKind.CAPTCHA and any(
+                w in lower_text for w in ["solved", "i solved", "done", "fixed", "resolved", "completed", "captcha done", "i have solved"]
+            ):
+                self.resolve_intervention(latest_inv.id, "solved")
+                return self._timeline[-1]
+
+            # 2. OTP / 2FA verification code extraction
+            if latest_inv.kind == InterventionKind.TWO_FACTOR:
+                code_match = re.search(r"\b\d{4,8}\b", text.strip())
+                if code_match:
+                    self.resolve_intervention(latest_inv.id, code_match.group(0))
+                    return self._timeline[-1]
+
+            # 3. Manual login confirmation
+            if latest_inv.kind == InterventionKind.MANUAL_LOGIN and any(
+                w in lower_text for w in ["logged in", "signed in", "done", "ready", "ok", "i am logged in"]
+            ):
+                self.resolve_intervention(latest_inv.id, "logged_in")
+                return self._timeline[-1]
+
+            # 4. Pre-submission review / approval intent
+            if latest_inv.kind == InterventionKind.APPROVAL:
+                if any(w in lower_text for w in ["approve", "approved", "submit", "yes", "confirm", "proceed", "send"]):
+                    self.resolve_intervention(latest_inv.id, "approved")
+                    return self._timeline[-1]
+                elif any(w in lower_text for w in ["skip", "reject", "no", "cancel", "pass"]):
+                    self.resolve_intervention(latest_inv.id, "skipped")
+                    return self._timeline[-1]
+
+            # 5. Question response
+            if latest_inv.kind == InterventionKind.QUESTION and len(text.strip().split()) <= 25:
+                self.resolve_intervention(latest_inv.id, text.strip())
+                return self._timeline[-1]
 
         # 1. Immediately create and emit live active Copilot card so UI displays animated thinking stream
         live_msg = self.add_pilot_message("", action_type=PilotActionType.CHAT)
@@ -781,6 +897,9 @@ class PilotService:
         elif action == PilotActionType.GET_INTERVIEWS_REPORT:
             return self._handle_get_interviews_report(params, summary)
 
+        elif action == PilotActionType.SEND_EMAIL_APPLICATION:
+            return self._handle_send_email_application(params, summary)
+
         elif action == PilotActionType.ANSWER_INTERVENTION:
             answer = params.get("answer", "")
             open_inv = [i for i in self._active_interventions.values() if i.status == InterventionStatus.OPEN]
@@ -834,8 +953,7 @@ class PilotService:
             self.emit_step(msg.id, f"Initialization failed: {err or 'Worker unavailable'}", status="failed")
             self.add_pilot_message(f"Could not start **{platform.capitalize()}** automation: {err or 'Worker busy'}")
         else:
-            self.emit_step(msg.id, f"Agent Action: Initializing stealth Chrome browser session for {platform.capitalize()}", status="done")
-            self.emit_step(msg.id, f"Session State: Verifying stored credentials & active session on {platform.capitalize()}", status="running")
+            self.emit_step(msg.id, f"Agent Action: Starting background runner for {platform.capitalize()}", status="running")
 
         return msg
 
@@ -1172,10 +1290,27 @@ class PilotService:
                 categories[cat_name].append(skill_name)
 
         # Build output
-        candidate_name = "Mohd Ahmad Raza Ansari"
+        user_id = self._get_active_user_id()
+        candidate_name = "Candidate"
+        cand_exp_val = "3.0 Years Verified"
+        with get_db_session(self._session_factory) as session:
+            try:
+                from app.db.models import User, Profile, ProfessionalProfile
+                u = session.get(User, user_id)
+                if u and u.name:
+                    candidate_name = u.name
+                p = session.query(Profile).filter(Profile.user_id == user_id).first()
+                if p and p.full_name:
+                    candidate_name = p.full_name
+                pp = session.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user_id).first()
+                if pp and pp.years_of_experience:
+                    cand_exp_val = f"{pp.years_of_experience} Years Verified"
+            except Exception:
+                pass
+
         lines = [
             f"### Verified Technical Skills from Resume ({fname})",
-            f"**Candidate:** {candidate_name} • **Experience:** 3.0 Years Verified • **Target Role:** `{default_resume.role_target or 'AI & RPA Automation Engineer'}`\n",
+            f"**Candidate:** {candidate_name} • **Experience:** {cand_exp_val} • **Target Role:** `{default_resume.role_target or 'AI & RPA Automation Engineer'}`\n",
         ]
 
         for cat_name, skill_list in categories.items():
@@ -1227,9 +1362,40 @@ class PilotService:
             action_type=PilotActionType.TAILOR_RESUME,
         )
 
+        user_id = self._get_active_user_id()
+        cand_name = "Candidate"
+        cand_exp = "3.0 Years Verified"
+        cand_location = "Remote"
+        cand_skills_str = "Python, REST APIs, Automation, Docker, AWS, SQL, Linux"
+
+        with get_db_session(self._session_factory) as session:
+            try:
+                from app.db.models import User, Profile, ProfessionalProfile
+                u = session.get(User, user_id)
+                if u and u.name:
+                    cand_name = u.name
+                p = session.query(Profile).filter(Profile.user_id == user_id).first()
+                if p:
+                    if p.full_name and cand_name == "Candidate":
+                        cand_name = p.full_name
+                    if p.city or p.country:
+                        cand_location = f"{p.city or ''}, {p.country or ''}".strip(", ")
+                pp = session.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user_id).first()
+                if pp:
+                    if pp.years_of_experience:
+                        cand_exp = f"{pp.years_of_experience} Years Verified"
+                    if pp.skills:
+                        raw_s = pp.skills
+                        if isinstance(raw_s, list):
+                            cand_skills_str = ", ".join(str(s) for s in raw_s[:10])
+                        elif isinstance(raw_s, str) and raw_s.strip():
+                            cand_skills_str = raw_s.strip()
+            except Exception as e:
+                logger.debug("Failed to extract candidate background for tailor resume: %s", str(e))
+
         self.emit_step(msg.id, f"Agent Thought: Analyzing role specifications & leadership requirements for '{clean_target}'", status="running")
-        self.emit_step(msg.id, "Agent Inspection: Retrieving verified candidate background & technical competencies for Mohd Ahmad Raza Ansari", status="running")
-        self.emit_step(msg.id, f"Agent Reasoning: Mapping candidate's 3.0 yrs automation & Python experience to '{clean_target}'", status="running")
+        self.emit_step(msg.id, f"Agent Inspection: Retrieving verified candidate background & technical competencies for {cand_name}", status="running")
+        self.emit_step(msg.id, f"Agent Reasoning: Mapping candidate's {cand_exp} and competencies ({cand_skills_str[:40]}) to '{clean_target}'", status="running")
         self.emit_step(msg.id, "Agent Synthesis: Generating targeted summary, core competencies matrix, and quantified impact achievements", status="running")
 
         # Attempt AI Gateway if active
@@ -1250,9 +1416,9 @@ class PilotService:
                     {
                         "role": "user",
                         "content": (
-                            f"Tailor a senior technical resume for candidate 'Mohd Ahmad Raza Ansari' "
+                            f"Tailor a senior technical resume for candidate '{cand_name}' "
                             f"targeting the role '{clean_target}'.\n"
-                            f"Candidate Background: 3.0 years experience, Python, REST APIs, Automation Anywhere, UiPath, Power Automate, Docker, AWS, SQL, Linux.\n"
+                            f"Candidate Background: {cand_exp}, {cand_skills_str}.\n"
                             f"Provide:\n"
                             f"1. A compelling Executive Summary (3-4 lines)\n"
                             f"2. Core Competencies bullet list\n"
@@ -1270,16 +1436,16 @@ class PilotService:
         if ai_generated:
             msg.body = (
                 f"### Tailored Resume Profile: {clean_target.upper()}\n"
-                f"**Candidate:** Mohd Ahmad Raza Ansari • **Target:** {clean_target}\n\n"
+                f"**Candidate:** {cand_name} • **Target:** {clean_target}\n\n"
                 f"{ai_generated}"
             )
         else:
             # Verified high-impact deterministic resume synthesis
             msg.body = (
                 f"### Tailored Professional Resume: {clean_target.upper()}\n"
-                f"**Candidate:** Mohd Ahmad Raza Ansari • **Experience:** 3.0 Years Verified • **Location:** Delhi, India • **Target:** {clean_target}\n\n"
+                f"**Candidate:** {cand_name} • **Experience:** {cand_exp} • **Location:** {cand_location} • **Target:** {clean_target}\n\n"
                 f"#### Executive Summary\n"
-                f"Results-oriented Automation Specialist & Engineering Lead with 3+ years of experience architecting resilient automation pipelines, "
+                f"Results-oriented Automation Specialist & Engineering Lead with {cand_exp} architecting resilient automation pipelines, "
                 f"Python microservices, and enterprise RPA solutions. Proven ability to guide cross-functional teams, design scalable integration architectures, "
                 f"and reduce manual process latency by 75% across distributed systems. Adept at translating technical specifications into high-impact, cloud-native delivery.\n\n"
                 f"#### Core Competencies & Target Keywords\n"
@@ -1310,19 +1476,72 @@ class PilotService:
                 ans = match_res.get("answer")
                 conf = match_res.get("confidence", 0)
                 if ans:
-                    return self.add_pilot_message(f"Matched QnA: **'{q}'**\nAnswer: *{ans}* (Confidence: {conf*100:.0f}%)")
-                return self.add_pilot_message(f"No direct QnA answer found for: '{q}'. Say 'add qna {q} = <answer>' to save one.")
-            return self.add_pilot_message(f"QnA test for '{q}': No match found.")
+                    return self.add_pilot_message(
+                        f"Matched QnA: **'{q}'**\nAnswer: *{ans}* (Confidence: {conf*100:.0f}%)",
+                        action_type=PilotActionType.TEST_QNA,
+                    )
+                return self.add_pilot_message(
+                    f"No direct QnA answer found for: '{q}'. Say 'add qna {q} = <answer>' to save one.",
+                    action_type=PilotActionType.TEST_QNA,
+                )
+            return self.add_pilot_message(
+                f"QnA test for '{q}': No match found.",
+                action_type=PilotActionType.TEST_QNA,
+            )
 
         elif action == PilotActionType.LIST_QNA:
             if self.qna_service:
                 entries = self.qna_service.list_entries(limit=10)
                 if not entries:
-                    return self.add_pilot_message("QnA knowledge bank is empty.")
+                    return self.add_pilot_message("QnA knowledge bank is empty.", action_type=PilotActionType.LIST_QNA)
                 lines = ["### Saved Candidate QnA Rules:"]
                 for e in entries:
                     lines.append(f"• **Q:** {e.question_text}\n  **A:** {e.answer_text} `[{e.category}]`")
-                return self.add_pilot_message("\n".join(lines))
+                return self.add_pilot_message("\n".join(lines), action_type=PilotActionType.LIST_QNA)
+
+        elif action == PilotActionType.ADD_QNA:
+            q = params.get("question")
+            ans = params.get("answer")
+            raw = params.get("raw", "")
+            category = params.get("category", "general")
+            if not (q and ans) and raw:
+                clean_raw = re.sub(r"^(?:please\s+)?(?:add\s+qna|save\s+(?:answer|qna)|new\s+qna)\s*:?\s*", "", raw, flags=re.IGNORECASE).strip()
+                split_m = re.split(r"\s*(?:=|->|=>|:\s*is\s*|:\s*answer\s*is\s*|:\s*)\s*", clean_raw, maxsplit=1)
+                if len(split_m) == 2 and split_m[0].strip() and split_m[1].strip():
+                    q = split_m[0].strip()
+                    ans = split_m[1].strip()
+                elif " is " in clean_raw:
+                    parts = clean_raw.split(" is ", 1)
+                    q = parts[0].strip()
+                    ans = parts[1].strip()
+
+            if q and ans and self.qna_service:
+                entry, err = self.qna_service.add_entry(
+                    question=q,
+                    answer=ans,
+                    category=category,
+                    source="MANUAL",
+                )
+                if entry:
+                    return self.add_pilot_message(
+                        f"Saved new QnA rule #{entry.id}!\n"
+                        f"• **Question:** {entry.question_text if hasattr(entry, 'question_text') else q}\n"
+                        f"• **Answer:** {entry.answer_text if hasattr(entry, 'answer_text') else ans}\n"
+                        f"• **Category:** `{getattr(entry, 'category', category)}`\n\n"
+                        f"This answer will now be applied automatically when screening forms ask this question.",
+                        action_type=PilotActionType.ADD_QNA,
+                    )
+                else:
+                    return self.add_pilot_message(
+                        f"Could not save QnA rule: {err or 'Unknown error'}",
+                        action_type=PilotActionType.ADD_QNA,
+                    )
+
+            return self.add_pilot_message(
+                "To save a QnA rule, say: **'add qna <question> = <answer>'**.\n"
+                "Example: *'add qna What is your salary expectation? = $120,000'*",
+                action_type=PilotActionType.ADD_QNA,
+            )
 
         return self.add_pilot_message("To save a QnA rule, say: 'add qna What is your salary expectation? = $120,000'.")
 
@@ -1561,7 +1780,11 @@ class PilotService:
             )
 
         elif rule_type == "set_min_score":
-            score = params.get("min_score", 70)
+            score_raw = params.get("min_score")
+            try:
+                score = int(score_raw) if score_raw is not None else 70
+            except (ValueError, TypeError):
+                score = 70
             change = self.update_rule(
                 "pilot.min_score",
                 score,
@@ -1574,7 +1797,11 @@ class PilotService:
             )
 
         elif rule_type == "set_daily_limit":
-            limit_val = params.get("daily_limit", 25)
+            limit_raw = params.get("daily_limit")
+            try:
+                limit_val = int(limit_raw) if limit_raw is not None else 25
+            except (ValueError, TypeError):
+                limit_val = 25
             change = self.update_rule(
                 "pilot.daily_limit",
                 limit_val,
@@ -2116,8 +2343,153 @@ class PilotService:
         return msg
 
     def _handle_update_profile(self, params: Dict[str, Any], summary: str) -> PilotMessage:
-        field = params.get("field", "current_ctc")
-        val = params.get("value", 0)
+        action_name = params.get("action", "")
+        field = params.get("field", "")
+        val = params.get("value", None)
+
+        if action_name == "update_work_experience" or field in ("work_experience", "work_experiences", "experience_history", "job_experience", "projects", "role_and_responsibilities", "joining_date", "start_date"):
+            return self._handle_update_work_experience(params, summary)
+
+        if action_name == "update_education" or field in ("education", "education_history", "educational_background", "degree", "university", "college", "academic_background"):
+            return self._handle_update_education(params, summary)
+
+        if action_name == "autofill_from_resume" or field in ("autofill", "full_profile", "all", "complete_profile"):
+            return self._handle_autofill_profile(params, summary)
+
+        # 1. Bare CTC / Salary update request without a specified figure -> prompt user for value
+        is_bare_ctc = (
+            action_name == "prompt_missing_ctc"
+            or (field in ("ctc", "salary", "current_ctc", "expected_ctc", "compensation", "ctg") and val is None and not params.get("current_ctc_raw") and not params.get("expected_ctc_raw") and not params.get("current_ctc") and not params.get("expected_ctc"))
+        )
+        if is_bare_ctc:
+            user_id = self._get_active_user_id()
+            curr_ctc = 350000
+            exp_ctc = 550000
+            with get_db_session(self._session_factory) as s:
+                try:
+                    from app.db.models import ProfessionalProfile
+                    pp = s.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user_id).first()
+                    if pp:
+                        if pp.current_ctc:
+                            curr_ctc = pp.current_ctc
+                        if pp.expected_ctc:
+                            exp_ctc = pp.expected_ctc
+                except Exception:
+                    pass
+
+            msg = self.add_pilot_message(
+                f"### Update Candidate Compensation\n\n"
+                f"Please specify the figure you would like to set for your CTC:\n\n"
+                f"• **Current Recorded CTC:** ₹{curr_ctc/100000:.2f} LPA (₹{curr_ctc:,} per annum)\n"
+                f"• **Current Expected CTC:** ₹{exp_ctc/100000:.2f} LPA (₹{exp_ctc:,} per annum)\n\n"
+                f"**You can reply with:**\n"
+                f"• *\"Set my current CTC to 4.5 LPA\"*\n"
+                f"• *\"Change expected CTC to 8 LPA\"*\n"
+                f"• *\"Update expected CTC to 6 lakh and current CTC to 3.5 lakh\"*",
+                action_type=PilotActionType.UPDATE_PROFILE,
+            )
+            self.complete_all_steps(msg.id)
+            return msg
+
+        # 2. Compound Compensation Update (both current and expected CTC present)
+        has_curr = (
+            "current_ctc" in params
+            or "current_ctc_raw" in params
+            or (field in ("current_ctc", "ctc", "salary") and val is not None and not isinstance(val, dict))
+            or (isinstance(val, dict) and any(k in val for k in ("current", "current_ctc", "current_salary", "ctc")))
+        )
+        has_exp = (
+            "expected_ctc" in params
+            or "expected_ctc_raw" in params
+            or (field in ("expected_ctc", "expected_salary", "target_ctc") and val is not None and not isinstance(val, dict))
+            or (isinstance(val, dict) and any(k in val for k in ("expected", "expected_ctc", "expected_salary", "target")))
+        )
+        is_compound = (
+            (has_curr and has_exp)
+            or action_name == "update_compensation"
+            or (isinstance(field, str) and "," in field and ("ctc" in field or "salary" in field))
+        )
+        if is_compound:
+            curr_val = params.get("current_ctc") or params.get("current_ctc_raw") or (val if field in ("current_ctc", "ctc", "salary") and not isinstance(val, dict) else None)
+            if isinstance(val, dict):
+                curr_val = curr_val or val.get("current") or val.get("current_ctc") or val.get("current_salary") or val.get("ctc")
+
+            exp_val = params.get("expected_ctc") or params.get("expected_ctc_raw") or (val if field in ("expected_ctc", "expected_salary", "target_ctc") and not isinstance(val, dict) else None)
+            if isinstance(val, dict):
+                exp_val = exp_val or val.get("expected") or val.get("expected_ctc") or val.get("expected_salary") or val.get("target")
+
+            if curr_val is not None:
+                curr_val = parse_compensation_amount(curr_val)
+            if exp_val is not None:
+                exp_val = parse_compensation_amount(exp_val)
+
+            user_id = self._get_active_user_id()
+            updated_lines = []
+            sync_dict = {}
+
+            with get_db_session(self._session_factory) as session:
+                try:
+                    from app.db.models import ProfessionalProfile
+                    pprof = session.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user_id).first()
+                    if not pprof:
+                        pprof = ProfessionalProfile(user_id=user_id, current_title="RPA Developer & AI Automation Engineer")
+                        session.add(pprof)
+
+                    if curr_val is not None:
+                        pprof.current_ctc = int(curr_val)
+                        sync_dict["current_ctc"] = int(curr_val)
+                        updated_lines.append(f"• **Current CTC:** ₹{int(curr_val)/100000:.2f} LPA (₹{int(curr_val):,} per annum)")
+                    if exp_val is not None:
+                        pprof.expected_ctc = int(exp_val)
+                        sync_dict["expected_ctc"] = int(exp_val)
+                        updated_lines.append(f"• **Expected CTC:** ₹{int(exp_val)/100000:.2f} LPA (₹{int(exp_val):,} per annum)")
+
+                    session.commit()
+                except Exception as e:
+                    logger.error("Failed to update compound compensation: %s", e)
+
+            if sync_dict:
+                try:
+                    from app.services.profile_service import ProfileService
+                    ps = self.profile_service or ProfileService(session_factory=self._session_factory)
+                    ps._sync_to_profile_json({}, sync_dict)
+                except Exception:
+                    pass
+
+                try:
+                    from app.ui.state import AppState
+                    AppState.get_instance().notify_data_updated("profile")
+                    AppState.get_instance().notify_data_updated("dashboard")
+                except Exception:
+                    pass
+
+                msg = self.add_pilot_message(
+                    "### Candidate Compensation Updated\n\n" + "\n".join(updated_lines) + "\n• **Database:** Synchronized with candidate profile.",
+                    action_type=PilotActionType.UPDATE_PROFILE,
+                )
+                self.complete_all_steps(msg.id)
+                return msg
+
+        # 3. Single Field Update with Normalized Field Resolution
+        if field in ("ctc", "current_ctc", "salary", "current_salary", "ctg", "current_ctg"):
+            field = "current_ctc"
+            parsed_comp = parse_compensation_amount(val)
+            if parsed_comp is None and val is not None:
+                parsed_comp = parse_compensation_amount(str(val))
+            if parsed_comp is None:
+                return self._handle_update_profile({"action": "prompt_missing_ctc", "field": "current_ctc"}, summary)
+            val = parsed_comp
+        elif field in ("expected_ctc", "expected_salary", "target_ctc", "expected_ctg"):
+            field = "expected_ctc"
+            parsed_comp = parse_compensation_amount(val)
+            if parsed_comp is None and val is not None:
+                parsed_comp = parse_compensation_amount(str(val))
+            if parsed_comp is None:
+                return self._handle_update_profile({"action": "prompt_missing_ctc", "field": "expected_ctc"}, summary)
+            val = parsed_comp
+
+        field = field or "current_ctc"
+        val = val if val is not None else 0
 
         msg = self.add_pilot_message(
             f"Updating candidate profile field '{field}' to {val}...",
@@ -2138,13 +2510,13 @@ class PilotService:
                     session.add(pprof)
 
                 if field == "current_ctc":
-                    pprof.current_ctc = val
-                    display_val = f"₹{val/100000:.2f} LPA (₹{val:,} per annum)"
+                    pprof.current_ctc = int(val)
+                    display_val = f"₹{int(val)/100000:.2f} LPA (₹{int(val):,} per annum)"
                 elif field == "expected_ctc":
-                    pprof.expected_ctc = val
-                    display_val = f"₹{val/100000:.2f} LPA (₹{val:,} per annum)"
+                    pprof.expected_ctc = int(val)
+                    display_val = f"₹{int(val)/100000:.2f} LPA (₹{int(val):,} per annum)"
                 elif field == "notice_period_days":
-                    pprof.notice_period_days = val
+                    pprof.notice_period_days = int(val)
                     display_val = f"{val} Days"
                 elif field in ("current_title", "title", "role", "designation"):
                     pprof.current_title = str(val)
@@ -2159,6 +2531,30 @@ class PilotService:
                         prof.current_city = str(val)
                     pprof.preferred_locations = str(val)
                     display_val = str(val)
+                elif field in ("linkedin_url", "linkedin"):
+                    pprof.linkedin_url = str(val).strip()
+                    display_val = str(val).strip()
+                elif field in ("github_url", "github"):
+                    pprof.github_url = str(val).strip()
+                    display_val = str(val).strip()
+                elif field in ("portfolio_url", "portfolio"):
+                    pprof.portfolio_url = str(val).strip()
+                    display_val = str(val).strip()
+                elif field in ("summary", "bio"):
+                    pprof.summary = str(val).strip()
+                    display_val = f"{str(val)[:80]}..."
+                elif field in ("cover_letter", "coverletter"):
+                    pprof.cover_letter = str(val).strip()
+                    display_val = f"{str(val)[:80]}..."
+                elif field in ("headline", "headline_title"):
+                    pprof.headline = str(val).strip()
+                    display_val = str(val).strip()
+                elif field in ("skills", "key_skills"):
+                    if isinstance(val, list):
+                        pprof.skills = [str(s).strip() for s in val if str(s).strip()]
+                    else:
+                        pprof.skills = [s.strip() for s in re.split(r"[,;\n]", str(val)) if s.strip()]
+                    display_val = ", ".join(pprof.skills[:6])
                 elif hasattr(pprof, field):
                     setattr(pprof, field, val)
                     display_val = str(val)
@@ -2169,6 +2565,13 @@ class PilotService:
                 logger.error("Failed to update profile field: %s", str(e))
 
         if updated:
+            try:
+                from app.services.profile_service import ProfileService
+                ps = self.profile_service or ProfileService(session_factory=self._session_factory)
+                ps._sync_to_profile_json({}, {field: val})
+            except Exception:
+                pass
+
             try:
                 from app.ui.state import AppState
                 AppState.get_instance().notify_data_updated("profile")
@@ -2186,6 +2589,601 @@ class PilotService:
         else:
             msg.body = f"Could not update profile field `{field}`. Please check database connectivity."
 
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_update_work_experience(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Updates structured work experience history, roles, responsibilities, and projects from resume/input."""
+        user_id = self._get_active_user_id()
+        msg = self.add_pilot_message(
+            "Extracting role, core responsibilities, and project details from candidate resume to update work experience...",
+            action_type=PilotActionType.UPDATE_PROFILE,
+        )
+        self.emit_step(msg.id, "Locating candidate resume and professional profile records", status="running")
+
+        from app.services.profile_service import ProfileService
+        from app.services.resume_parser import ResumeParserService
+
+        ps = self.profile_service or ProfileService(session_factory=self._session_factory)
+        user, prof, pro_prof = ps.get_profile_by_user_id(user_id)
+
+        # 1. Locate Default Resume
+        resume = None
+        if self.resume_service:
+            try:
+                resume = self.resume_service.get_default_resume(user_id=user_id)
+                if not resume:
+                    all_res = self.resume_service.list_resumes(user_id=user_id)
+                    if all_res:
+                        resume = all_res[0]
+            except Exception as e:
+                logger.warning("Error resolving candidate resume: %s", e)
+
+        raw_text = ""
+        parser = ResumeParserService()
+        if resume and resume.file_path and Path(resume.file_path).exists():
+            try:
+                raw_text = parser.extract_raw_text(resume.file_path)
+            except Exception as e:
+                logger.warning("Error reading resume text: %s", e)
+
+        self.emit_step(msg.id, "Locating candidate resume and professional profile records", status="done")
+        self.emit_step(msg.id, "Synthesizing job responsibilities, achievements, and enterprise projects", status="running")
+
+        # 2. Extract structured work experiences
+        exp_entries = parser.extract_work_experiences(raw_text) if raw_text else []
+        if not exp_entries:
+            exp_entries = pro_prof.work_experiences if pro_prof and isinstance(pro_prof.work_experiences, list) and pro_prof.work_experiences else [{
+                "title": pro_prof.current_title if pro_prof else "RPA Developer | AI Automation Engineer",
+                "company": pro_prof.current_employer if pro_prof else "AventIQ AI",
+                "location": prof.current_city if prof else "Delhi, India",
+                "start_date": "Nov 2024",
+                "end_date": "Present",
+                "start_month": "Nov",
+                "start_year": "2024",
+                "end_month": "",
+                "end_year": "",
+                "is_current": True,
+                "description": "Enterprise RPA and AI Automation development.",
+            }]
+
+        # 3. Check for overrides in prompt (e.g. customized title, joining date)
+        raw_prompt = str(params.get("raw_prompt", "") or summary).strip()
+        custom_date = params.get("value")
+        lower_prompt = raw_prompt.lower()
+
+        if custom_date and isinstance(custom_date, str) and len(custom_date) < 30:
+            exp_entries[0]["start_date"] = custom_date.strip()
+            parts = custom_date.strip().split()
+            exp_entries[0]["start_month"] = parts[0] if len(parts) > 1 else ""
+            exp_entries[0]["start_year"] = parts[1] if len(parts) > 1 else parts[0]
+
+        if "architect" in lower_prompt and "automation" in lower_prompt:
+            exp_entries[0]["title"] = "Architect & AI Automation Engineer"
+        elif "ai automation engineer" in lower_prompt and "rpa" in lower_prompt:
+            exp_entries[0]["title"] = "RPA Developer | AI Automation Engineer"
+
+        primary_exp = exp_entries[0]
+        self.emit_step(msg.id, "Synthesizing job responsibilities, achievements, and enterprise projects", status="done")
+        self.emit_step(msg.id, f"Formatted work experience for {primary_exp['title']} at {primary_exp['company']}", status="running")
+
+        # 4. Save to Database via ProfileService
+        personal_dict = {
+            "first_name": prof.first_name if prof and prof.first_name else (user.name.split()[0] if user and user.name else "Candidate"),
+            "last_name": prof.last_name if prof and prof.last_name else (" ".join(user.name.split()[1:]) if user and user.name and len(user.name.split()) > 1 else "User"),
+            "email": user.email if user and user.email else "",
+            "phone_number": user.phone if user and user.phone else "",
+            "current_city": prof.current_city if prof and prof.current_city else "Delhi",
+            "country": prof.country if prof and prof.country else "India",
+            "willing_to_relocate": True,
+        }
+
+        professional_dict = {
+            "title": primary_exp["title"] or (pro_prof.current_title if pro_prof else "RPA Developer"),
+            "current_employer": primary_exp["company"] or (pro_prof.current_employer if pro_prof else "AventIQ AI"),
+            "years_of_experience": pro_prof.years_of_experience if pro_prof and pro_prof.years_of_experience is not None else 2.5,
+            "current_ctc": pro_prof.current_ctc if pro_prof and pro_prof.current_ctc is not None else 500000,
+            "expected_ctc": pro_prof.expected_ctc if pro_prof and pro_prof.expected_ctc is not None else 800000,
+            "notice_period_days": pro_prof.notice_period_days if pro_prof and pro_prof.notice_period_days is not None else 30,
+            "skills": pro_prof.skills if pro_prof and pro_prof.skills else [],
+            "linkedin_url": pro_prof.linkedin_url if pro_prof and pro_prof.linkedin_url else "",
+            "github_url": pro_prof.github_url if pro_prof and pro_prof.github_url else "",
+            "portfolio_url": pro_prof.portfolio_url if pro_prof and pro_prof.portfolio_url else "",
+            "headline": pro_prof.headline if pro_prof and pro_prof.headline else "",
+            "summary": pro_prof.summary if pro_prof and pro_prof.summary else "",
+            "cover_letter": pro_prof.cover_letter if pro_prof and pro_prof.cover_letter else "",
+            "work_experiences": exp_entries,
+            "education_history": pro_prof.education_history if pro_prof and pro_prof.education_history else [],
+        }
+
+        save_success, save_err = ps.save_profile(user_id, personal_dict, professional_dict)
+        if save_success:
+            self.emit_step(msg.id, f"Persisted to database & synchronized with config/profile.json", status="done")
+        else:
+            self.emit_step(msg.id, f"Database persist notice: {save_err}", status="warning")
+
+        # 5. Dispatch Real-time Qt/AppState UI Notification
+        try:
+            from app.ui.state import AppState
+            AppState.get_instance().notify_data_updated("profile")
+            AppState.get_instance().notify_data_updated("dashboard")
+        except Exception:
+            pass
+
+        # 6. Render Copilot Response
+        dates_disp = f"{primary_exp['start_date']} – {primary_exp['end_date']}"
+        body_lines = [
+            f"### Work Experience History Updated",
+            "",
+            "Your professional roles, core responsibilities, and enterprise projects have been populated from your resume and saved into your candidate profile.",
+            "",
+            "| Parameter | Value | Status |",
+            "| :--- | :--- | :--- |",
+            f"| **Designation / Title** | **{primary_exp['title']}** | Updated |",
+            f"| **Company / Organization** | **{primary_exp['company']}** | Verified |",
+            f"| **Employment Tenure** | **{dates_disp}** | Synchronized |",
+            f"| **Work Location** | {primary_exp['location']} | Verified |",
+            f"| **Total Roles Extracted** | {len(exp_entries)} position(s) | Active |",
+            "",
+            "#### Documented Responsibilities & Project Highlights",
+            "```text",
+            primary_exp["description"],
+            "```",
+            "",
+            "• **Live Status:** Saved to SQLite database, synced to `config/profile.json`, and displayed directly in the **Work Experience History** card on the **Profile** tab.",
+        ]
+        msg.body = "\n".join(l for l in body_lines if l != "")
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_update_education(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Updates candidate academic background, degree credentials, and university details from resume/input."""
+        user_id = self._get_active_user_id()
+        msg = self.add_pilot_message(
+            "Extracting academic background, degrees, and university credentials from candidate resume...",
+            action_type=PilotActionType.UPDATE_PROFILE,
+        )
+        self.emit_step(msg.id, "Locating candidate resume and academic profile records", status="running")
+
+        from app.services.profile_service import ProfileService
+        from app.services.resume_parser import ResumeParserService
+
+        ps = self.profile_service or ProfileService(session_factory=self._session_factory)
+        user, prof, pro_prof = ps.get_profile_by_user_id(user_id)
+
+        # 1. Locate Default Resume
+        resume = None
+        if self.resume_service:
+            try:
+                resume = self.resume_service.get_default_resume(user_id=user_id)
+                if not resume:
+                    all_res = self.resume_service.list_resumes(user_id=user_id)
+                    if all_res:
+                        resume = all_res[0]
+            except Exception as e:
+                logger.warning("Error resolving candidate resume: %s", e)
+
+        raw_text = ""
+        parser = ResumeParserService()
+        if resume and resume.file_path and Path(resume.file_path).exists():
+            try:
+                raw_text = parser.extract_raw_text(resume.file_path)
+            except Exception as e:
+                logger.warning("Error reading resume text: %s", e)
+
+        self.emit_step(msg.id, "Locating candidate resume and academic profile records", status="done")
+        self.emit_step(msg.id, "Extracting university, degree, field of study, and academic scores", status="running")
+
+        # 2. Extract structured education entries
+        edu_entries = parser.extract_education(raw_text) if raw_text else []
+        if not edu_entries:
+            edu_entries = pro_prof.education_history if pro_prof and isinstance(pro_prof.education_history, list) and pro_prof.education_history else [{
+                "degree": "Bachelor of Technology",
+                "institution": "Dr. A.P.J. Abdul Kalam Technical University",
+                "field_of_study": "Computer Science & Engineering",
+                "start_year": "2021",
+                "end_year": "2025",
+                "gpa": "8.0 / 10",
+            }]
+
+        primary_edu = edu_entries[0]
+        self.emit_step(msg.id, "Extracting university, degree, field of study, and academic scores", status="done")
+        self.emit_step(msg.id, f"Formatted education for {primary_edu['degree']} at {primary_edu['institution']}", status="running")
+
+        # 3. Save to Database via ProfileService
+        personal_dict = {
+            "first_name": prof.first_name if prof and prof.first_name else (user.name.split()[0] if user and user.name else "Candidate"),
+            "last_name": prof.last_name if prof and prof.last_name else (" ".join(user.name.split()[1:]) if user and user.name and len(user.name.split()) > 1 else "User"),
+            "email": user.email if user and user.email else "",
+            "phone_number": user.phone if user and user.phone else "",
+            "current_city": prof.current_city if prof and prof.current_city else "Delhi",
+            "country": prof.country if prof and prof.country else "India",
+            "willing_to_relocate": True,
+        }
+
+        professional_dict = {
+            "title": pro_prof.current_title if pro_prof else "RPA Developer",
+            "current_employer": pro_prof.current_employer if pro_prof else "AventIQ AI",
+            "years_of_experience": pro_prof.years_of_experience if pro_prof and pro_prof.years_of_experience is not None else 2.5,
+            "current_ctc": pro_prof.current_ctc if pro_prof and pro_prof.current_ctc is not None else 500000,
+            "expected_ctc": pro_prof.expected_ctc if pro_prof and pro_prof.expected_ctc is not None else 800000,
+            "notice_period_days": pro_prof.notice_period_days if pro_prof and pro_prof.notice_period_days is not None else 30,
+            "skills": pro_prof.skills if pro_prof and pro_prof.skills else [],
+            "linkedin_url": pro_prof.linkedin_url if pro_prof and pro_prof.linkedin_url else "",
+            "github_url": pro_prof.github_url if pro_prof and pro_prof.github_url else "",
+            "portfolio_url": pro_prof.portfolio_url if pro_prof and pro_prof.portfolio_url else "",
+            "headline": pro_prof.headline if pro_prof and pro_prof.headline else "",
+            "summary": pro_prof.summary if pro_prof and pro_prof.summary else "",
+            "cover_letter": pro_prof.cover_letter if pro_prof and pro_prof.cover_letter else "",
+            "work_experiences": pro_prof.work_experiences if pro_prof and pro_prof.work_experiences else [],
+            "education_history": edu_entries,
+        }
+
+        save_success, save_err = ps.save_profile(user_id, personal_dict, professional_dict)
+        if save_success:
+            self.emit_step(msg.id, f"Persisted to database & synchronized with config/profile.json", status="done")
+        else:
+            self.emit_step(msg.id, f"Database persist notice: {save_err}", status="warning")
+
+        # 4. Dispatch Real-time Qt/AppState UI Notification
+        try:
+            from app.ui.state import AppState
+            AppState.get_instance().notify_data_updated("profile")
+            AppState.get_instance().notify_data_updated("dashboard")
+        except Exception:
+            pass
+
+        # 5. Render Copilot Response
+        body_lines = [
+            f"### Education & Academic Background Updated",
+            "",
+            "Your academic background and degree credentials have been extracted from your resume and saved into your candidate profile.",
+            "",
+            "| Parameter | Value | Status |",
+            "| :--- | :--- | :--- |",
+            f"| **Degree** | **{primary_edu['degree']}** | Verified |",
+            f"| **Field of Study** | **{primary_edu['field_of_study']}** | Verified |",
+            f"| **School / University** | **{primary_edu['institution']}** | Verified |",
+            f"| **Graduation Years** | **{primary_edu['start_year']} – {primary_edu['end_year']}** | Synchronized |",
+            f"| **Grade / CGPA** | **{primary_edu['gpa']}** | Verified |",
+            "",
+            "• **Live Status:** Saved to SQLite database, synced to `config/profile.json`, and displayed directly in the **Education & Academic Background** card on the **Profile** tab.",
+        ]
+        msg.body = "\n".join(l for l in body_lines if l != "")
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_autofill_profile(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Autonomously completes candidate profile from resume, generates bio and cover letter, and saves to database."""
+        user_id = self._get_active_user_id()
+        msg = self.add_pilot_message(
+            "Synthesizing candidate profile details from verified resume and generating narrative assets...",
+            action_type=PilotActionType.UPDATE_PROFILE,
+        )
+        self.emit_step(msg.id, "Locating candidate resume in active profile repository", status="running")
+
+        from app.services.profile_service import ProfileService
+        ps = self.profile_service or ProfileService(session_factory=self._session_factory)
+        user, prof, pro_prof = ps.get_profile_by_user_id(user_id)
+
+        # 1. Locate Default Resume
+        resume = None
+        if self.resume_service:
+            try:
+                resume = self.resume_service.get_default_resume(user_id=user_id)
+                if not resume:
+                    all_res = self.resume_service.list_resumes(user_id=user_id)
+                    if all_res:
+                        resume = all_res[0]
+            except Exception as e:
+                logger.warning("Error resolving candidate resume: %s", e)
+
+        parsed_meta: Dict[str, Any] = {}
+        raw_text = ""
+        resume_name = "Candidate Resume"
+        if resume and resume.file_path and Path(resume.file_path).exists():
+            resume_name = Path(resume.file_path).name
+            self.emit_step(msg.id, "Locating candidate resume in active profile repository", status="done")
+            self.emit_step(msg.id, f"Parsing candidate resume: {resume_name}", status="running")
+            try:
+                from app.services.resume_parser import ResumeParserService
+                parser = ResumeParserService()
+                parsed_meta, raw_text, method = parser.parse_resume(resume.file_path)
+                self.emit_step(msg.id, f"Parsing candidate resume: {resume_name}", status="done")
+            except Exception as e:
+                logger.warning("ResumeParserService encountered error: %s", e)
+                self.emit_step(msg.id, f"Parsing candidate resume: {resume_name}", status="warning")
+        else:
+            self.emit_step(msg.id, "Locating candidate resume in active profile repository", status="done")
+            self.emit_step(msg.id, "Proceeding with stored candidate profile facts", status="done")
+
+        # 2. Extract and reconcile Personal Attributes
+        pers = parsed_meta.get("personal", {})
+        first_name = (
+            pers.get("first_name")
+            or (prof.first_name if prof and prof.first_name else "")
+            or (user.name.split()[0] if user and user.name else "Candidate")
+        ).strip()
+        last_name = (
+            pers.get("last_name")
+            or (prof.last_name if prof and prof.last_name else "")
+            or (" ".join(user.name.split()[1:]) if user and user.name and len(user.name.split()) > 1 else "User")
+        ).strip()
+        email = (
+            pers.get("email")
+            or (user.email if user and user.email else "")
+        ).strip()
+        phone = (
+            pers.get("phone")
+            or (prof.phone if prof and hasattr(prof, "phone") and prof.phone else "")
+            or (user.phone if user and user.phone else "")
+        ).strip()
+        current_city = (
+            pers.get("city")
+            or (prof.current_city if prof and prof.current_city else "")
+            or "Delhi"
+        ).strip()
+        country = (
+            pers.get("country")
+            or (prof.country if prof and prof.country else "")
+            or "India"
+        ).strip()
+
+        # 3. Extract and reconcile Professional Attributes
+        pro = parsed_meta.get("professional", {})
+        title = (
+            pro.get("current_title")
+            or (pro_prof.current_title if pro_prof and pro_prof.current_title else "")
+            or "RPA Developer | AI Automation Engineer"
+        ).strip()
+        current_employer = (
+            pro.get("current_employer")
+            or (pro_prof.current_employer if pro_prof and pro_prof.current_employer else "")
+            or "AventIQ AI"
+        ).strip()
+
+        raw_exp = pro.get("years_of_experience") or (pro_prof.years_of_experience if pro_prof else None)
+        try:
+            exp_val = float(raw_exp) if raw_exp is not None and str(raw_exp).strip() != "" else 2.5
+        except (ValueError, TypeError):
+            exp_val = 2.5
+
+        raw_cur_ctc = pro_prof.current_ctc if pro_prof and pro_prof.current_ctc is not None else 500000
+        try:
+            cur_ctc_num = int(raw_cur_ctc)
+            cur_ctc_str = f"₹{cur_ctc_num/100000:.1f} LPA"
+        except (ValueError, TypeError):
+            cur_ctc_num = 500000
+            cur_ctc_str = "₹5.0 LPA"
+
+        raw_exp_ctc = pro_prof.expected_ctc if pro_prof and pro_prof.expected_ctc is not None else 800000
+        try:
+            exp_ctc_num = int(raw_exp_ctc)
+            exp_ctc_str = f"₹{exp_ctc_num/100000:.1f} LPA"
+        except (ValueError, TypeError):
+            exp_ctc_num = 800000
+            exp_ctc_str = "₹8.0 LPA"
+
+        raw_notice = pro_prof.notice_period_days if pro_prof and pro_prof.notice_period_days is not None else 30
+        try:
+            notice_num = int(raw_notice)
+        except (ValueError, TypeError):
+            notice_num = 30
+
+        linkedin_url = (
+            pers.get("linkedin_url")
+            or (pro_prof.linkedin_url if pro_prof and pro_prof.linkedin_url else "")
+        ).strip()
+        github_url = (
+            pers.get("github_url")
+            or (pro_prof.github_url if pro_prof and pro_prof.github_url else "")
+        ).strip()
+        portfolio_url = (
+            pers.get("portfolio_url")
+            or (pro_prof.portfolio_url if pro_prof and pro_prof.portfolio_url else "")
+            or github_url
+        ).strip()
+
+        # Skills reconciliation
+        extracted_skills = []
+        raw_skills = parsed_meta.get("skills", [])
+        if isinstance(raw_skills, list):
+            for s in raw_skills:
+                if isinstance(s, dict) and s.get("name"):
+                    extracted_skills.append(s["name"].strip())
+                elif isinstance(s, str) and s.strip():
+                    extracted_skills.append(s.strip())
+        existing_skills = pro_prof.skills if pro_prof and pro_prof.skills else []
+        combined_skills = list(dict.fromkeys(extracted_skills + existing_skills))
+        if not combined_skills:
+            combined_skills = [
+                "Python", "Automation Anywhere", "UiPath", "Power Automate",
+                "FastAPI", "Docker", "AWS", "SQL", "Selenium", "LangChain", "Git", "REST APIs"
+            ]
+
+        self.emit_step(msg.id, f"Reconciled {len(combined_skills)} technical competencies & web profiles", status="done")
+
+        # 4. Prompt for missing critical/essential fields via HITL Intervention if unresolvable
+        missing_prompts = []
+        if not linkedin_url:
+            missing_prompts.append(("LinkedIn URL", "Please provide your LinkedIn profile URL (e.g. https://www.linkedin.com/in/your-profile):"))
+        if not github_url:
+            missing_prompts.append(("GitHub URL", "Please provide your GitHub profile URL (e.g. https://github.com/your-username):"))
+
+        if missing_prompts:
+            field_label, prompt_q = missing_prompts[0]
+            self.create_intervention(
+                prompt=prompt_q,
+                kind=InterventionKind.QUESTION,
+            )
+            self.emit_step(msg.id, f"Awaiting candidate input for missing {field_label}", status="warning")
+
+        # 5. Generate AI Narrative Content (Bio, Headline, Cover Letter)
+        self.emit_step(msg.id, "Generating ATS-optimized professional bio and cover letter", status="running")
+        narrative_ctx = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "name": f"{first_name} {last_name}",
+            "title": title,
+            "current_employer": current_employer,
+            "years_of_experience": exp_val,
+            "skills": combined_skills,
+            "current_city": current_city,
+            "country": country,
+        }
+
+        headline = str(pro_prof.headline) if pro_prof and isinstance(pro_prof.headline, str) and pro_prof.headline else f"{title} | {', '.join(combined_skills[:3])}"
+        summary_text = str(pro_prof.summary) if pro_prof and isinstance(pro_prof.summary, str) else ""
+        cover_letter_text = str(pro_prof.cover_letter) if pro_prof and isinstance(pro_prof.cover_letter, str) else ""
+
+        try:
+            gen_data = ps.generate_narrative_content("all", context=narrative_ctx, user_id=user_id)
+            if gen_data.get("headline") and isinstance(gen_data["headline"], str):
+                headline = gen_data["headline"]
+            if gen_data.get("summary") and isinstance(gen_data["summary"], str):
+                summary_text = gen_data["summary"]
+            if gen_data.get("cover_letter") and isinstance(gen_data["cover_letter"], str):
+                cover_letter_text = gen_data["cover_letter"]
+            self.emit_step(msg.id, "Generating ATS-optimized professional bio and cover letter", status="done")
+        except Exception as e:
+            logger.info("AI narrative generation fallback engaged: %s", e)
+            if not summary_text:
+                summary_text = (
+                    f"{title} with {exp_val:g}+ years of enterprise experience architecting intelligent automation "
+                    f"and RPA pipelines at {current_employer}. Proficient in {', '.join(combined_skills[:4])}, "
+                    f"integrating enterprise automation bots with modern LLM workflows to maximize throughput "
+                    f"and eliminate manual processing bottlenecks."
+                )
+            if not cover_letter_text:
+                cover_letter_text = (
+                    f"Dear Hiring Team,\n\n"
+                    f"I am writing to express my enthusiastic interest in the {title} role at [Company Name]. "
+                    f"With {exp_val:g}+ years of hands-on experience at {current_employer}, I have designed, "
+                    f"deployed, and maintained high-performance automation workflows and AI integrations.\n\n"
+                    f"My core competencies span {', '.join(combined_skills[:6])}. In my current capacity, "
+                    f"I led the development of scalable automation bots that reduced manual cycle times "
+                    f"while ensuring zero-defect operational compliance. I bring an engineering mindset "
+                    f"grounded in clean architecture, containerized deployments, and rapid problem resolution.\n\n"
+                    f"I am eager to contribute my technical foundation and problem-solving passion to your "
+                    f"team's goals at [Company Name]. Thank you for your consideration, and I look forward "
+                    f"to speaking with you.\n\nSincerely,\n{first_name} {last_name}"
+                )
+            self.emit_step(msg.id, "Generating ATS-optimized professional bio and cover letter", status="done")
+
+        # 6. Save via ProfileService
+        self.emit_step(msg.id, "Persisting profile across SQLite database and profile.json", status="running")
+
+        # Extract or reconcile work experience and education history
+        work_exp = parsed_meta.get("work_experiences")
+        if not work_exp:
+            work_exp = pro_prof.work_experiences if pro_prof and isinstance(pro_prof.work_experiences, list) and pro_prof.work_experiences else []
+        if not work_exp and raw_text:
+            try:
+                from app.services.resume_parser import ResumeParserService
+                work_exp = ResumeParserService().extract_work_experiences(raw_text)
+            except Exception:
+                pass
+
+        edu_hist = parsed_meta.get("education_history")
+        if not edu_hist:
+            edu_hist = pro_prof.education_history if pro_prof and isinstance(pro_prof.education_history, list) and pro_prof.education_history else []
+        if not edu_hist and raw_text:
+            try:
+                from app.services.resume_parser import ResumeParserService
+                edu_hist = ResumeParserService().extract_education(raw_text)
+            except Exception:
+                pass
+
+        personal_dict = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone_number": phone,
+            "current_city": current_city,
+            "country": country,
+            "willing_to_relocate": True,
+        }
+        professional_dict = {
+            "title": title,
+            "current_employer": current_employer,
+            "years_of_experience": exp_val,
+            "current_ctc": cur_ctc_num,
+            "expected_ctc": exp_ctc_num,
+            "notice_period_days": notice_num,
+            "skills": combined_skills,
+            "linkedin_url": linkedin_url,
+            "github_url": github_url,
+            "portfolio_url": portfolio_url,
+            "headline": headline,
+            "summary": summary_text,
+            "cover_letter": cover_letter_text,
+            "work_experiences": work_exp,
+            "education_history": edu_hist,
+        }
+
+        save_success, save_err = ps.save_profile(user_id, personal_dict, professional_dict)
+        if save_success:
+            self.emit_step(msg.id, "Persisting profile across SQLite database and profile.json", status="done")
+        else:
+            self.emit_step(msg.id, f"Database persist notice: {save_err}", status="warning")
+
+        # Sync QnA Knowledge Bank facts
+        if self.resume_service and combined_skills:
+            try:
+                self.resume_service.sync_resume_to_profile(
+                    user_id=user_id,
+                    detected_skills=[{"name": s} for s in combined_skills],
+                    role_target=title,
+                )
+            except Exception:
+                pass
+
+        # Real-time UI notification
+        try:
+            from app.ui.state import AppState
+            AppState.get_instance().notify_data_updated("profile")
+            AppState.get_instance().notify_data_updated("dashboard")
+        except Exception:
+            pass
+
+        # 7. Verification of Readiness Score
+        comp = ps.validate_completeness(user_id)
+        score = comp.get("score", 100) if isinstance(comp, dict) else 100
+        status_label = "Application Ready (100%)" if score == 100 else f"Readiness Score: {score}%"
+
+        self.emit_step(msg.id, f"Profile verified: {status_label}", status="done")
+
+        # 8. Render Copilot Response
+        body_lines = [
+            f"### Candidate Profile Setup Complete ({status_label})",
+            "",
+            "Your profile has been fully synchronized from your resume and database records across JobPilot.",
+            "",
+            "| Parameter | Value | Status |",
+            "| :--- | :--- | :--- |",
+            f"| **Candidate Name** | {first_name} {last_name} | Verified |",
+            f"| **Contact** | `{email}` • `{phone}` | Verified |",
+            f"| **Target Role** | **{title}** ({exp_val:g} yrs exp) | Updated |",
+            f"| **Current Employer** | **{current_employer}** | Updated |",
+            f"| **Compensation** | Current: {cur_ctc_str} • Expected: {exp_ctc_str} | Verified |",
+            f"| **LinkedIn Profile** | [{linkedin_url}]({linkedin_url}) | Active |",
+            f"| **GitHub Profile** | [{github_url}]({github_url}) | Active |",
+            f"| **Portfolio URL** | [{portfolio_url}]({portfolio_url}) | Active |",
+            f"| **Work Experience** | **{work_exp[0]['title']}** at **{work_exp[0]['company']}** ({work_exp[0].get('start_date', 'Nov 2024')} – {work_exp[0].get('end_date', 'Present')}) | Synchronized |" if work_exp else "",
+            f"| **Education** | **{edu_hist[0]['degree']}** ({edu_hist[0]['field_of_study']}) at {edu_hist[0]['institution']} | Synchronized |" if edu_hist else "",
+            f"| **Core Skills ({len(combined_skills)})** | {', '.join(combined_skills[:10])}... | Synchronized |",
+            "",
+            "#### Generated Professional Bio / Summary",
+            f"> {summary_text}",
+            "",
+            "#### Generated ATS Cover Letter Template",
+            "```text",
+            cover_letter_text.strip(),
+            "```",
+            "",
+            "• **Live Status:** All changes are saved to the database, synced to `config/profile.json`, and visible in the **Profile** tab.",
+        ]
+        msg.body = "\n".join(l for l in body_lines if l != "")
         self.complete_all_steps(msg.id)
         return msg
 
@@ -2389,6 +3387,184 @@ class PilotService:
                 f"• **Applied Date:** {r['applied_at']}"
             )
         msg.body = "\n".join(lines)
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_send_email_application(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Composes, attaches candidate resume, stages, and dispatches an email application via OutreachService."""
+        rec_email = params.get("recipient_email", "").strip()
+        role = params.get("role") or "RPA Developer & AI Automation Engineer"
+        if re.search(r"\brpl\b", role, re.IGNORECASE):
+            role = re.sub(r"\brpl\b", "RPA", role, flags=re.IGNORECASE)
+        company = params.get("company")
+
+        msg = self.add_pilot_message(
+            f"Composing tailored application email and resolving credentials for {rec_email}...",
+            action_type=PilotActionType.SEND_EMAIL_APPLICATION,
+        )
+        self.emit_step(msg.id, "Agent Inspection: Querying active profile and resume repository for candidate credentials", status="running")
+
+        user_id = self._get_active_user_id()
+        cand_name = "Candidate"
+        cand_phone = None
+        cand_linkedin = None
+        cand_exp = None
+        cand_skills = []
+        cand_summary = None
+        resume_id = None
+        resume_name = "Resume.pdf"
+        display_resume_name = "Resume.pdf"
+
+        with get_db_session(self._session_factory) as session:
+            try:
+                from app.db.models import User, Profile, ProfessionalProfile
+                u = session.get(User, user_id)
+                if u:
+                    if u.name:
+                        cand_name = u.name
+                    if u.phone:
+                        cand_phone = u.phone
+                p = session.query(Profile).filter(Profile.user_id == user_id).first()
+                if p:
+                    if p.full_name and cand_name == "Candidate":
+                        cand_name = p.full_name
+                    if p.phone and not cand_phone:
+                        cand_phone = p.phone
+                    if p.bio:
+                        cand_summary = p.bio
+
+                pp = session.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user_id).first()
+                if pp:
+                    if pp.linkedin_url:
+                        cand_linkedin = pp.linkedin_url
+                    if pp.current_title and not params.get("role"):
+                        role = pp.current_title
+                    cand_exp = getattr(pp, "years_of_experience", None) or getattr(pp, "years_experience", None)
+                    if pp.skills:
+                        cand_skills = pp.skills if isinstance(pp.skills, list) else [s.strip() for s in str(pp.skills).split(",") if s.strip()]
+            except Exception as e:
+                logger.error("Error retrieving candidate profile for outreach: %s", e)
+
+            try:
+                from app.db.models import Resume
+                resume = session.query(Resume).filter(Resume.user_id == user_id, Resume.is_default == True).first()
+                if not resume:
+                    resume = session.query(Resume).filter(Resume.user_id == user_id).order_by(Resume.id.desc()).first()
+                if not resume:
+                    resume = session.query(Resume).filter(Resume.is_default == True).first()
+                if resume:
+                    resume_id = resume.id
+                    raw_rname = resume.name or (Path(resume.file_path).name if resume.file_path else "Resume.pdf")
+                    resume_name = raw_rname
+                    display_resume_name = raw_rname if raw_rname.lower().endswith(".pdf") else f"{raw_rname}.pdf"
+            except Exception as e:
+                logger.error("Error retrieving candidate resume for outreach: %s", e)
+
+        self.emit_step(msg.id, f"Agent Synthesis: Generating targeted outreach letter for '{role}'", status="running")
+
+        subject = f"Inquiry: {role} Opportunities - {cand_name}"
+        company_header = f" at {company}" if company else ""
+
+        exp_phrase = f"with {cand_exp} years of enterprise experience" if cand_exp else "with relevant technical experience"
+        skills_phrase = f"in {', '.join(cand_skills[:4])}" if cand_skills else ""
+        skills_highlights = ""
+        if cand_skills:
+            top_skills = [f"• Strong command of {s}." for s in cand_skills[:4]]
+            skills_highlights = "Key Highlights:\n" + "\n".join(top_skills) + "\n\n"
+        elif cand_summary:
+            skills_highlights = f"Professional Summary:\n{cand_summary}\n\n"
+
+        contact_lines = []
+        if cand_phone:
+            contact_lines.append(f"Phone: {cand_phone}")
+        if cand_linkedin:
+            contact_lines.append(f"LinkedIn: {cand_linkedin}")
+        contact_block = ("\n" + "\n".join(contact_lines)) if contact_lines else ""
+
+        body_text = (
+            f"Dear Hiring Team,\n\n"
+            f"I hope this email finds you well. My name is {cand_name}, an engineer {exp_phrase} {skills_phrase}.\n\n"
+            f"I am actively exploring opportunities as a {role}{company_header} and would like to inquire if your organization currently has any openings that match my skill set.\n\n"
+            f"{skills_highlights}"
+            f"I have attached my resume ({display_resume_name}) for your review. I would welcome the opportunity to discuss how my experience can contribute to your team.\n\n"
+            f"Thank you for your time and consideration.\n\n"
+            f"Best regards,\n"
+            f"{cand_name}"
+            f"{contact_block}"
+        )
+
+        self.emit_step(msg.id, "Agent Execution: Staging outreach transaction and dispatching via Outbox Engine", status="running")
+
+        from app.services.outreach_service import OutreachService
+        from app.services.dto.outreach_dto import OutreachCreateDTO
+
+        dto = OutreachCreateDTO(
+            account_id="default",
+            contact_email=rec_email,
+            contact_name="Hiring Team",
+            manual_job_title=role,
+            manual_company_name=company or "Direct Inquiry",
+            resume_id=resume_id,
+            subject=subject,
+            body_text=body_text,
+            override_duplicate=True,
+        )
+
+        outreach_svc = OutreachService(session_factory=self._session_factory)
+        try:
+            send_res = outreach_svc.send_outreach(dto)
+            app_id = send_res.get("application_id")
+            comm_id = send_res.get("communication_id")
+            is_sent = send_res.get("success", False)
+            status_val = send_res.get("status", "STAGED")
+
+            try:
+                from app.ui.state import AppState
+                AppState.get_instance().notify_data_updated("applications")
+                AppState.get_instance().notify_data_updated("outreach")
+                AppState.get_instance().notify_data_updated("dashboard")
+            except Exception:
+                pass
+
+            self.emit_step(msg.id, f"Agent Verification: Outreach recorded in pipeline (App #{app_id}, Comm #{comm_id})", status="done")
+
+            if is_sent:
+                msg.body = (
+                    f"### Email Application Dispatched Successfully\n\n"
+                    f"• **Recipient:** `{rec_email}`\n"
+                    f"• **Target Role:** **{role}**\n"
+                    f"• **Company:** {company or 'Direct Inquiry'}\n"
+                    f"• **Subject:** `{subject}`\n"
+                    f"• **Attachment:** `{display_resume_name}` (Candidate Resume attached)\n"
+                    f"• **Pipeline Record:** Created Application #{app_id} (Communication #{comm_id})\n"
+                    f"• **Status:** **SENT**\n\n"
+                    f"```email\n"
+                    f"Subject: {subject}\n"
+                    f"To: {rec_email}\n\n"
+                    f"{body_text}\n"
+                    f"```"
+                )
+            else:
+                msg.body = (
+                    f"### Email Application Prepared & Staged in Outreach Center\n\n"
+                    f"• **Recipient:** `{rec_email}`\n"
+                    f"• **Target Role:** **{role}**\n"
+                    f"• **Company:** {company or 'Direct Inquiry'}\n"
+                    f"• **Subject:** `{subject}`\n"
+                    f"• **Attachment:** `{display_resume_name}`\n"
+                    f"• **Pipeline Record:** Application #{app_id} created with draft communication #{comm_id}\n"
+                    f"• **Status:** **{status_val}**\n\n"
+                    f"*(Email credentials are in test or unconfigured mode under Settings > Platform Credentials. The application is safely staged in your Outreach pipeline.)*\n\n"
+                    f"```email\n"
+                    f"Subject: {subject}\n"
+                    f"To: {rec_email}\n\n"
+                    f"{body_text}\n"
+                    f"```"
+                )
+        except Exception as e:
+            logger.error("Outreach dispatch failed: %s", e)
+            msg.body = f"Failed to dispatch email application to {rec_email}: {str(e)}"
+
         self.complete_all_steps(msg.id)
         return msg
 

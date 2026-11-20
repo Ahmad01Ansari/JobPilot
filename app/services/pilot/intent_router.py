@@ -12,6 +12,11 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.pilot.pilot_models import PilotActionType
+from app.services.pilot.tool_registry import (
+    get_tool_registry,
+    normalize_speech_input,
+    parse_compensation_amount,
+)
 
 logger = logging.getLogger("JobPilot.IntentRouter")
 
@@ -59,8 +64,9 @@ def resolve_status_keyword(raw_word: str) -> Optional[str]:
 class IntentRouter:
     """Parses candidate intent and maps queries to executable actions."""
 
-    def __init__(self, ai_gateway=None):
+    def __init__(self, ai_gateway=None, tool_registry=None):
         self.ai_gateway = ai_gateway
+        self.tool_registry = tool_registry or get_tool_registry()
 
     def parse_intent(self, text: str) -> Tuple[PilotActionType, Dict[str, Any], str]:
         """Main entry point: Universal Hybrid Semantic Router."""
@@ -68,13 +74,16 @@ class IntentRouter:
         if not clean_text:
             return PilotActionType.CHAT, {}, "Empty prompt."
 
+        # 0. Voice / Speech-to-Text Phonetic Normalization
+        normalized_text = normalize_speech_input(clean_text)
+
         # 1. Fast-Path: Direct pasted job URL
         urls = URL_REGEX.findall(clean_text)
         if urls and len(clean_text.split()) <= 3:
             return PilotActionType.APPLY_JOBS, {"url": urls[0]}, f"Pasted job URL: {urls[0]}"
 
         # 2. Fast-Path: Unambiguous one-word control signals (0ms execution)
-        lower = clean_text.lower()
+        lower = normalized_text.lower()
         if lower in ("stop", "stop bot", "stop automation", "halt"):
             return PilotActionType.STOP_AUTOMATION, {}, "Stopping active automation."
         if lower in ("pause", "pause automation", "pause bot"):
@@ -85,15 +94,27 @@ class IntentRouter:
         # 3. Primary Universal Path: Semantic LLM Tool Calling (if AI Gateway is available and configured)
         if self.ai_gateway:
             try:
-                action, params, summary = self._infer_via_llm(clean_text)
+                action, params, summary = self._infer_via_llm(normalized_text)
                 if action != PilotActionType.UNKNOWN:
-                    logger.info("LLM semantic router classified '%s' -> %s (%s)", clean_text[:40], action.value, summary)
+                    logger.info("LLM semantic router classified '%s' -> %s (%s)", normalized_text[:40], action.value, summary)
                     return action, params, summary
             except Exception as e:
                 logger.debug("LLM semantic routing failed or bypassed: %s", e)
 
         # 4. Fallback Path: High-precision deterministic rules (offline / fail-safe)
-        return self._infer_via_rules(clean_text)
+        matched = self._infer_via_rules(normalized_text)
+        if matched[0] != PilotActionType.UNKNOWN and matched[0] != PilotActionType.CHAT:
+            return matched
+
+        # 5. Fast-Path Tool Registry (covers registered domain tool extensions)
+        if self.tool_registry:
+            tool_match = self.tool_registry.match_fast_path(normalized_text)
+            if tool_match:
+                tool, params, summary = tool_match
+                logger.info("Tool registry fast-path matched '%s' -> %s (%s)", normalized_text[:40], tool.action_type.value, summary)
+                return tool.action_type, params, summary
+
+        return matched
 
     def _infer_via_llm(self, text: str) -> Tuple[PilotActionType, Dict[str, Any], str]:
         """Queries AIGateway with structured JSON schema prompt."""
@@ -140,8 +161,21 @@ class IntentRouter:
             "12. 'stop_automation': 'stop bot', 'halt automation'. Parameters: {}.\n"
             "13. 'pause_automation': 'pause bot'. Parameters: {}.\n"
             "14. 'resume_automation': 'resume bot'. Parameters: {}.\n"
-            "15. 'chat': General career advice, interview preparation, questions out of system scope, or conversational greetings. "
-            "Parameters: {'text': string}.\n\n"
+            "15. 'update_profile': Updating or completing candidate profile, setting bio/summary, cover letter, links (LinkedIn, GitHub, portfolio), CTC, skills, work experience history (roles, responsibilities, projects, joining/start dates), or educational background from resume. "
+            "Examples: 'update my work experience according to my resume', 'summarize my current job experience and projects into work experience', 'get role and responsibility from resume and add to work experience', 'add my educational background', 'set my joining date to Nov 2024', 'complete setup my profile based on my resume', 'change my ctc to 15 lpa'. "
+            "Parameters: {'action': 'update_work_experience'|'update_education'|'autofill_from_resume'|'update_field', 'field': string (optional), 'value': any (optional)}.\n"
+            "16. 'send_email_application': Direct instructions to send an email job application or cold outreach inquiry to a recipient email address. "
+            "Examples: 'send an email application to hr@example.com for rpa developer', 'send email to ahmad.ansari.dev@gamil.com asking about openings'. "
+            "Parameters: {'recipient_email': string, 'role': string (optional), 'company': string (optional), 'subject': string (optional)}.\n"
+            "17. 'chat': General career advice, interview preparation, questions out of system scope, or conversational greetings. "
+            "Parameters: {'text': string}.\n"
+            "18. 'add_qna': Adding a question and answer pair to the candidate QnA knowledge base. "
+            "Examples: 'add qna what is your notice period = immediate', 'save answer for relocations: yes'. "
+            "Parameters: {'question': string, 'answer': string, 'raw': string}.\n"
+            "19. 'test_qna': Testing how the QnA matching engine resolves an interview or screening question. "
+            "Examples: 'test question do you know python?'. Parameters: {'question': string}.\n"
+            "20. 'list_qna': Listing all saved custom QnA rules, answers, and screening knowledge. "
+            "Examples: 'list qna', 'show questions', 'show qna'. Parameters: {}.\n\n"
             "CRITICAL: Consequential actions ('apply_jobs', 'start_automation') MUST ONLY be chosen for direct imperative commands, "
             "NEVER for questions like 'did i apply' or 'how to apply'. Return strictly valid JSON: {\"action\": string, \"parameters\": object, \"summary\": string}."
         )
@@ -163,7 +197,11 @@ class IntentRouter:
         if raw_content.startswith("```"):
             raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.IGNORECASE)
             raw_content = re.sub(r"\s*```$", "", raw_content)
-        data = json.loads(raw_content)
+        m_json = re.search(r"(\{.*\})", raw_content, re.DOTALL)
+        if m_json:
+            data = json.loads(m_json.group(1))
+        else:
+            data = json.loads(raw_content)
 
         action_str = data.get("action", "").lower()
         params = data.get("parameters", {})
@@ -195,6 +233,7 @@ class IntentRouter:
             "get_rules": PilotActionType.GET_RULES,
             "update_rules": PilotActionType.UPDATE_RULES,
             "get_status": PilotActionType.GET_STATUS,
+            "send_email_application": PilotActionType.SEND_EMAIL_APPLICATION,
             "answer_intervention": PilotActionType.ANSWER_INTERVENTION,
             "chat": PilotActionType.CHAT,
         }
@@ -215,30 +254,197 @@ class IntentRouter:
             code = code_match.group(1)
             return PilotActionType.ANSWER_INTERVENTION, {"answer": code}, f"Parsed verification code: {code}"
 
-        # 1b. Profile Update Intent (Current/Expected CTC, salary, notice period, role, location, experience)
+        # 1a. Direct Email Application / Recruiter Cold Outreach Intent
+        email_match = re.search(r"\b([a-zA-Z0-9\.\-_+]+@[a-zA-Z0-9\.\-_]+\.[a-zA-Z]{2,})\b", text)
+        if email_match and any(w in lower for w in ["email", "mail", "send", "outreach", "apply", "application", "inquiry", "opening", "openings"]):
+            rec_email = email_match.group(1).strip()
+            # Try specific job title extraction first (e.g. "RPL developer", "RPA developer", "Software Engineer")
+            specific_roles = re.findall(
+                r"\b(?:for|as|role\s+of)\s+(?:the\s+|a\s+)?([a-zA-Z0-9\.\-_/]+(?:\s+[a-zA-Z0-9\.\-_/]+){0,3}\s+(?:developer|engineer|architect|associate|analyst|manager|lead|specialist|consultant))\b",
+                text,
+                re.IGNORECASE,
+            )
+            if specific_roles:
+                detected_role = specific_roles[-1].strip()
+            else:
+                role_match = re.search(
+                    r"(?:for\s+(?:the\s+)?|as\s+(?:a\s+)?|role\s+of\s+)([a-zA-Z0-9\s\.\-_/]+?)"
+                    r"(?:\s+across|\s+and|\s+profile|\s+to|\s+at|\s+company|\s+with|\s+just|\s+write|$)",
+                    text,
+                    re.IGNORECASE,
+                )
+                detected_role = role_match.group(1).strip() if role_match else "RPA & AI Automation Engineer"
+
+            if any(k in detected_role.lower() for k in ("email", "mail", "application", "opening", "openings", "the", "a", "an", "below email id")):
+                detected_role = "RPA & AI Automation Engineer"
+
+            # Normalize speech-to-text typo RPL -> RPA
+            if re.search(r"\brpl\b", detected_role, re.IGNORECASE):
+                detected_role = re.sub(r"\brpl\b", "RPA", detected_role, flags=re.IGNORECASE)
+
+            detected_comp = None
+            if "do not mention" not in lower and "dont mention" not in lower:
+                comp_match = re.search(r"(?:company\s+(?:is|called|named)?\s*([a-zA-Z0-9\s\.\-_/]+?)(?:\s+do\s+not|\s+just|\s+write|$))", text, re.IGNORECASE)
+                if comp_match:
+                    detected_comp = comp_match.group(1).strip()
+
+            return (
+                PilotActionType.SEND_EMAIL_APPLICATION,
+                {
+                    "recipient_email": rec_email,
+                    "role": detected_role,
+                    "company": detected_comp,
+                    "raw_prompt": text,
+                },
+                f"Send email application to {rec_email} for role '{detected_role}'",
+            )
+
+        # 1b. Complete / Autofill Profile Setup Intent
+        is_profile_setup = (
+            any(phrase in lower for phrase in [
+                "complete setup my profile",
+                "setup my profile",
+                "complete my profile",
+                "setup profile",
+                "complete profile",
+                "fill my profile",
+                "fill profile",
+                "autofill profile",
+                "auto fill profile",
+                "autofill my profile",
+                "populate my profile",
+                "populate profile",
+                "sync resume to profile",
+                "sync my resume to profile",
+                "write a bio",
+                "write bio",
+                "write a cover letter",
+                "write cover letter",
+            ])
+            or (
+                ("profile" in lower or "bio" in lower or "cover letter" in lower)
+                and ("resume" in lower or "missing" in lower or "complete" in lower or "update" in lower or "setup" in lower)
+                and any(w in lower for w in ["resume", "bio", "cover letter", "github", "linkedin", "missing details", "details", "data"])
+            )
+        )
+        if is_profile_setup and not any(k in lower for k in ["status", "application", "record"]):
+            return PilotActionType.UPDATE_PROFILE, {"action": "autofill_from_resume"}, "Complete candidate profile setup from resume and AI generation"
+
+        # 1c. Specific Web Link Updates (LinkedIn, GitHub, Portfolio)
+        m_link = re.search(
+            r"(?:change|update|set)\s+(?:the\s+)?(?:my\s+)?(linkedin|github|portfolio)\s*(?:url|link)?\s*(?:to|as)?\s*(https?://[^\s]+|[a-zA-Z0-9_\-\.]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if m_link and not any(k in lower for k in ["status", "application", "record"]):
+            platform_link = m_link.group(1).lower()
+            link_val = m_link.group(2).strip()
+            field_name = f"{platform_link}_url"
+            return PilotActionType.UPDATE_PROFILE, {"field": field_name, "value": link_val}, f"Update candidate {platform_link} URL: {link_val}"
+
+        # 1d. Work Experience, Projects, Roles & Responsibilities Intent
+        m_exp_req = (
+            any(k in lower for k in [
+                "work experience", "experience history", "job experience", "job history",
+                "role and responsibilit", "roles and responsibilit", "roles & responsibilit",
+                "current job and responsibilit", "my work experience", "experience part",
+                "joining date", "start date", "end date",
+            ])
+            or (
+                ("experience" in lower or "responsibility" in lower or "responsibilities" in lower or "project" in lower or "projects" in lower or "joining date" in lower or "start date" in lower)
+                and any(w in lower for w in ["resume", "profile", "aventiq", "write into", "add", "update", "summarize", "populate", "role", "job", "joining date", "start date", "set", "change"])
+                and not any(k in lower for k in ["status", "application", "record", "delete", "remove"])
+            )
+        )
+        if m_exp_req:
+            # Check if this is specifically a joining date or start date update
+            m_join = re.search(r"(?:joining\s+date|start\s+date)\s+(?:to|as|is)?\s*([a-zA-Z0-9\s,]+)", text, re.IGNORECASE)
+            val = m_join.group(1).strip() if m_join else None
+            return (
+                PilotActionType.UPDATE_PROFILE,
+                {"action": "update_work_experience", "target": "experience", "field": "start_date" if val else "work_experiences", "value": val, "raw_prompt": text},
+                "Update candidate work experience, roles, responsibilities, and projects",
+            )
+
+        # 1e. Education / Academic Background Intent
+        m_edu_req = (
+            any(k in lower for k in [
+                "educational background", "education background", "education history", "academic background",
+                "academic credentials", "my education", "my degree", "my university", "my college",
+            ])
+            or (
+                ("education" in lower or "degree" in lower or "university" in lower or "college" in lower or "academic" in lower)
+                and any(w in lower for w in ["resume", "profile", "add", "update", "populate", "background", "history"])
+                and not any(k in lower for k in ["status", "application", "record", "delete", "remove"])
+            )
+        )
+        if m_edu_req:
+            return (
+                PilotActionType.UPDATE_PROFILE,
+                {"action": "update_education", "target": "education", "raw_prompt": text},
+                "Update candidate education & academic background",
+            )
+
+        # 1f. Profile Update Intent (Current/Expected CTC, salary, notice period, role, location, experience)
+
+        # 1f-1. Compound CTC Update (Both Expected & Current CTC in single prompt, voice-tolerant e.g. "ctg", "uh", "lakh")
+        clean_comp_text = re.sub(r"\bctg\b", "ctc", lower)
+        if ("ctc" in clean_comp_text or "salary" in clean_comp_text) and any(k in clean_comp_text for k in ["expected", "target", "current"]):
+            m_exp = re.search(r"(?:expected|target)\s+(?:ctc|salary|comp|package)?\s*(?:to\s+|is\s+|as\s+)?(?:the\s+|uh\s+)?([a-zA-Z0-9\s\.,₹$]+?)(?:\s+and|\s+with|\s+current|$)", clean_comp_text)
+            m_curr = re.search(r"(?:current)\s+(?:ctc|salary|comp|package)?\s*(?:to\s+|is\s+|as\s+)?(?:the\s+|uh\s+)?([a-zA-Z0-9\s\.,₹$]+?)(?:\s+and|\s+with|\s+expected|$)", clean_comp_text)
+            if m_exp or m_curr:
+                exp_raw = m_exp.group(1).strip() if m_exp else None
+                curr_raw = m_curr.group(1).strip() if m_curr else None
+                exp_amt = parse_compensation_amount(exp_raw) if exp_raw else None
+                curr_amt = parse_compensation_amount(curr_raw) if curr_raw else None
+                if exp_amt is not None or curr_amt is not None:
+                    return (
+                        PilotActionType.UPDATE_PROFILE,
+                        {
+                            "action": "update_compensation",
+                            "field": "compensation",
+                            "expected_ctc": exp_amt,
+                            "current_ctc": curr_amt,
+                            "expected_ctc_raw": exp_raw,
+                            "current_ctc_raw": curr_raw,
+                            "raw_prompt": text,
+                        },
+                        f"Update candidate compensation (Current: {curr_amt}, Expected: {exp_amt})",
+                    )
+
+        # 1f-2. Bare CTC / Salary update request without any specified amount (ask user for value instead of 0)
+        m_bare_ctc = re.search(r"^(?:please\s+)?(?:change|update|set|modify)\s+(?:the\s+)?(?:my\s+)?(?:current\s+|expected\s+)?(?:ctc|salary|compensation|package|ctg)\s*$", clean_comp_text)
+        if m_bare_ctc:
+            return (
+                PilotActionType.UPDATE_PROFILE,
+                {
+                    "action": "prompt_missing_ctc",
+                    "field": "ctc",
+                    "raw_prompt": text,
+                },
+                "Prompt candidate for CTC amount",
+            )
+
         m_prof = re.search(
             r"(change|update|set)\s+(?:the\s+)?(?:my\s+)?"
             r"(current\s+(?:ctc|salary|states?|status|comp|package)|expected\s+(?:ctc|salary|states?|status|comp|package)|target\s+(?:ctc|salary|states?|status|comp|package)|ctc|salary|notice(?:\s+period)?)\s+"
-            r"(?:(?:from\s+)?[\d\.]+\s*(?:lpa|lakhs?|lac|days?)?\s+)?(?:to\s+|as\s+)?([\d\.]+)\s*(lpa|lakhs?|lac|k|days?)?",
-            lower
+            r"(?:(?:from\s+)?[\d\.]+\s*(?:lpa|lakhs?|lac|days?)?\s+)?(?:to\s+|as\s+)?([a-zA-Z0-9\s\.,₹$]+)",
+            clean_comp_text
         )
         if m_prof:
             raw_field = m_prof.group(2).strip()
-            num_val = float(m_prof.group(3))
-            unit = (m_prof.group(4) or "").strip()
-            if "current" in raw_field or raw_field in ("ctc", "salary") or "state" in raw_field:
-                field = "current_ctc"
-                val = int(num_val * 100000) if (num_val < 100 or "l" in unit) else int(num_val)
-            elif "expect" in raw_field or "target" in raw_field:
-                field = "expected_ctc"
-                val = int(num_val * 100000) if (num_val < 100 or "l" in unit) else int(num_val)
-            elif "notice" in raw_field:
-                field = "notice_period_days"
-                val = int(num_val)
-            else:
-                field = raw_field
-                val = int(num_val)
-            return PilotActionType.UPDATE_PROFILE, {"field": field, "value": val}, f"Update candidate profile: {field} -> {val}"
+            raw_amt = m_prof.group(3).strip()
+            if "notice" in raw_field:
+                num_match = re.search(r"(\d+)", raw_amt)
+                num_val = int(num_match.group(1)) if num_match else 30
+                return PilotActionType.UPDATE_PROFILE, {"field": "notice_period_days", "value": num_val}, f"Update candidate notice period: {num_val} days"
+
+            parsed_comp = parse_compensation_amount(raw_amt)
+            if parsed_comp is not None:
+                if "expect" in raw_field or "target" in raw_field:
+                    return PilotActionType.UPDATE_PROFILE, {"field": "expected_ctc", "value": parsed_comp}, f"Update candidate expected CTC: {parsed_comp}"
+                else:
+                    return PilotActionType.UPDATE_PROFILE, {"field": "current_ctc", "value": parsed_comp}, f"Update candidate current CTC: {parsed_comp}"
 
         m_role = re.search(r"(?:change|update|set)\s+(?:the\s+)?(?:my\s+)?(?:current\s+)?(title|role|designation)\s+(?:to|as)\s+(.+)", lower)
         if m_role and not any(k in lower for k in ["status", "application", "record"]):
@@ -436,7 +642,20 @@ class IntentRouter:
 
         # 10. QnA Knowledge Base Management
         if "add qna" in lower or "save answer" in lower:
-            return PilotActionType.ADD_QNA, {"raw": text}, "Adding custom answer to QnA knowledge base."
+            stripped = re.sub(r"^(?:add\s+qna|save\s+answer)\s*[:\-]?\s*", "", text, flags=re.IGNORECASE).strip()
+            q_part = ""
+            a_part = ""
+            if "=" in stripped:
+                parts = stripped.split("=", 1)
+                q_part, a_part = parts[0].strip(), parts[1].strip()
+            elif "->" in stripped:
+                parts = stripped.split("->", 1)
+                q_part, a_part = parts[0].strip(), parts[1].strip()
+            params_dict: Dict[str, Any] = {"raw": text}
+            if q_part and a_part:
+                params_dict["question"] = q_part
+                params_dict["answer"] = a_part
+            return PilotActionType.ADD_QNA, params_dict, "Adding custom answer to QnA knowledge base."
         if "test question" in lower:
             q_text = re.sub(r".*test\s+question\s*", "", text, flags=re.IGNORECASE).strip()
             return PilotActionType.TEST_QNA, {"question": q_text}, f"Testing match for question: '{q_text}'"

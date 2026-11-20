@@ -181,7 +181,11 @@ consecutive_skips_limit = _plat.get("consecutive_skips_limit", 20)
 # Negative keywords in Job Title to skip immediately in 0.01s without clicking or calling AI
 negative_title_words = _plat.get("negative_title_words", [
     "electrical", "mechanical", "civil", "hardware", "chemical", "structural",
-    "technician", "machinist", "maintenance", "site engineer", "eplan", "plc programmer"
+    "technician", "machinist", "maintenance", "site engineer", "eplan", "plc programmer",
+    "hr", "human resources", "recruiter", "talent acquisition", "staffing",
+    "sales", "marketing", "telecaller", "bpo", "call center", "customer support", "customer care",
+    "accountant", "accounting", "finance executive", "auditor", "billing", "receptionist",
+    "office assistant", "clerk", "nurse", "teacher", "trainer", "driver", "security guard", "cook"
 ])
 ##
 

@@ -6,7 +6,8 @@ import signal
 import subprocess
 import sys
 import time
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,18 @@ class ProcessManager:
                                     if "Z" in line or "zombie" in line.lower():
                                         return False
                                     break
+                    except Exception:
+                        pass
+                elif sys.platform == "darwin":
+                    try:
+                        res = subprocess.run(
+                            ["ps", "-p", str(pid), "-o", "state="],
+                            capture_output=True,
+                            text=True,
+                            timeout=1,
+                        )
+                        if res.returncode == 0 and "Z" in res.stdout:
+                            return False
                     except Exception:
                         pass
                 return True
@@ -90,19 +103,43 @@ class ProcessManager:
 
         # POSIX (Linux & macOS)
         try:
+            if pid == os.getpid():
+                logger.warning("Refusing to kill own process PID %s", pid)
+                return False
+
+            descendant_pids = cls._get_descendant_pids_posix(pid)
+
+            current_pgrp = os.getpgrp() if hasattr(os, "getpgrp") else None
             pgid = None
             try:
                 pgid = os.getpgid(pid)
             except Exception:
                 pass
 
-            if pgid is not None and hasattr(os, "killpg"):
+            # CRITICAL: Only use killpg if target is its own process group leader
+            # AND the group is NOT our own process group. Calling killpg on our own
+            # process group terminates the application itself!
+            is_own_pgrp = (current_pgrp is not None and pgid == current_pgrp)
+            is_group_leader = (pgid == pid)
+            use_killpg = (is_group_leader and not is_own_pgrp and hasattr(os, "killpg"))
+
+            if use_killpg:
                 try:
                     os.killpg(pgid, signal.SIGTERM)
                 except Exception:
                     os.kill(pid, signal.SIGTERM)
             else:
-                os.kill(pid, signal.SIGTERM)
+                for cpid in reversed(descendant_pids):
+                    if cpid != os.getpid() and cls.is_pid_alive(cpid):
+                        try:
+                            os.kill(cpid, signal.SIGTERM)
+                        except Exception:
+                            pass
+                if cls.is_pid_alive(pid):
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except Exception:
+                        pass
 
             # Wait briefly for cooperative exit
             deadline = time.time() + timeout_seconds
@@ -111,15 +148,25 @@ class ProcessManager:
                     return True
                 time.sleep(0.1)
 
-            # Force kill lingering process and group
+            # Force kill lingering process and descendants
             if cls.is_pid_alive(pid):
-                if pgid is not None and hasattr(os, "killpg"):
+                if use_killpg:
                     try:
                         os.killpg(pgid, signal.SIGKILL)
                     except Exception:
                         os.kill(pid, signal.SIGKILL)
                 else:
-                    os.kill(pid, signal.SIGKILL)
+                    for cpid in reversed(descendant_pids):
+                        if cpid != os.getpid() and cls.is_pid_alive(cpid):
+                            try:
+                                os.kill(cpid, signal.SIGKILL)
+                            except Exception:
+                                pass
+                    if cls.is_pid_alive(pid):
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except Exception:
+                            pass
                 time.sleep(0.1)
 
             return not cls.is_pid_alive(pid)
@@ -128,6 +175,44 @@ class ProcessManager:
         except Exception as exc:
             logger.warning("Failed killing process tree for PID %s: %s", pid, exc)
             return False
+
+    @classmethod
+    def _get_descendant_pids_posix(cls, parent_pid: int) -> List[int]:
+        """Finds all child and descendant PIDs of a process on Linux and macOS."""
+        descendants: List[int] = []
+        try:
+            task_dir = Path(f"/proc/{parent_pid}/task")
+            if task_dir.is_dir():
+                for tid_dir in task_dir.iterdir():
+                    children_file = tid_dir / "children"
+                    if children_file.is_file():
+                        with open(children_file, "r") as f:
+                            for cpid_str in f.read().split():
+                                if cpid_str.isdigit():
+                                    cpid = int(cpid_str)
+                                    descendants.append(cpid)
+                                    descendants.extend(cls._get_descendant_pids_posix(cpid))
+        except Exception:
+            pass
+
+        if not descendants:
+            try:
+                res = subprocess.run(
+                    ["pgrep", "-P", str(parent_pid)],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if res.returncode == 0:
+                    for line in res.stdout.strip().splitlines():
+                        if line.strip().isdigit():
+                            cpid = int(line.strip())
+                            descendants.append(cpid)
+                            descendants.extend(cls._get_descendant_pids_posix(cpid))
+            except Exception:
+                pass
+
+        return list(dict.fromkeys(descendants))
 
     @classmethod
     def safe_terminate_process(cls, proc: Optional[subprocess.Popen], timeout_seconds: float = 2.0) -> None:

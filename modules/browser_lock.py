@@ -84,6 +84,51 @@ def is_pid_alive(pid: int) -> bool:
         return False
 
 
+def is_process_owned_by_active_jobpilot(pid: int) -> bool:
+    """Verifies whether a Chrome process is child of an active, live JobPilot process."""
+    if not is_pid_alive(pid):
+        return False
+    try:
+        if sys.platform.startswith("linux"):
+            try:
+                with open(f"/proc/{pid}/stat", "r") as f:
+                    stat_line = f.read().split()
+                    ppid = int(stat_line[3])
+                if ppid > 1 and is_pid_alive(ppid) and ppid != os.getpid():
+                    with open(f"/proc/{ppid}/cmdline", "r") as f:
+                        parent_cmd = f.read().lower()
+                    if any(k in parent_cmd for k in ["jobpilot", "run_desktop", "runaibot"]):
+                        return True
+            except Exception:
+                pass
+        elif sys.platform == "darwin":
+            try:
+                import subprocess
+                res = subprocess.run(["ps", "-p", str(pid), "-o", "ppid="], capture_output=True, text=True, timeout=3)
+                if res.returncode == 0 and res.stdout.strip().isdigit():
+                    ppid = int(res.stdout.strip())
+                    if ppid > 1 and is_pid_alive(ppid) and ppid != os.getpid():
+                        cres = subprocess.run(["ps", "-p", str(ppid), "-o", "command="], capture_output=True, text=True, timeout=3)
+                        parent_cmd = (cres.stdout or "").lower()
+                        if any(k in parent_cmd for k in ["jobpilot", "run_desktop", "runaibot"]):
+                            return True
+            except Exception:
+                pass
+        elif sys.platform == "win32" or os.name == "nt":
+            import subprocess
+            import json
+            ps_script = f"Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\" | Select-Object ParentProcessId | ConvertTo-Json -Compress"
+            res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0 and res.stdout.strip():
+                data = json.loads(res.stdout)
+                ppid = data.get("ParentProcessId")
+                if ppid and is_pid_alive(int(ppid)) and int(ppid) != os.getpid():
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def find_pids_for_profile(profile_dir: str) -> list[int]:
     """Finds process IDs of Chrome instances using the given profile directory."""
     if not profile_dir or not os.path.exists(profile_dir):
@@ -206,7 +251,10 @@ def kill_profile_processes(profile_dir: str) -> None:
     primary_lock = os.path.join(profile_dir, "SingletonLock")
     if os.path.islink(primary_lock) or os.path.exists(primary_lock):
         pid = extract_pid_from_lock(primary_lock)
-        if pid is not None and is_pid_alive(pid):
+        if pid is not None and is_pid_alive(pid) and pid != os.getpid():
+            if is_process_owned_by_active_jobpilot(pid):
+                print_lg(f"[BrowserLock] Chrome process {pid} belongs to an active JobPilot parent process. Preserving process.")
+                return
             try:
                 print_lg(f"[BrowserLock] Terminating lingering Chrome process {pid} using {profile_dir}...")
                 from app.services.os.process_manager import ProcessManager
@@ -219,7 +267,10 @@ def kill_profile_processes(profile_dir: str) -> None:
     if active_pids:
         from app.services.os.process_manager import ProcessManager
         for pid in active_pids:
-            if is_pid_alive(pid):
+            if is_pid_alive(pid) and pid != os.getpid():
+                if is_process_owned_by_active_jobpilot(pid):
+                    print_lg(f"[BrowserLock] Chrome process {pid} belongs to an active JobPilot parent process. Preserving process.")
+                    continue
                 try:
                     print_lg(f"[BrowserLock] Terminating lingering Chrome process {pid} using profile {profile_dir}...")
                     ProcessManager.kill_process_tree(pid, timeout_seconds=1.5)

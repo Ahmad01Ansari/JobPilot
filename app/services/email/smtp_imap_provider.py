@@ -243,12 +243,12 @@ class GenericSmtpImapProvider(EmailProvider):
         if message.attachment_snapshot_path and os.path.exists(message.attachment_snapshot_path):
             with open(message.attachment_snapshot_path, "rb") as f:
                 content = f.read()
-            filename = os.path.basename(message.attachment_snapshot_path)
-            # Remove send token prefix from displayed attachment filename if present
-            if "_" in filename:
-                clean_name = filename.split("_", 1)[1]
-            else:
-                clean_name = filename
+            raw_filename = os.path.basename(message.attachment_snapshot_path)
+            # Remove send token (stk_<hex>_<hash>_) and internal resume (res_<id>_<hash>_) prefixes
+            clean_name = re.sub(r"^stk_[a-f0-9]+_[a-f0-9]+_", "", raw_filename)
+            clean_name = re.sub(r"^res_\d+_[a-f0-9]+_", "", clean_name)
+            if not clean_name.lower().endswith(".pdf"):
+                clean_name = f"{clean_name}.pdf"
 
             att = MIMEApplication(content, _subtype="pdf")
             att.add_header("Content-Disposition", "attachment", filename=clean_name)

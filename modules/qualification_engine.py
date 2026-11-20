@@ -21,10 +21,140 @@ class QualificationResult:
     """Represents the qualification decision for a Job."""
     accepted: bool
     reason: Optional[str] = None
-    stage: Optional[str] = None  # e.g. "ALREADY_APPLIED", "COMPANY_BLACKLIST", "TITLE_FILTER", "ABOUT_COMPANY", "BAD_WORDS", "CLEARANCE", "EXPERIENCE"
+    stage: Optional[str] = None  # e.g. "ALREADY_APPLIED", "COMPANY_BLACKLIST", "TITLE_FILTER", "OUT_OF_DOMAIN", "ABOUT_COMPANY", "BAD_WORDS", "CLEARANCE", "SKILL_MISMATCH", "EXPERIENCE"
 
     def __bool__(self) -> bool:
         return self.accepted
+
+
+GENERIC_ROLE_NOUNS: Set[str] = {
+    "developer", "engineer", "specialist", "consultant", "analyst", "manager", "lead",
+    "architect", "programmer", "coder", "associate", "officer", "executive", "administrator",
+    "coordinator", "expert", "practitioner", "scientist", "designer", "head", "director", "vp"
+}
+
+STOP_WORDS: Set[str] = {
+    "in", "and", "or", "for", "the", "of", "to", "at", "a", "an", "with", "senior", "junior",
+    "lead", "sr", "jr", "ii", "iii", "iv", "level", "mid", "entry", "fresher", "intern", "trainee"
+}
+
+OUT_OF_DOMAIN_KEYWORDS: List[str] = [
+    # HR & Recruitment
+    "hr", "human resources", "recruiter", "recruitment", "talent acquisition", "staffing",
+    "headhunter", "people operations", "hrbp", "talent partner", "payroll", "sourcer",
+    # Sales, Marketing & BPO
+    "sales", "marketing", "telecaller", "telemarketing", "inside sales", "bpo", "call center",
+    "customer support", "customer care", "customer service", "csr", "business development", "bde", "bdm",
+    # Finance, Accounting & Legal
+    "accountant", "accounting", "auditor", "bookkeeper", "finance executive", "tax consultant",
+    "billing", "legal counsel", "advocate", "lawyer",
+    # Healthcare & Medical
+    "nurse", "nursing", "pharmacist", "doctor", "physician", "therapist", "dentist",
+    # Education & Training
+    "teacher", "professor", "lecturer", "trainer", "counselor", "faculty",
+    # Administrative & Clerical
+    "receptionist", "admin executive", "office assistant", "clerk", "front desk",
+    # Operations, Trades & Logistics
+    "procurement", "supply chain", "logistics", "warehouse", "store keeper", "driver",
+    "security guard", "housekeeping", "cook", "chef", "carpenter", "plumber", "electrician",
+    # Creative / Content
+    "content writer", "copywriter", "graphic designer", "video editor", "seo executive",
+]
+
+
+def is_job_relevant(
+    job_title: str,
+    search_term: str,
+    core_skills: Optional[List[str]] = None,
+    negative_words: Optional[List[str]] = None,
+) -> bool:
+    """Verifies that the job title has meaningful domain relevance to the search term.
+
+    Prevents generic role noun collisions (e.g. 'HR Developer' matching 'RPA Developer',
+    or 'Civil Engineer' matching 'Automation Engineer').
+    """
+    if not job_title or not search_term:
+        return False
+
+    title_lower = job_title.strip().lower()
+    term_lower = search_term.strip().lower()
+
+    if not title_lower or not term_lower:
+        return False
+
+    # 1. Exact phrase substring match
+    if term_lower in title_lower:
+        return True
+
+    # 2. Check negative words if provided
+    if negative_words:
+        for nw in negative_words:
+            nw_clean = nw.strip().lower()
+            if nw_clean and re.search(r'\b' + re.escape(nw_clean) + r'\b', title_lower):
+                return False
+
+    # 3. Check out-of-domain words (reject non-target domains like HR, Sales, Accountant, etc.)
+    # unless the search term itself explicitly targeted that domain
+    for ood in OUT_OF_DOMAIN_KEYWORDS:
+        if re.search(r'\b' + re.escape(ood) + r'\b', title_lower):
+            # If search term contains this out-of-domain word, allow it
+            if re.search(r'\b' + re.escape(ood) + r'\b', term_lower):
+                continue
+            # If title contains candidate core skills (e.g. 'HR Automation Engineer'), allow it
+            if core_skills and any(re.search(r'\b' + re.escape(cs.lower()) + r'\b', title_lower) for cs in core_skills):
+                continue
+            return False
+
+    # 4. Tokenize
+    term_tokens = [w for w in re.findall(r'\b[a-zA-Z0-9\+\#\.]+\b', term_lower) if w not in STOP_WORDS]
+    title_tokens = [w for w in re.findall(r'\b[a-zA-Z0-9\+\#\.]+\b', title_lower) if w not in STOP_WORDS]
+
+    if not term_tokens or not title_tokens:
+        return False
+
+    # 5. Partition term tokens into domain keywords and generic role nouns
+    domain_term_tokens = [w for w in term_tokens if w not in GENERIC_ROLE_NOUNS]
+    role_term_tokens = [w for w in term_tokens if w in GENERIC_ROLE_NOUNS]
+
+    # If the search term has domain-specific keywords (e.g. 'rpa', 'automation', 'python', 'uipath')
+    if domain_term_tokens:
+        has_domain_match = False
+        for dt in domain_term_tokens:
+            for tt in title_tokens:
+                if dt == tt:
+                    has_domain_match = True
+                    break
+                # Stem / prefix matching of at least 4 chars (e.g. automa -> automation)
+                if len(dt) >= 4 and len(tt) >= 4 and (dt.startswith(tt) or tt.startswith(dt)):
+                    has_domain_match = True
+                    break
+            if has_domain_match:
+                break
+
+        # Also check candidate core_skills if no direct term domain token match
+        if not has_domain_match and core_skills:
+            for cs in core_skills:
+                cs_clean = cs.strip().lower()
+                if cs_clean and re.search(r'\b' + re.escape(cs_clean) + r'\b', title_lower):
+                    has_domain_match = True
+                    break
+
+        if not has_domain_match:
+            # Domain keyword was completely missing from job title!
+            # E.g. search term is 'RPA Developer', job title is 'HR Developer' or 'PHP Developer'
+            return False
+
+        return True
+
+    # If search term only consists of generic role words (e.g. 'Developer', 'Software Engineer')
+    for rt in role_term_tokens:
+        for tt in title_tokens:
+            if rt == tt:
+                return True
+            if len(rt) >= 4 and len(tt) >= 4 and (rt.startswith(tt) or tt.startswith(rt)):
+                return True
+
+    return False
 
 
 def extract_experience_bounds(text: str) -> Tuple[Optional[int], Optional[int]]:
@@ -72,6 +202,7 @@ class QualificationEngine:
         bad_words: Optional[List[str]] = None,
         negative_title_words: Optional[List[str]] = None,
         irrelevant_tech_words: Optional[List[str]] = None,
+        out_of_domain_words: Optional[List[str]] = None,
         core_skills: Optional[List[str]] = None,
         blacklisted_companies: Optional[Set[str]] = None,
         about_company_bad_words: Optional[List[str]] = None,
@@ -103,6 +234,12 @@ class QualificationEngine:
         else:
             self.core_skills = [w.lower() for w in default_core]
 
+        cand_core_set = set(self.core_skills)
+
+        # Configurable out-of-domain words (reject non-target domains like HR, Sales, Accountant, etc.)
+        raw_ood = out_of_domain_words if out_of_domain_words is not None else OUT_OF_DOMAIN_KEYWORDS
+        self.out_of_domain_words = [w.lower() for w in raw_ood if w.lower() not in cand_core_set]
+
         # Configurable irrelevant tech stacks (e.g. Golang, Ruby, PHP, Java, React when not in core skills)
         default_irrelevant = [
             "java", "angular", "react", "vue", "php", "ruby", "c++", ".net", "dotnet", "golang", "rust",
@@ -115,7 +252,6 @@ class QualificationEngine:
             raw_irrelevant = [w.lower() for w in default_irrelevant]
 
         # Filter out candidate's verified skills so they are never classified as irrelevant
-        cand_core_set = set(self.core_skills)
         self.irrelevant_tech_words = [w for w in raw_irrelevant if w not in cand_core_set]
 
         self.blacklisted_companies = set(c.lower() for c in (blacklisted_companies or set()))
@@ -124,7 +260,7 @@ class QualificationEngine:
         self.applied_job_ids = set(str(jid) for jid in (applied_job_ids or set()))
 
     def qualify_title(self, title: str, company: str = "", job_id: Optional[str] = None) -> QualificationResult:
-        """Fast Pre-Filter: checks applied status, company blacklist, negative title words, and irrelevant tech stacks."""
+        """Fast Pre-Filter: checks applied status, company blacklist, negative title words, out-of-domain professions, and irrelevant tech stacks."""
         # 1. Already Applied Check
         if job_id and str(job_id) in self.applied_job_ids:
             return QualificationResult(accepted=False, reason=f"Already applied to job ID: {job_id}", stage="ALREADY_APPLIED")
@@ -141,7 +277,21 @@ class QualificationEngine:
                 if re.search(pattern, lower_title):
                     return QualificationResult(accepted=False, reason=f"Irrelevant title keyword: '{neg_word}'", stage="TITLE_FILTER")
 
-        # 4. Configurable Irrelevant Tech Stack Check
+        # 4. Out-of-domain Professions (e.g. HR, Recruiter, Sales, Accountant, Nurse)
+        if title and self.out_of_domain_words:
+            lower_title = title.lower()
+            has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills) if self.core_skills else False
+            if not has_core_in_title:
+                for ood in self.out_of_domain_words:
+                    pattern = r'\b' + re.escape(ood) + r'\b'
+                    if re.search(pattern, lower_title):
+                        return QualificationResult(
+                            accepted=False,
+                            reason=f"Title belongs to out-of-domain profession: '{ood}'",
+                            stage="OUT_OF_DOMAIN",
+                        )
+
+        # 5. Configurable Irrelevant Tech Stack Check
         # Reject titles containing unrelated tech stacks unless title explicitly mentions candidate core skills
         if title and self.irrelevant_tech_words:
             lower_title = title.lower()
@@ -185,7 +335,16 @@ class QualificationEngine:
     ) -> QualificationResult:
         """Evaluates job description for bad words, security clearance, domain relevance, and experience."""
         if not description:
-            # If description is empty, evaluate experience bounds if available
+            # If description is empty and title lacks core skills, reject
+            if title and self.core_skills:
+                lower_title = title.lower()
+                has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills)
+                if not has_core_in_title:
+                    return QualificationResult(
+                        accepted=False,
+                        reason="Job description is empty and title lacks candidate core domain skills",
+                        stage="SKILL_MISMATCH",
+                    )
             return self._evaluate_experience(description="", required_experience_min=required_experience_min)
 
         desc_lower = description.lower()
@@ -200,13 +359,12 @@ class QualificationEngine:
             if any(term in desc_lower for term in ["polygraph", "clearance", "secret"]):
                 return QualificationResult(accepted=False, reason="Job requires security clearance / polygraph", stage="CLEARANCE")
 
-        # 3. Domain Skill Relevance Check for Generic Titles
+        # 3. Domain Skill Relevance Check
         if title and self.core_skills:
             lower_title = title.lower()
-            generic_indicators = ["software engineer", "application developer", "developer", "consultant", "associate", "analyst"]
-            has_core_in_title = any(cs in lower_title for cs in self.core_skills)
-            if any(gi in lower_title for gi in generic_indicators) and not has_core_in_title:
-                if not any(cs in desc_lower for cs in self.core_skills):
+            has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills)
+            if not has_core_in_title:
+                if not any(re.search(r'\b' + re.escape(cs) + r'\b', desc_lower) for cs in self.core_skills):
                     return QualificationResult(
                         accepted=False,
                         reason="Job description does not contain candidate core domain skills",

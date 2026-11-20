@@ -88,6 +88,7 @@ class UniversalSessionManager:
             "downloads_path": downloads_dir,
             "args": [
                 "--start-maximized",
+                "--window-position=0,0",
                 "--no-default-browser-check",
                 "--no-first-run",
                 "--disable-blink-features=AutomationControlled",
@@ -102,6 +103,9 @@ class UniversalSessionManager:
                 "--disable-password-manager-reauthentication",
             ],
         }
+        if not headless:
+            # Prevent Stagehand from injecting a fixed 1280x800 window size that breaks start-maximized
+            options["ignore_default_args"] = ["--window-size=1280,800"]
         # Explicit Chrome executable path for Windows/Linux
         try:
             from modules.open_chrome import find_chrome_executable

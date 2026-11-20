@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.widgets.automation.all_run_history_dialog import AllRunHistoryDialog
+
 from app.services.automation_events import (
     ApplicationSubmittedEvent,
     AutomationInterventionEvent,
@@ -225,6 +227,7 @@ class AutomationView(QWidget):
         self.manager.job_evaluated.connect(self._on_job_evaluated)
         self.manager.application_submitted.connect(self._on_application_submitted)
         self.manager.intervention_required.connect(self._on_intervention_required)
+        self.manager.intervention_dismissed.connect(self._on_intervention_dismissed)
         self.manager.activity_logged.connect(self._on_activity_logged)
         self.manager.run_finished.connect(self._on_run_finished)
 
@@ -507,6 +510,7 @@ class AutomationView(QWidget):
             dialog = CaptchaInterventionDialog(
                 message=getattr(event, "message", ""),
                 on_resolved=self._on_captcha_resolved,
+                on_cancelled=self._on_captcha_cancelled,
                 parent=self.window() or self,
             )
             self._active_captcha_dialog = dialog
@@ -525,6 +529,29 @@ class AutomationView(QWidget):
             except Exception:
                 pass
             self._active_captcha_dialog = None
+
+    def _on_captcha_cancelled(self) -> None:
+        """Invoked when user clicks Skip/Cancel on CAPTCHA dialog."""
+        self.manager.mark_captcha_cancelled()
+        self.intervention_banner.dismiss()
+        self.notification_bar.show_message("CAPTCHA skipped by user. Halting or skipping current job...", "warning")
+        self._active_captcha_dialog = None
+
+    def _on_intervention_dismissed(self) -> None:
+        """Dismisses any active intervention dialogs when challenge is completed or cleared."""
+        if self._active_captcha_dialog and self._active_captcha_dialog.isVisible():
+            try:
+                self._active_captcha_dialog.close()
+            except Exception:
+                pass
+            self._active_captcha_dialog = None
+        if hasattr(self, "_active_int_dialog") and self._active_int_dialog and self._active_int_dialog.isVisible():
+            try:
+                self._active_int_dialog.close()
+            except Exception:
+                pass
+            self._active_int_dialog = None
+        self.intervention_banner.dismiss()
 
     def _on_activity_logged(self, timestamp: str, message: str) -> None:
         """Appends semantic event to live activity timeline."""

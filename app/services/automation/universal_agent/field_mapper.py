@@ -412,6 +412,9 @@ class SemanticFieldMapper:
                             facts["current_city"] = (v, prov)
                         elif short_k == "cover_letter":
                             facts["cover_letter"] = (v, prov)
+                    else:
+                        facts[f"profile.{k}"] = (v, prov)
+                        facts[f"professional_profile.{k}"] = (v, prov)
 
         # 5. Workday / Universal ATS credentials (dynamic from Settings/SecretsService/profile.json)
         try:
@@ -606,18 +609,25 @@ class SemanticFieldMapper:
                 val, prov = facts["city"]
                 return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
 
-        # 5c. State / Province / Region
-        if (
-            re.search(r"\b(state|province|region|countryregion)\b", search_str)
-            or (f_info.name and f_info.name.lower() in ["state", "province", "region", "countryregion"])
-            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["countryregion", "statedropdown"]))
+        # 5c. State / Province / Region (Strictly excludes Country, Residence, and Calling/Phone Code)
+        is_country_or_phone = bool(
+            re.search(r"\b(country|residence|code|calling|dialing|phone)\b", search_str)
+            or (f_info.name and any(k in f_info.name.lower() for k in ["country", "residence", "code", "phone"]))
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["country", "residence", "code", "phone"]))
+        )
+        if not is_country_or_phone and (
+            re.search(r"\b(state|province|region)\b", search_str)
+            or (f_info.name and f_info.name.lower() in ["state", "province", "region"])
+            or (f_info.field_id and any(k in f_info.field_id.lower() for k in ["statedropdown", "addresssection_countryregion"]))
         ):
             if "profile.state" in facts:
                 val, prov = facts["profile.state"]
-                return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
+                opt_val = self._resolve_option_value(f_info, val)
+                return FieldMapping(field_info=f_info, resolved_value=str(val), selected_option_value=opt_val, provenance=prov, is_resolved=True)
             elif "state" in facts:
                 val, prov = facts["state"]
-                return FieldMapping(field_info=f_info, resolved_value=str(val), provenance=prov, is_resolved=True)
+                opt_val = self._resolve_option_value(f_info, val)
+                return FieldMapping(field_info=f_info, resolved_value=str(val), selected_option_value=opt_val, provenance=prov, is_resolved=True)
 
         # 5d. Zip Code / Postal Code
         if (
@@ -656,7 +666,14 @@ class SemanticFieldMapper:
         if re.search(r"\b(ever\s+been\s+employed|previously\s+employed|employed\s+by\s+[a-z]+|worked\s+at\s+[a-z]+|former\s+employee|affiliated\s+companies)\b", search_str):
             prev_val = str(facts.get("previously_employed", (None, None))[0] or "No")
             prov = FieldProvenance("rule", "previous_employment", confidence=1.0)
-            return FieldMapping(field_info=f_info, resolved_value=prev_val, provenance=prov, is_resolved=True)
+            opt_val = self._resolve_option_value(f_info, prev_val)
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=prev_val,
+                selected_option_value=opt_val,
+                provenance=prov,
+                is_resolved=True,
+            )
 
         # 6. LinkedIn URL
         if "linkedin" in search_str and not any(k in search_str for k in ["how did you hear", "source", "hear about", "sourcedropdown", "sourceprompt"]):
@@ -782,16 +799,15 @@ class SemanticFieldMapper:
                     is_resolved=True,
                 )
 
-        # 10a. Country & Nationality (placed after Work Auth and Visa Sponsorship, and strictly excludes work auth phrases)
-        if (re.search(r"\b(country|nation|nationality|ddlnationality)\b", search_str) or f_info.name in ["country", "nation", "nationality", "ddlNationality"]) and not re.search(r"\b(authorized|authorization|sponsorship|eligible)\b", search_str):
-            if "profile.country" in facts:
-                val, prov = facts["profile.country"]
-                opt_val = self._resolve_option_value(f_info, val)
-                return FieldMapping(field_info=f_info, resolved_value=str(val), selected_option_value=opt_val, provenance=prov, is_resolved=True)
-            elif "country" in facts:
-                val, prov = facts["country"]
-                opt_val = self._resolve_option_value(f_info, val)
-                return FieldMapping(field_info=f_info, resolved_value=str(val), selected_option_value=opt_val, provenance=prov, is_resolved=True)
+        # 10a. Country & Nationality & Country/Region of Residence / Country/Region Code
+        if (
+            re.search(r"\b(country|nation|nationality|country[\s/_-]*region|country[\s_-]*code|residence|ddlnationality)\b", search_str)
+            or f_info.name in ["country", "nation", "nationality", "countryRegion", "countryCode", "residence", "ddlNationality"]
+        ) and not re.search(r"\b(authorized|authorization|sponsorship|eligible)\b", search_str):
+            val = facts.get("profile.country", (None, None))[0] or facts.get("country", (None, None))[0] or "India"
+            prov = facts.get("profile.country", (None, None))[1] or FieldProvenance("profile", "country")
+            opt_val = self._resolve_option_value(f_info, val)
+            return FieldMapping(field_info=f_info, resolved_value=str(val), selected_option_value=opt_val, provenance=prov, is_resolved=True)
 
         # 11. Years of Experience
         if re.search(r"\b(years?[\s_-]*(?:of[\s_-]*)?experience|relevant[\s_-]*experience|total[\s_-]*experience|overall[\s_-]*experience)\b", search_str) or (
@@ -825,37 +841,74 @@ class SemanticFieldMapper:
 
         # 13. Expected Salary / CTC
         if (
-            re.search(r"\b(expected[\s_-]*(?:salary|ctc)|desired[\s_-]*(?:salary|ctc)|salary[\s_-]*expectation)\b", search_str)
+            re.search(r"\b(expected[\s_-]*(?:salary|ctc)|desired[\s_-]*(?:salary|ctc)|salary[\s_-]*expectation|desired[\s_-]*salary[\s_-]*position)\b", search_str)
             or (re.search(r"\b(salary|ctc|compensation)\b", search_str) and re.search(r"\b(expect\w*|desired|target)\b", search_str))
         ):
+            salary_val = None
+            salary_prov = None
             for k in ["professional_profile.expected_ctc", "expected_ctc", "desired_salary"]:
-                if k in facts:
-                    val, prov = facts[k]
-                    opt_val = self._resolve_option_value(f_info, val)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=str(val),
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                if k in facts and facts[k][0]:
+                    salary_val, salary_prov = facts[k]
+                    break
+            if not salary_val:
+                for k in ["professional_profile.current_ctc", "current_ctc", "salary"]:
+                    if k in facts and facts[k][0]:
+                        salary_val, salary_prov = facts[k]
+                        break
+            if not salary_val and self.qna_engine:
+                try:
+                    ans = self.qna_engine.resolve_text_answer(clean_label or f_info.label or "expected salary")
+                    if ans and ans.value and str(ans.value).strip():
+                        salary_val = str(ans.value).strip()
+                        salary_prov = FieldProvenance(ans.source or "qna", "salary", confidence=ans.confidence)
+                except Exception:
+                    pass
 
-        # 14. Current Salary / CTC
+            if salary_val is not None:
+                opt_val = self._resolve_option_value(f_info, salary_val)
+                return FieldMapping(
+                    field_info=f_info,
+                    resolved_value=str(salary_val),
+                    selected_option_value=opt_val,
+                    provenance=salary_prov or FieldProvenance("profile", "expected_salary"),
+                    is_resolved=True,
+                )
+
+        # 14. Current Salary / Overall Annual Compensation / Fixed+Variable
         if (
             re.search(r"\b(current[\s_-]*(?:salary|ctc))\b", search_str)
-            or (re.search(r"\b(salary|ctc|compensation)\b", search_str) and re.search(r"\b(current|present)\b", search_str))
+            or (re.search(r"\b(salary|ctc|compensation)\b", search_str) and re.search(r"\b(current|present|overall|annual)\b", search_str))
+            or re.search(r"\b(overall[\s_-]*annual[\s_-]*compensation|fixed[\s_-]*\+[\s_-]*variable|fixed[\s_-]*and[\s_-]*variable)\b", search_str)
         ):
+            curr_val = None
+            curr_prov = None
             for k in ["professional_profile.current_ctc", "current_ctc"]:
-                if k in facts:
-                    val, prov = facts[k]
-                    opt_val = self._resolve_option_value(f_info, val)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=str(val),
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                if k in facts and facts[k][0]:
+                    curr_val, curr_prov = facts[k]
+                    break
+            if not curr_val:
+                for k in ["professional_profile.expected_ctc", "expected_ctc", "desired_salary"]:
+                    if k in facts and facts[k][0]:
+                        curr_val, curr_prov = facts[k]
+                        break
+            if not curr_val and self.qna_engine:
+                try:
+                    ans = self.qna_engine.resolve_text_answer(clean_label or f_info.label or "current compensation")
+                    if ans and ans.value and str(ans.value).strip():
+                        curr_val = str(ans.value).strip()
+                        curr_prov = FieldProvenance(ans.source or "qna", "compensation", confidence=ans.confidence)
+                except Exception:
+                    pass
+
+            if curr_val is not None:
+                opt_val = self._resolve_option_value(f_info, curr_val)
+                return FieldMapping(
+                    field_info=f_info,
+                    resolved_value=str(curr_val),
+                    selected_option_value=opt_val,
+                    provenance=curr_prov or FieldProvenance("profile", "current_salary"),
+                    is_resolved=True,
+                )
 
         # 14a. RPA Tools / Automation Technologies
         if re.search(r"\b(rpa[\s_-]*tools?|which[\s_-]*rpa|rpa[\s_-]*technolog\w*)\b", search_str):
@@ -871,19 +924,23 @@ class SemanticFieldMapper:
                     )
 
         # 14b. Relocation / Physical Location in Pune / On-site
-        if re.search(r"\b(relocat\w*|physical[\s_-]*location|work[\s_-]*in[\s_-]*\w+|work[\s_-]*on[\s_-]*site|work[\s_-]*in[\s_-]*person)\b", search_str):
+        if re.search(r"\b(relocat\w*|physical[\s_-]*location|work(?:ing)?\s+in\s+[a-z]+|work(?:ing)?\s+on[\s_-]*site|work(?:ing)?\s+in[\s_-]*person)\b", search_str):
+            reloc_ans = "Yes"
+            reloc_prov = FieldProvenance("policy", "default_relocation", confidence=1.0)
             for k in ["open_to_relocation", "willing_to_relocate", "comfortable_with_onsite"]:
-                if k in facts:
+                if k in facts and facts[k][0] is not None:
                     val, prov = facts[k]
-                    ans = "yes" if str(val).lower() in ["yes", "true", "1"] else "no"
-                    opt_val = self._resolve_option_value(f_info, ans)
-                    return FieldMapping(
-                        field_info=f_info,
-                        resolved_value=ans,
-                        selected_option_value=opt_val,
-                        provenance=prov,
-                        is_resolved=True,
-                    )
+                    reloc_ans = "Yes" if str(val).lower() in ["yes", "true", "1"] else "No"
+                    reloc_prov = prov
+                    break
+            opt_val = self._resolve_option_value(f_info, reloc_ans)
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value=reloc_ans,
+                selected_option_value=opt_val,
+                provenance=reloc_prov,
+                is_resolved=True,
+            )
 
         # 14c. Technical Skills / Key Skills / Keywords
         if re.search(r"\b(technical[\s_-]*skills?|key[\s_-]*skills?|tech[\s_-]*skills?|skills[\s_-]*details|enter[\s_-]*your[\s_-]*technical[\s_-]*skills|keywords?)\b", search_str):
@@ -896,6 +953,42 @@ class SemanticFieldMapper:
                         provenance=prov,
                         is_resolved=True,
                     )
+
+        # 14d. Relatives / Family working at company / Nepotism declaration
+        if re.search(r"\b(relative|relatives|family[\s_-]*member|nepotism|extended[\s_-]*family)\b", search_str):
+            prov = FieldProvenance("policy", "relatives_declaration", confidence=1.0)
+            opt_val = self._resolve_option_value(f_info, "no")
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value="No",
+                selected_option_value=opt_val,
+                provenance=prov,
+                is_resolved=True,
+            )
+
+        # 14e. Travel / Willingness to Travel
+        if re.search(r"\b(travel|willing[\s_-]*to[\s_-]*travel|open[\s_-]*to[\s_-]*travel|business[\s_-]*travel)\b", search_str):
+            prov = FieldProvenance("profile", "willing_to_travel", confidence=1.0)
+            opt_val = self._resolve_option_value(f_info, "yes")
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value="Yes",
+                selected_option_value=opt_val,
+                provenance=prov,
+                is_resolved=True,
+            )
+
+        # 14f. Contractual Restrictions / Non-compete / Conflict of Interest / Restrictive Covenants
+        if re.search(r"\b(contractual[\s_-]*restriction|non[\s_-]*competition|non[\s_-]*compete|restrictive[\s_-]*covenant|conflict[\s_-]*of[\s_-]*interest)\b", search_str):
+            prov = FieldProvenance("policy", "non_compete_declaration", confidence=1.0)
+            opt_val = self._resolve_option_value(f_info, "no")
+            return FieldMapping(
+                field_info=f_info,
+                resolved_value="No",
+                selected_option_value=opt_val,
+                provenance=prov,
+                is_resolved=True,
+            )
 
         # 14d. Job Title / Professional Title / Headline
         if re.search(r"\b(job[\s_-]*title|target[\s_-]*role|position[\s_-]*applied|desired[\s_-]*title)\b", search_str):

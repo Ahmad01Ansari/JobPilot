@@ -285,11 +285,19 @@ class OutreachDispatcher:
 
         # 1. Resolve and stage attachment
         snapshot_path = None
-        if dto.resume_id:
-            with get_db_session(self._session_factory) as s:
-                resume = s.get(Resume, dto.resume_id)
-                if resume and resume.file_path:
-                    snapshot_path = self.stage_attachment(resume.file_path, send_token)
+        with get_db_session(self._session_factory) as s:
+            target_resume = None
+            if dto.resume_id:
+                target_resume = s.get(Resume, dto.resume_id)
+            if not target_resume:
+                # Defensive fallback: resolve default candidate resume
+                target_resume = s.query(Resume).filter(Resume.is_default == True).first()
+                if not target_resume:
+                    target_resume = s.query(Resume).order_by(Resume.id.desc()).first()
+                if target_resume:
+                    dto.resume_id = target_resume.id
+            if target_resume and target_resume.file_path:
+                snapshot_path = self.stage_attachment(target_resume.file_path, send_token)
 
         # 2. Phase 1: Database Pre-commit
         with get_db_session(self._session_factory) as s:

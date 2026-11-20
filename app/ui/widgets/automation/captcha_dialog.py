@@ -19,15 +19,18 @@ class CaptchaInterventionDialog(QDialog):
     """Human-in-the-loop dialog prompting the user to solve a browser CAPTCHA challenge."""
 
     resolved = Signal()
+    cancelled = Signal()
 
     def __init__(
         self,
         message: str = "",
         on_resolved: Optional[Callable[[], None]] = None,
+        on_cancelled: Optional[Callable[[], None]] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.on_resolved_cb = on_resolved
+        self.on_cancelled_cb = on_cancelled
         self.message_text = message or "A CAPTCHA challenge requires human verification in the browser."
 
         self.setWindowTitle("Action Required: CAPTCHA Verification")
@@ -158,7 +161,7 @@ class CaptchaInterventionDialog(QDialog):
                 color: {COLORS.get('text', '#F0F6FC')};
             }}
         """)
-        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_cancel.clicked.connect(self._on_cancelled_clicked)
         btn_layout.addWidget(self.btn_cancel)
 
         self.btn_resolved = QPushButton("✓ I Have Resolved the CAPTCHA")
@@ -186,6 +189,13 @@ class CaptchaInterventionDialog(QDialog):
         btn_layout.addWidget(self.btn_resolved, 1)
 
         layout.addLayout(btn_layout)
+
+    def _on_cancelled_clicked(self) -> None:
+        """Invokes cancellation handler and rejects dialog."""
+        if callable(self.on_cancelled_cb):
+            self.on_cancelled_cb()
+        self.cancelled.emit()
+        self.reject()
 
     def _on_resolved_clicked(self) -> None:
         """Invokes resolution handler and closes dialog."""

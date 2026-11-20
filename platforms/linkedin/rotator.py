@@ -21,7 +21,7 @@ from platforms.linkedin.selectors import (
 )
 from platforms.linkedin.parser import LinkedInJobParser
 from platforms.linkedin.applier import LinkedInApplier
-from modules.qualification_engine import QualificationEngine
+from modules.qualification_engine import QualificationEngine, is_job_relevant
 from modules.models import Job
 from modules.config_loader import get_candidate_experience, get_professional, get_platform
 
@@ -420,6 +420,24 @@ class LinkedInRotator:
                     card_company = raw_company if isinstance(raw_company, str) and not hasattr(raw_company, "_mock_return_value") and raw_company.strip() else ""
 
                     if card_title:
+                        neg_title_words = getattr(self.qualification_engine, "negative_title_words", None)
+                        core_skills = getattr(self.qualification_engine, "core_skills", None)
+                        if not is_job_relevant(card_title, term, core_skills=core_skills, negative_words=neg_title_words):
+                            skip_msg = f"Title '{card_title}' does not match keyword '{term}'"
+                            print_lg(f"[LinkedInRotator] Relevance check SKIP for '{card_title}': {skip_msg}")
+                            if self.tracker:
+                                job_stub = Job(
+                                    platform="linkedin",
+                                    job_id=job_id,
+                                    title=card_title or "Unknown",
+                                    company=card_company or "Unknown",
+                                    location="",
+                                )
+                                self.tracker.record_evaluation(job_stub, "SKIPPED", skip_reason=skip_msg)
+                            stats["jobs_skipped"] += 1
+                            consecutive_skips += 1
+                            continue
+
                         title_res = self.qualification_engine.qualify_title(title=card_title, company=card_company, job_id=job_id)
                         if not title_res.accepted:
                             print_lg(f"[LinkedInRotator] Pre-filter SKIP for '{card_title} | {card_company}': {title_res.reason}")

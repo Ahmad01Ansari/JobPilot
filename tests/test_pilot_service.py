@@ -247,6 +247,30 @@ class TestPilotService(unittest.TestCase):
         self.assertEqual(action, PilotActionType.APPLY_JOBS)
         self.assertEqual(params.get("job_id"), 608)
 
+    def test_autofill_profile_intent_and_execution(self):
+        # 1. Verify router intent mapping for compound setup prompts
+        router = self.service.intent_router
+        action, params, _ = router.parse_intent(
+            "Complete setup my profile based on my resume and data write a bio, write a cover letter and set the GitHub link and the LinkedIn link"
+        )
+        self.assertEqual(action, PilotActionType.UPDATE_PROFILE)
+        self.assertEqual(params.get("action"), "autofill_from_resume")
+
+        # 2. Verify link update parsing
+        action_li, params_li, _ = router.parse_intent("set my linkedin url to https://www.linkedin.com/in/Ahmad10Raza")
+        self.assertEqual(action_li, PilotActionType.UPDATE_PROFILE)
+        self.assertEqual(params_li.get("field"), "linkedin_url")
+        self.assertEqual(params_li.get("value"), "https://www.linkedin.com/in/Ahmad10Raza")
+
+        # 3. Execution of full profile setup
+        msg = self.service.process_user_prompt(
+            "Complete setup my profile based on my resume and data write a bio, write a cover letter and set the GitHub link and the LinkedIn link"
+        )
+        self.assertEqual(msg.action_type, PilotActionType.UPDATE_PROFILE)
+        self.assertIn("Candidate Profile Setup Complete", msg.body)
+        self.assertIn("Cover Letter", msg.body)
+        self.assertIn("Generated Professional Bio / Summary", msg.body)
+
     def test_smart_search_remote_python(self):
         action, params, _ = self.service.intent_router.parse_intent("find remote Python developer jobs")
         self.assertEqual(action, PilotActionType.SEARCH_JOBS)
@@ -445,6 +469,103 @@ class TestPilotService(unittest.TestCase):
         self.assertEqual(action, PilotActionType.UPDATE_RULES)
         self.assertEqual(params.get("type"), "remove_deal_breaker")
         self.assertEqual(params.get("deal_breaker"), "unity")
+
+    def test_add_qna_intent_and_service_execution(self):
+        action, params, _ = self.service.intent_router.parse_intent(
+            "add qna what is your notice period = immediate"
+        )
+        self.assertEqual(action, PilotActionType.ADD_QNA)
+        self.assertEqual(params.get("question"), "what is your notice period")
+        self.assertEqual(params.get("answer"), "immediate")
+
+        mock_qna = MagicMock()
+        mock_entry = MagicMock(id=42, question_text="what is your notice period", answer_text="immediate", category="general")
+        mock_qna.add_entry.return_value = (mock_entry, None)
+        self.service.qna_service = mock_qna
+
+        msg = self.service.process_user_prompt("add qna what is your notice period = immediate")
+        self.assertEqual(msg.action_type, PilotActionType.ADD_QNA)
+        mock_qna.add_entry.assert_called_once()
+        self.assertIn("Saved new QnA rule", msg.body)
+        self.assertIn("what is your notice period", msg.body)
+        self.assertIn("immediate", msg.body)
+
+    def test_infer_via_llm_resilient_json_parsing(self):
+        mock_gw = MagicMock()
+        mock_gw.chat.return_value = MagicMock(
+            content=(
+                "Certainly! Here is your requested action:\n"
+                "```json\n"
+                '{"action": "add_qna", "parameters": {"question": "relocate", "answer": "yes"}, "summary": "Added relocation answer"}\n'
+                "```\n"
+                "Hope this helps!"
+            )
+        )
+        router_llm = IntentRouter(ai_gateway=mock_gw)
+        act, params, summary = router_llm._infer_via_llm("save answer relocate yes")
+        self.assertEqual(act, PilotActionType.ADD_QNA)
+        self.assertEqual(params.get("question"), "relocate")
+        self.assertEqual(params.get("answer"), "yes")
+        self.assertEqual(summary, "Added relocation answer")
+
+    def test_tool_registry_fast_path_integration(self):
+        action, params, summary = self.service.intent_router.parse_intent("sync my resume to profile")
+        self.assertEqual(action, PilotActionType.UPDATE_PROFILE)
+
+    def test_tailor_resume_dynamic_candidate_profile(self):
+        # Verify deterministic tailor resume formats without crashing
+        msg = self.service.process_user_prompt("design a resume for DevOps Lead")
+        self.assertEqual(msg.action_type, PilotActionType.TAILOR_RESUME)
+        self.assertIn("DEVOPS LEAD", msg.body)
+        self.assertIn("Executive Summary", msg.body)
+        self.assertIn("Core Competencies", msg.body)
+        self.assertIn("Tailored Key Achievements", msg.body)
+
+    def test_send_email_application_resolves_default_resume_and_attachment(self):
+        from unittest.mock import patch, MagicMock
+        mock_user = MagicMock(phone="+916388623967")
+        mock_user.name = "Mohd Ahmad Raza Ansari"
+        mock_pp = MagicMock(
+            years_of_experience=3.0,
+            skills=["Python", "FastAPI"],
+            linkedin_url="https://linkedin.com/in/test",
+            current_title="AI Lead Engineer",
+        )
+        mock_res = MagicMock(id=3, file_path="/path/to/resume.pdf")
+        mock_res.name = "Mohd Ahmad Raza Ansari Resume 11 09 2026"
+
+        with patch("app.services.pilot.pilot_service.get_db_session") as mock_get_db:
+            mock_session = MagicMock()
+            mock_get_db.return_value.__enter__.return_value = mock_session
+            mock_session.get.return_value = mock_user
+            def mock_query(model):
+                m = MagicMock()
+                if getattr(model, "__name__", "") == "Profile":
+                    m.filter.return_value.first.return_value = None
+                elif getattr(model, "__name__", "") == "ProfessionalProfile":
+                    m.filter.return_value.first.return_value = mock_pp
+                elif getattr(model, "__name__", "") == "Resume":
+                    m.filter.return_value.first.return_value = mock_res
+                return m
+
+            mock_session.query.side_effect = mock_query
+
+            with patch("app.services.outreach_service.OutreachService.send_outreach") as mock_send:
+                mock_send.return_value = {
+                    "application_id": 999,
+                    "communication_id": 888,
+                    "success": True,
+                    "status": "SENT",
+                }
+                msg = self.service.process_user_prompt(
+                    "send email application AI Lead Engineer application to company Root Solution to email ahmad.ansari.dev@gmail.com"
+                )
+                self.assertEqual(msg.action_type, PilotActionType.SEND_EMAIL_APPLICATION)
+                mock_send.assert_called_once()
+                dto_sent = mock_send.call_args[0][0]
+                self.assertEqual(dto_sent.resume_id, 3)
+                self.assertIn("Mohd Ahmad Raza Ansari Resume 11 09 2026.pdf", msg.body)
+                self.assertNotIn("(Resume.pdf)", msg.body)
 
 
 if __name__ == "__main__":

@@ -272,14 +272,29 @@ class LinkedInApplier:
             print_lg(f"[LinkedInApplier] Notice discovering radio groups: {e}")
 
     def _answer_custom_dropdowns(self, driver, modal, job_description: str = "", work_location: str = "") -> None:
-        """Discovers and answers custom comboboxes and dropdown buttons."""
+        """Discovers and answers custom comboboxes, Artdeco dropdowns, and select buttons."""
+        placeholder_values = {
+            "", "select an option", "choose an option", "select option",
+            "choose option", "select one", "choose one", "select...", "choose...",
+            "please select", "-- select --", "-- choose --", "none selected"
+        }
         try:
-            comboboxes = modal.find_elements(By.XPATH, ".//div[@role='combobox'] | .//input[@role='combobox'] | .//button[@aria-haspopup='listbox']")
+            combobox_xpaths = [
+                ".//div[@role='combobox']",
+                ".//input[@role='combobox']",
+                ".//button[@aria-haspopup='listbox']",
+                ".//button[@aria-haspopup='true']",
+                ".//button[contains(@class, 'artdeco-dropdown__trigger')]",
+                ".//button[contains(@data-test-select-trigger, '')]",
+                ".//div[contains(@class, 'fb-dropdown')]//button",
+                ".//div[contains(@class, 'artdeco-dropdown')]//button",
+            ]
+            comboboxes = modal.find_elements(By.XPATH, " | ".join(combobox_xpaths))
             for cb in comboboxes:
                 if not cb.is_displayed():
                     continue
                 try:
-                    cb_label = cb.get_attribute("aria-label") or ""
+                    cb_label = (cb.get_attribute("aria-label") or "").strip()
                     if not cb_label:
                         try:
                             lbl = cb.find_element(By.XPATH, "./ancestor::div[.//label or .//p][1]//(label|p)[1]")
@@ -289,68 +304,190 @@ class LinkedInApplier:
                     if not cb_label:
                         cb_label = "Dropdown Question"
 
-                    curr_val = cb.get_attribute("value") or cb.text or ""
-                    if curr_val.strip() and curr_val.strip().lower() not in ["select an option", "choose an option"]:
+                    curr_val = (cb.get_attribute("value") or cb.text or "").strip()
+                    if curr_val and curr_val.lower() not in placeholder_values:
                         continue
 
-                    answer = "Yes"
-                    if self.qna_engine:
-                        ans = self.qna_engine.answer_text_question(cb_label, job_description=job_description, work_location=work_location)
-                        if ans:
-                            answer = ans
-
+                    # Open dropdown
                     try:
                         cb.click()
                     except Exception:
                         driver.execute_script("arguments[0].click();", cb)
                     human_delay(0.3, 0.6, action="click")
 
-                    options_xpath = "//div[@role='listbox']//*[@role='option'] | //ul[contains(@class, 'typeahead')]//li | //ul[@role='listbox']//li | //div[contains(@class, 'basic-typeahead')]//li"
+                    options_xpath = (
+                        "//div[@role='listbox']//*[@role='option'] | "
+                        "//ul[@role='listbox']//li | "
+                        "//div[contains(@class, 'artdeco-dropdown__content')]//li | "
+                        "//div[contains(@class, 'artdeco-dropdown__content')]//span | "
+                        "//div[contains(@class, 'fb-dropdown')]//li | "
+                        "//div[contains(@class, 'basic-typeahead')]//li | "
+                        "//ul[contains(@class, 'typeahead')]//li"
+                    )
                     options = driver.find_elements(By.XPATH, options_xpath)
-                    clicked_opt = False
-                    for opt in options:
-                        if opt.is_displayed():
-                            opt_text = opt.text.strip()
-                            if opt_text and (answer.lower() in opt_text.lower() or opt_text.lower() in answer.lower()):
-                                try:
-                                    opt.click()
-                                except Exception:
-                                    driver.execute_script("arguments[0].click();", opt)
-                                clicked_opt = True
+                    visible_opts = [opt for opt in options if opt.is_displayed() and opt.text.strip()]
+                    opt_texts = [opt.text.strip() for opt in visible_opts]
+
+                    matched_opt = None
+                    is_currency = any(w in cb_label.lower() for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
+                    has_currency = any(any(c in t.lower() for c in ["inr", "usd", "rupee", "dollar", "₹", "$"]) for t in opt_texts)
+
+                    if is_currency or has_currency:
+                        pref_curr = "inr"
+                        if self.qna_engine and hasattr(self.qna_engine, "salary_currency"):
+                            pref_curr = str(self.qna_engine.salary_currency).lower()
+                        for opt in visible_opts:
+                            t = opt.text.lower()
+                            if any(c in t for c in [pref_curr, "inr", "rupee", "₹", "indian"]):
+                                matched_opt = opt
                                 break
-                    if not clicked_opt and options:
-                        for opt in options:
-                            if opt.is_displayed():
-                                try:
-                                    opt.click()
-                                except Exception:
-                                    driver.execute_script("arguments[0].click();", opt)
+                        if not matched_opt:
+                            for opt in visible_opts:
+                                t = opt.text.lower()
+                                if any(c in t for c in ["usd", "$", "dollar"]):
+                                    matched_opt = opt
+                                    break
+                    elif self.qna_engine and opt_texts:
+                        _, matched_text = self.qna_engine.answer_select_or_radio(cb_label, opt_texts, work_location=work_location)
+                        if matched_text:
+                            for opt in visible_opts:
+                                if opt.text.strip().lower() == matched_text.strip().lower():
+                                    matched_opt = opt
+                                    break
+
+                    if not matched_opt and visible_opts:
+                        # Fallback to first non-placeholder option
+                        for opt in visible_opts:
+                            if opt.text.strip().lower() not in placeholder_values:
+                                matched_opt = opt
                                 break
-                except Exception:
-                    pass
-        except Exception:
-            pass
+
+                    if matched_opt:
+                        try:
+                            matched_opt.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", matched_opt)
+                        print_lg(f"[LinkedInApplier] Selected custom dropdown option '{matched_opt.text.strip()}' for '{cb_label[:60]}'")
+                except Exception as e:
+                    print_lg(f"[LinkedInApplier] Notice handling custom dropdown item: {e}")
+        except Exception as e:
+            print_lg(f"[LinkedInApplier] Notice discovering custom dropdowns: {e}")
 
     def _answer_step_questions(self, driver, modal, job_description: str = "", work_location: str = "") -> None:
         """Fills interactive form inputs, selects, and radios on the current modal step."""
+        placeholder_values = {
+            "", "select an option", "choose an option", "select option",
+            "choose option", "select one", "choose one", "select...", "choose...",
+            "please select", "-- select --", "-- choose --", "none selected"
+        }
         try:
             # 1. Fill radio button groups
             self._answer_radio_groups(driver, modal, job_description=job_description, work_location=work_location)
 
-            # 2. Fill native dropdown selects
+            # 2. Fill native dropdown selects (inspects both visible and custom-layered select elements)
             select_elements = modal.find_elements(By.TAG_NAME, "select")
             for sel_el in select_elements:
-                if not sel_el.is_displayed():
-                    continue
                 try:
-                    from selenium.webdriver.support.ui import Select
-                    sel = Select(sel_el)
-                    first_opt = sel.first_selected_option.text if sel.options else ""
-                    if not first_opt or first_opt.strip().lower() in ["select an option", "choose an option"]:
-                        if len(sel.options) > 1:
-                            sel.select_by_index(1)
-                except Exception:
-                    pass
+                    # Determine label / prompt for this select
+                    prompt = (sel_el.get_attribute("aria-label") or "").strip()
+                    if not prompt:
+                        sel_id = sel_el.get_attribute("id")
+                        if sel_id:
+                            try:
+                                lbl = modal.find_element(By.XPATH, f".//label[@for='{sel_id}']")
+                                prompt = lbl.text.strip()
+                            except Exception:
+                                pass
+                    if not prompt:
+                        try:
+                            parent_lbl = sel_el.find_element(By.XPATH, "./ancestor::div[.//label or .//p][1]//(label|p)[1]")
+                            prompt = parent_lbl.text.strip()
+                        except Exception:
+                            pass
+                    if not prompt:
+                        prompt = "Select Option"
+
+                    # Check current selected text
+                    selected_text = driver.execute_script(
+                        "return arguments[0].options[arguments[0].selectedIndex] ? arguments[0].options[arguments[0].selectedIndex].text : '';",
+                        sel_el
+                    ) or ""
+                    curr_val = (sel_el.get_attribute("value") or "").strip()
+                    if selected_text.strip().lower() not in placeholder_values and curr_val.lower() not in placeholder_values:
+                        continue
+
+                    # Extract all options
+                    options_raw = driver.execute_script("""
+                        const opts = [];
+                        for (let i = 0; i < arguments[0].options.length; i++) {
+                            const o = arguments[0].options[i];
+                            opts.push({ index: i, value: o.value, text: o.text.trim() });
+                        }
+                        return opts;
+                    """, sel_el) or []
+
+                    valid_opts = [o for o in options_raw if o["text"].lower() not in placeholder_values and o["text"]]
+                    if not valid_opts:
+                        continue
+
+                    target_choice = None
+                    opt_texts = [o["text"] for o in valid_opts]
+                    is_currency_q = any(w in prompt.lower() for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
+                    has_currency_opts = any(any(c in t.lower() for c in ["inr", "usd", "rupee", "dollar", "₹", "$"]) for t in opt_texts)
+
+                    if is_currency_q or has_currency_opts:
+                        pref_curr = "inr"
+                        if self.qna_engine and hasattr(self.qna_engine, "salary_currency"):
+                            pref_curr = str(self.qna_engine.salary_currency).lower()
+                        for o in valid_opts:
+                            ot = o["text"].lower()
+                            if any(c in ot for c in [pref_curr, "inr", "rupee", "₹", "indian"]):
+                                target_choice = o
+                                break
+                        if not target_choice:
+                            for o in valid_opts:
+                                ot = o["text"].lower()
+                                if any(c in ot for c in ["usd", "$", "dollar"]):
+                                    target_choice = o
+                                    break
+                    elif self.qna_engine:
+                        _, matched = self.qna_engine.answer_select_or_radio(prompt, opt_texts, work_location=work_location)
+                        if matched:
+                            for o in valid_opts:
+                                if o["text"].strip().lower() == matched.strip().lower():
+                                    target_choice = o
+                                    break
+
+                    if not target_choice:
+                        target_choice = valid_opts[0]
+
+                    target_idx = target_choice["index"]
+                    target_val = target_choice["value"]
+
+                    # Attempt native Selenium select if interactable
+                    if sel_el.is_displayed():
+                        try:
+                            from selenium.webdriver.support.ui import Select
+                            Select(sel_el).select_by_index(target_idx)
+                        except Exception:
+                            pass
+
+                    # Execute JavaScript to ensure selectedIndex, value, and DOM synthetic events are dispatched
+                    driver.execute_script("""
+                        const sel = arguments[0];
+                        const idx = arguments[1];
+                        const val = arguments[2];
+                        sel.selectedIndex = idx;
+                        if (val) sel.value = val;
+                        sel.dispatchEvent(new Event('focus', { bubbles: true }));
+                        sel.dispatchEvent(new Event('input', { bubbles: true }));
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        sel.dispatchEvent(new Event('blur', { bubbles: true }));
+                    """, sel_el, target_idx, target_val)
+
+                    print_lg(f"[LinkedInApplier] Selected dropdown option '{target_choice['text']}' for question '{prompt[:60]}'")
+                except Exception as e:
+                    print_lg(f"[LinkedInApplier] Notice handling select element: {e}")
 
             # 3. Fill custom comboboxes / typeahead dropdowns
             self._answer_custom_dropdowns(driver, modal, job_description=job_description, work_location=work_location)
