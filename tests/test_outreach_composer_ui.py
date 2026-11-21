@@ -366,6 +366,9 @@ class TestOutreachComposerUI(unittest.TestCase):
             self.assertEqual(openai_job.title, "Prompt Architect")
             self.assertEqual(openai_job.application_method, "EMAIL")
 
+            if hasattr(dialog, "_send_worker") and dialog._send_worker and dialog._send_worker.isRunning():
+                dialog._send_worker.wait(3000)
+
         dialog.close()
 
 
@@ -392,7 +395,10 @@ class TestOutreachWorkspaceLayout(unittest.TestCase):
         # Verify refresh lifecycle hook
         self.assertTrue(hasattr(ws, "refresh"))
         ws.refresh()
-
+        for w_name in ("_inbox_worker", "_stats_worker", "_detail_worker"):
+            w = getattr(ws, w_name, None)
+            if w and w.isRunning():
+                w.wait(2000)
         ws.close()
 
     def test_command_header_kpi_card_styling(self):

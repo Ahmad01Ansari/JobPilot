@@ -175,6 +175,28 @@ class _AICopilotWorker(QThread):
             self.error.emit(str(e))
 
 
+class _FollowupExecuteWorker(QThread):
+    """Dispatches a scheduled follow-up asynchronously without blocking GUI."""
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def __init__(self, scheduler: FollowUpScheduler, followup_id: int):
+        super().__init__()
+        self._scheduler = scheduler
+        self._fu_id = followup_id
+
+    def run(self):
+        try:
+            res = self._scheduler.execute_followup(self._fu_id)
+            if res.get("success"):
+                self.finished.emit(res)
+            else:
+                self.error.emit(res.get("error", "Failed to dispatch follow-up email"))
+        except Exception as e:
+            logger.exception("Follow-up execution failed")
+            self.error.emit(str(e))
+
+
 # ---------------------------------------------------------------------------
 # Main Workspace Widget
 # ---------------------------------------------------------------------------
@@ -200,6 +222,7 @@ class OutreachWorkspace(QWidget):
         self._reply_worker: Optional[_ReplySendWorker] = None
         self._sync_worker: Optional[_MailSyncWorker] = None
         self._copilot_worker: Optional[_AICopilotWorker] = None
+        self._followup_worker: Optional[_FollowupExecuteWorker] = None
 
         self._setup_ui()
         self._connect_signals()
@@ -312,6 +335,8 @@ class OutreachWorkspace(QWidget):
     # ---------------------------------------------------------------
 
     def _load_stats(self):
+        if self._stats_worker and self._stats_worker.isRunning():
+            self._stats_worker.wait(1500)
         self._stats_worker = _StatsLoadWorker(self._outreach_svc)
         self._stats_worker.finished.connect(self._on_stats_loaded)
         self._stats_worker.start()
@@ -320,6 +345,8 @@ class OutreachWorkspace(QWidget):
         self._header.update_stats(stats)
 
     def _load_inbox(self):
+        if self._inbox_worker and self._inbox_worker.isRunning():
+            self._inbox_worker.wait(1500)
         self._inbox_worker = _InboxLoadWorker(
             self._outreach_svc,
             state_filter=self._active_filter or None,
@@ -371,6 +398,8 @@ class OutreachWorkspace(QWidget):
         logger.error("Inbox load error: %s", err)
 
     def _load_detail(self, app_id: int):
+        if self._detail_worker and self._detail_worker.isRunning():
+            self._detail_worker.wait(1500)
         self._detail_worker = _DetailLoadWorker(self._outreach_svc, app_id)
         self._detail_worker.finished.connect(self._on_detail_loaded)
         self._detail_worker.error.connect(self._on_detail_error)
@@ -640,19 +669,24 @@ class OutreachWorkspace(QWidget):
                 ModernPopup.error(self, "Action Failed", f"Could not stop cadence: {e}")
 
     def _on_execute_followup(self, fu_id: int):
-        try:
-            self._followup_scheduler.execute_followup(fu_id)
-            self.refresh_data()
-            if self._current_app_id:
-                self._load_detail(self._current_app_id)
-            ModernPopup.success(
-                self,
-                "Follow-Up Sent",
-                "The scheduled follow-up email has been dispatched and added to the conversation thread.",
-            )
-        except Exception as e:
-            logger.error("Execute follow-up failed: %s", e)
-            ModernPopup.error(self, "Follow-Up Error", f"Failed to execute follow-up:\n\n{e}")
+        self._followup_worker = _FollowupExecuteWorker(self._followup_scheduler, fu_id)
+        self._followup_worker.finished.connect(self._on_followup_finished)
+        self._followup_worker.error.connect(self._on_followup_error)
+        self._followup_worker.start()
+
+    def _on_followup_finished(self, result: dict):
+        self.refresh_data()
+        if self._current_app_id:
+            self._load_detail(self._current_app_id)
+        ModernPopup.success(
+            self,
+            "Follow-Up Sent",
+            "The scheduled follow-up email has been dispatched and added to the conversation thread.",
+        )
+
+    def _on_followup_error(self, err: str):
+        logger.error("Execute follow-up failed: %s", err)
+        ModernPopup.error(self, "Follow-Up Error", f"Failed to execute follow-up:\n\n{err}")
 
     def _on_cta_clicked(self, action_type: str):
         """Routes CTA clicks from the Next Action card."""
@@ -699,3 +733,19 @@ class OutreachWorkspace(QWidget):
     def _on_copilot_error(self, err: str):
         self._composer.set_ai_generating(False)
         self._composer.on_send_error(f"AI Copilot failed: {err}")
+
+    def closeEvent(self, event):
+        """Cleanly waits on any active worker threads before widget teardown."""
+        for worker_name in (
+            "_inbox_worker",
+            "_detail_worker",
+            "_stats_worker",
+            "_reply_worker",
+            "_sync_worker",
+            "_copilot_worker",
+            "_followup_worker",
+        ):
+            w = getattr(self, worker_name, None)
+            if w and w.isRunning():
+                w.wait(2000)
+        super().closeEvent(event)

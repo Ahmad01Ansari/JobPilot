@@ -82,14 +82,30 @@ class FollowUpScheduler:
             comp_name = app.job.company.name if (app.job and app.job.company) else (app.job.company_raw if app.job else "")
             job_title = app.job.title if app.job else ""
 
+            skills_str = "Python, System Architecture, Software Engineering"
+            portfolio_url = "https://github.com"
+            try:
+                from app.services.profile_service import ProfileService
+                _, prof, pro = ProfileService(s).get_primary_user_profile()
+                if pro:
+                    if pro.skills:
+                        if isinstance(pro.skills, list):
+                            skills_str = ", ".join(pro.skills[:5])
+                        elif isinstance(pro.skills, str):
+                            skills_str = pro.skills
+                    if pro.portfolio_url or pro.github_url:
+                        portfolio_url = pro.portfolio_url or pro.github_url
+            except Exception:
+                pass
+
             ctx = {
                 "candidate_name": candidate_name,
                 "candidate_email": candidate_email,
                 "recruiter_name": recruiter_name,
                 "company_name": comp_name,
                 "job_title": job_title,
-                "skills": "Python, RPA, System Architecture",
-                "portfolio_url": "https://github.com",
+                "skills": skills_str,
+                "portfolio_url": portfolio_url,
             }
 
             subj, _ = TemplateRenderer.render(tmpl.subject_template, ctx, strict=False)
@@ -107,6 +123,86 @@ class FollowUpScheduler:
                 "body_text": body,
                 "template_id": tmpl.id,
             }
+
+    def get_due_followups_for_user(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Returns structured summaries of all due follow-ups for user review before sending."""
+        self.refresh_due_statuses()
+        now = datetime.now(timezone.utc)
+        results = []
+        with get_db_session(self._session_factory) as s:
+            due_records = s.execute(
+                select(FollowUp).where(
+                    FollowUp.status == FollowUpStatus.DUE.value,
+                ).order_by(FollowUp.due_at.asc())
+            ).scalars().all()
+
+            for fu in due_records:
+                app = fu.application
+                if not app or app.status in ("REJECTED", "OFFER", "WITHDRAWN"):
+                    continue
+                if user_id is not None and app.user_id != user_id:
+                    continue
+
+                contact = app.contact
+                comp_name = app.job.company.name if (app.job and app.job.company) else (app.job.company_raw if app.job else "Unknown Company")
+                job_title = app.job.title if app.job else "Application"
+
+                # Find last outbound email for human context
+                last_comm = s.execute(
+                    select(Communication).where(
+                        Communication.application_id == app.id,
+                        Communication.direction == "OUTBOUND",
+                    ).order_by(Communication.created_at.desc())
+                ).scalars().first()
+
+                last_sent_str = last_comm.created_at.strftime("%b %d, %Y") if last_comm and last_comm.created_at else "Unknown date"
+                last_subj = last_comm.subject if last_comm else "Initial Outreach"
+                last_snippet = last_comm.body_snippet if last_comm and last_comm.body_snippet else ""
+
+                draft = self.prepare_followup_draft(fu.id)
+
+                results.append({
+                    "id": fu.id,
+                    "followup_id": fu.id,
+                    "status": fu.status,
+                    "application_id": app.id,
+                    "step_number": fu.step_number,
+                    "company_name": comp_name,
+                    "job_title": job_title,
+                    "contact_name": contact.name if contact else "Hiring Team",
+                    "contact_email": contact.email if contact else "",
+                    "last_email_sent_at": last_sent_str,
+                    "last_email_subject": last_subj,
+                    "last_email_snippet": last_snippet,
+                    "due_at": fu.due_at.strftime("%b %d, %Y") if fu.due_at else "Today",
+                    "proposed_subject": draft.get("subject", f"Following up: {job_title}"),
+                    "proposed_body": draft.get("body_text", ""),
+                })
+        return results
+
+    def snooze_followup(self, followup_id: int, days: int = 3) -> bool:
+        """Postpones a due follow-up by the specified number of days."""
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        with get_db_session(self._session_factory) as s:
+            fu = s.get(FollowUp, followup_id)
+            if not fu:
+                return False
+            fu.due_at = now + timedelta(days=days)
+            fu.status = FollowUpStatus.PENDING.value
+            s.commit()
+            return True
+
+    def cancel_followup(self, followup_id: int, reason: str = "Cancelled by user") -> bool:
+        """Cancels a scheduled follow-up cadence step."""
+        with get_db_session(self._session_factory) as s:
+            fu = s.get(FollowUp, followup_id)
+            if not fu:
+                return False
+            fu.status = FollowUpStatus.CANCELLED.value
+            fu.paused_reason = reason
+            s.commit()
+            return True
 
     def execute_followup(
         self,

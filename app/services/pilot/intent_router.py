@@ -234,6 +234,10 @@ class IntentRouter:
             "update_rules": PilotActionType.UPDATE_RULES,
             "get_status": PilotActionType.GET_STATUS,
             "send_email_application": PilotActionType.SEND_EMAIL_APPLICATION,
+            "get_followups": PilotActionType.GET_FOLLOWUPS,
+            "execute_followup": PilotActionType.EXECUTE_FOLLOWUP,
+            "snooze_followup": PilotActionType.SNOOZE_FOLLOWUP,
+            "cancel_followup": PilotActionType.CANCEL_FOLLOWUP,
             "answer_intervention": PilotActionType.ANSWER_INTERVENTION,
             "chat": PilotActionType.CHAT,
         }
@@ -297,6 +301,39 @@ class IntentRouter:
                     "raw_prompt": text,
                 },
                 f"Send email application to {rec_email} for role '{detected_role}'",
+            )
+
+        # 1aa. Outreach Cadence Follow-Up Inquiries & Human-in-the-Loop Actions
+        if any(k in lower for k in ("followup", "follow-up", "follow up", "cadence")):
+            if any(w in lower for w in ("send", "dispatch", "shoot", "approve", "confirm", "deliver")):
+                fu_id_match = re.search(r"\b(?:id|#)\s*(\d+)\b", text, re.IGNORECASE)
+                comp_match = re.search(r"(?:for|to|at)\s+([a-zA-Z0-9\s\.\-_]+?)(?:\s+now|\s+please|\s+today|$)", text, re.IGNORECASE)
+                return (
+                    PilotActionType.EXECUTE_FOLLOWUP,
+                    {
+                        "followup_id": int(fu_id_match.group(1)) if fu_id_match else None,
+                        "company": comp_match.group(1).strip() if comp_match else None,
+                    },
+                    "Send approved outreach follow-up email",
+                )
+            if any(w in lower for w in ("snooze", "delay", "postpone", "later", "hold")):
+                days_match = re.search(r"(\d+)\s*(?:day|days)", text, re.IGNORECASE)
+                days = int(days_match.group(1)) if days_match else 3
+                return (
+                    PilotActionType.SNOOZE_FOLLOWUP,
+                    {"days": days},
+                    f"Snooze outreach cadence by {days} days",
+                )
+            if any(w in lower for w in ("cancel", "stop", "abort", "remove", "dismiss")):
+                return (
+                    PilotActionType.CANCEL_FOLLOWUP,
+                    {},
+                    "Cancel outreach follow-up cadence",
+                )
+            return (
+                PilotActionType.GET_FOLLOWUPS,
+                {},
+                "Check pending and due outreach follow-up cadences",
             )
 
         # 1b. Complete / Autofill Profile Setup Intent

@@ -606,6 +606,22 @@
 
         <!-- TAB 1: Unified & Naukri Dashboard -->
         <div id="unified-tab" class="tab-content active">
+            <!-- Due Follow-ups Banner (HITL Gate) -->
+            <div id="unifiedDueFollowupsBanner"
+                style="display: none; background: #1A1512; border: 1px solid #3E2415; border-left: 4px solid #FF5F15; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <strong style="color: #FFFFFF; font-size: 14px;">Action Required: You have <span id="unifiedDueFollowupCount">0</span> outreach follow-up(s) due!</strong>
+                        <p style="margin: 4px 0 0 0; font-size: 13px; color: #8B949E;">Human confirmation is required before any cadence email is sent.</p>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button onclick="switchTab('outreach-tab')" class="btn-theme btn-theme-primary" style="padding: 7px 16px; font-size: 13px; font-weight: 600;">
+                            Review & Send Follow-Ups ►
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Metric Cards -->
             <div class="metrics-grid">
                 <div class="metric-card">
@@ -1166,6 +1182,22 @@
                     const junkData = await junkRes.json();
                     const badge = document.getElementById('junkBadgeCount');
                     if (badge) badge.innerText = junkData.length;
+                }
+
+                // Check due follow-ups for unified banner
+                const dueRes = await fetch('/api/outreach/followups/due');
+                if (dueRes.ok) {
+                    const dueList = await dueRes.json();
+                    const uBanner = document.getElementById('unifiedDueFollowupsBanner');
+                    if (uBanner) {
+                        if (dueList.length > 0) {
+                            uBanner.style.display = 'block';
+                            const cntEl = document.getElementById('unifiedDueFollowupCount');
+                            if (cntEl) cntEl.textContent = dueList.length;
+                        } else {
+                            uBanner.style.display = 'none';
+                        }
+                    }
                 }
             } catch (err) {
                 console.error("Error loading unified applications:", err);

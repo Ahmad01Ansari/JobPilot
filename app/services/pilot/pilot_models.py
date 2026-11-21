@@ -45,6 +45,10 @@ class PilotActionType(str, Enum):
     GET_INTERVIEWS_REPORT = "get_interviews_report"
     GET_RULES = "get_rules"
     SEND_EMAIL_APPLICATION = "send_email_application"
+    GET_FOLLOWUPS = "get_followups"
+    EXECUTE_FOLLOWUP = "execute_followup"
+    SNOOZE_FOLLOWUP = "snooze_followup"
+    CANCEL_FOLLOWUP = "cancel_followup"
     ANSWER_INTERVENTION = "answer_intervention"
     UNKNOWN = "unknown"
 

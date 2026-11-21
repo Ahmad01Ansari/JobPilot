@@ -527,32 +527,38 @@ class OutreachService:
         return results
 
     def list_due_followups(self) -> List[Dict[str, Any]]:
-        """Finds all follow-ups that have become due for action."""
-        now = datetime.now(timezone.utc)
-        results = []
-        with get_db_session(self._session_factory) as s:
-            stmt = (
-                select(FollowUp)
-                .where(
-                    FollowUp.status.in_([FollowUpStatus.PENDING.value, FollowUpStatus.DUE.value]),
-                    FollowUp.due_at <= now,
+        """Finds all follow-ups that have become due for action with full context."""
+        try:
+            from app.services.followup_scheduler import FollowUpScheduler
+            scheduler = FollowUpScheduler(session_factory=self._session_factory)
+            return scheduler.get_due_followups_for_user()
+        except Exception as e:
+            logger.error("Error listing due followups from scheduler: %s", e)
+            now = datetime.now(timezone.utc)
+            results = []
+            with get_db_session(self._session_factory) as s:
+                stmt = (
+                    select(FollowUp)
+                    .where(
+                        FollowUp.status.in_([FollowUpStatus.PENDING.value, FollowUpStatus.DUE.value]),
+                        FollowUp.due_at <= now,
+                    )
+                    .order_by(FollowUp.due_at.asc())
                 )
-                .order_by(FollowUp.due_at.asc())
-            )
-            for fu in s.execute(stmt).scalars().all():
-                results.append({
-                    "id": fu.id,
-                    "application_id": fu.application_id,
-                    "contact_id": fu.contact_id,
-                    "step_number": fu.step_number,
-                    "due_at": fu.due_at.isoformat(),
-                    "status": fu.status,
-                    "company_name": fu.application.job.company.name if (fu.application and fu.application.job and fu.application.job.company) else "",
-                    "job_title": fu.application.job.title if (fu.application and fu.application.job) else "",
-                    "contact_name": fu.contact.name if fu.contact else "",
-                    "contact_email": fu.contact.email if fu.contact else "",
-                })
-        return results
+                for fu in s.execute(stmt).scalars().all():
+                    results.append({
+                        "id": fu.id,
+                        "application_id": fu.application_id,
+                        "contact_id": fu.contact_id,
+                        "step_number": fu.step_number,
+                        "due_at": fu.due_at.isoformat(),
+                        "status": fu.status,
+                        "company_name": fu.application.job.company.name if (fu.application and fu.application.job and fu.application.job.company) else "",
+                        "job_title": fu.application.job.title if (fu.application and fu.application.job) else "",
+                        "contact_name": fu.contact.name if fu.contact else "",
+                        "contact_email": fu.contact.email if fu.contact else "",
+                    })
+            return results
 
     def pause_followups(self, application_id: int, reason: str = "Recruiter replied") -> int:
         """Pauses all pending and due followups for an application (critical safety invariant)."""

@@ -136,6 +136,15 @@ class MainWindow(QMainWindow):
             lambda level, title, msg: self.state.notify(level, f"{title}: {msg}")
         )
 
+        # Wire background outreach cadence coordinator
+        try:
+            from app.services.outreach_coordinator import OutreachCadenceCoordinator
+            self.outreach_coordinator = OutreachCadenceCoordinator.get_instance()
+            self.outreach_coordinator.due_followups_detected.connect(self._on_due_followups_detected)
+            self.outreach_coordinator.start()
+        except Exception as e:
+            logger.debug("OutreachCadenceCoordinator startup: %s", e)
+
         # Wire automation manager signals to notification service and live real-time view updates
         automation_view = self.view_instances.get("automation")
         dashboard_view = self.view_instances.get("dashboard")
@@ -479,8 +488,35 @@ class MainWindow(QMainWindow):
         dialog = AboutDialog(self)
         dialog.exec()
 
+    def _on_due_followups_detected(self, due_list: list) -> None:
+        """Surfaces due follow-ups in the global notification bar with interactive review."""
+        if not due_list:
+            return
+        first = due_list[0]
+        comp = first.get("company_name") or "Recruiter"
+        role = first.get("job_title") or "Application"
+        last_sent = str(first.get("last_email_sent_at") or "")[:10]
+        time_str = f" (last sent {last_sent})" if last_sent else ""
+        msg = f"Follow-up reminder: {len(due_list)} cadence due for {comp} — {role}{time_str}."
+
+        def _open_review():
+            try:
+                from app.ui.views.outreach.followup_review_dialog import FollowUpReviewDialog
+                dialog = FollowUpReviewDialog(first, parent=self)
+                dialog.exec()
+            except Exception as e:
+                self.notification_bar.show_message("warning", f"Could not open review: {e}")
+
+        self.notification_bar.show_action("warning", msg, "Review Follow-Up", _open_review, duration_ms=15000)
+
     def closeEvent(self, event) -> None:
         """Gracefully stops timers, background workers, and coordinates system teardown."""
+        if hasattr(self, "outreach_coordinator") and self.outreach_coordinator:
+            try:
+                self.outreach_coordinator.stop()
+            except Exception:
+                pass
+
         dashboard = self.view_instances.get("dashboard")
         if dashboard and hasattr(dashboard, "stop_workers"):
             try:

@@ -28,6 +28,26 @@ class NotificationBar(QFrame):
         self.message_label = QLabel()
         self.message_label.setStyleSheet(f"font-size: 13px; color: {COLORS['text']}; font-weight: 500;")
 
+        self.action_btn = QPushButton()
+        self.action_btn.setVisible(False)
+        self.action_btn.setCursor(Qt.PointingHandCursor)
+        self.action_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['primary']};
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #E04D0B;
+            }}
+        """)
+        self._action_callback = None
+        self.action_btn.clicked.connect(self._on_action_clicked)
+
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(22, 22)
         close_btn.setCursor(Qt.PointingHandCursor)
@@ -50,10 +70,39 @@ class NotificationBar(QFrame):
 
         layout.addWidget(self.icon_label)
         layout.addWidget(self.message_label, 1)
+        layout.addWidget(self.action_btn)
         layout.addWidget(close_btn)
+
+    def _on_action_clicked(self) -> None:
+        callback = self._action_callback
+        self.hide()
+        if callback and callable(callback):
+            try:
+                callback()
+            except Exception:
+                pass
 
     def show_message(self, level: str, message: str, duration_ms: int = 4000) -> None:
         """Displays notification banner with modern dark card styling and accent stripe."""
+        self.action_btn.setVisible(False)
+        self._action_callback = None
+        self._apply_style(level, message, duration_ms)
+
+    def show_action(
+        self,
+        level: str,
+        message: str,
+        action_text: str,
+        on_action_clicked,
+        duration_ms: int = 8000,
+    ) -> None:
+        """Displays notification banner with an actionable button."""
+        self._action_callback = on_action_clicked
+        self.action_btn.setText(action_text)
+        self.action_btn.setVisible(True)
+        self._apply_style(level, message, duration_ms)
+
+    def _apply_style(self, level: str, message: str, duration_ms: int) -> None:
         valid_levels = ("success", "warning", "danger", "info")
         if level not in valid_levels and message in valid_levels:
             level, message = message, level

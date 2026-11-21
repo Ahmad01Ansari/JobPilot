@@ -39,6 +39,7 @@ from app.services.dto.outreach_enums import (
 )
 from app.services.email.factory import get_email_provider
 from app.services.email.provider import EmailProvider
+from app.services.os.app_paths import AppPaths
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,9 @@ logger = logging.getLogger(__name__)
 class OutreachDispatcher:
     """Orchestrates 2-phase outbox writes, immutable attachment staging, and network dispatch."""
 
-    DEFAULT_ATTACHMENT_DIR = Path.home() / ".jobpilot" / "outbox_attachments"
+    @classmethod
+    def get_default_attachment_dir(cls) -> Path:
+        return AppPaths.get_user_data_dir() / "outbox_attachments"
 
     def __init__(
         self,
@@ -55,7 +58,7 @@ class OutreachDispatcher:
         default_provider: Optional[EmailProvider] = None,
     ):
         self._session_factory = session_factory or SessionLocal
-        self._attachments_dir = attachments_dir or self.DEFAULT_ATTACHMENT_DIR
+        self._attachments_dir = attachments_dir or self.get_default_attachment_dir()
         self._attachments_dir.mkdir(parents=True, exist_ok=True)
         self._default_provider = default_provider
 

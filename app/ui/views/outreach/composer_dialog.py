@@ -1014,3 +1014,10 @@ class OutreachComposerDialog(QDialog):
         self.btn_send.setText("Send Outreach Now")
         self.lbl_status.setText(f"Error: {err}")
         ModernPopup.error(self, "Dispatch Error", f"Failed to dispatch outreach:\n\n{err}")
+
+    def closeEvent(self, event):
+        for worker_attr in ("_send_worker", "_pitch_worker", "_refine_worker"):
+            w = getattr(self, worker_attr, None)
+            if w and w.isRunning():
+                w.wait(3000)
+        super().closeEvent(event)

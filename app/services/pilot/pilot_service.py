@@ -742,6 +742,15 @@ class PilotService:
 
         self.add_pilot_message(f"Answer received for: '{intervention.prompt}'. Resuming task...")
         self._notify("intervention_resolved", intervention)
+
+        if "follow-up" in intervention.prompt.lower() or "cadence" in intervention.prompt.lower():
+            if "send" in clean_answer.lower():
+                self._handle_execute_followup({}, "User approved follow-up via intervention")
+            elif "snooze" in clean_answer.lower():
+                self._handle_snooze_followup({}, "User snoozed follow-up via intervention")
+            elif "cancel" in clean_answer.lower():
+                self._handle_cancel_followup({}, "User cancelled cadence via intervention")
+
         return True, "Resolved successfully."
 
     # -------------------------------------------------------------------------
@@ -899,6 +908,18 @@ class PilotService:
 
         elif action == PilotActionType.SEND_EMAIL_APPLICATION:
             return self._handle_send_email_application(params, summary)
+
+        elif action == PilotActionType.GET_FOLLOWUPS:
+            return self._handle_get_followups(params, summary)
+
+        elif action == PilotActionType.EXECUTE_FOLLOWUP:
+            return self._handle_execute_followup(params, summary)
+
+        elif action == PilotActionType.SNOOZE_FOLLOWUP:
+            return self._handle_snooze_followup(params, summary)
+
+        elif action == PilotActionType.CANCEL_FOLLOWUP:
+            return self._handle_cancel_followup(params, summary)
 
         elif action == PilotActionType.ANSWER_INTERVENTION:
             answer = params.get("answer", "")
@@ -3567,6 +3588,170 @@ class PilotService:
 
         self.complete_all_steps(msg.id)
         return msg
+
+    def _handle_get_followups(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Retrieves due and scheduled follow-up cadences and presents overview with review prompt."""
+        from app.services.followup_scheduler import FollowUpScheduler
+        scheduler = FollowUpScheduler(session_factory=self._session_factory)
+        user_id = self._get_active_user_id()
+        due_list = scheduler.get_due_followups_for_user(user_id)
+        if not due_list:
+            due_list = scheduler.get_due_followups_for_user(None)
+
+        if not due_list:
+            msg = self.add_pilot_message(
+                "### Scheduled Outreach Cadences\n\n"
+                "All follow-up cadences are currently up to date. No follow-up emails are due for review at this moment.",
+                action_type=PilotActionType.GET_FOLLOWUPS,
+            )
+            return msg
+
+        first = due_list[0]
+        comp = first.get("company_name") or "Target Company"
+        role = first.get("job_title") or "Application"
+        rec = first.get("contact_name") or "Hiring Team"
+        rec_email = first.get("contact_email") or ""
+        last_sent = str(first.get("last_email_sent_at") or "Recently")[:10]
+        step = first.get("step_number", 1)
+        last_subj = first.get("last_email_subject") or "Application Inquiry"
+        snippet = first.get("last_email_snippet") or "Previous outreach message"
+        prop_subj = first.get("proposed_subject") or f"Following Up: {role} Application - {comp}"
+        prop_body = first.get("proposed_body") or ""
+
+        msg = self.add_pilot_message(
+            f"Scanning cadences: Found {len(due_list)} follow-up(s) requiring candidate review before dispatch.",
+            action_type=PilotActionType.GET_FOLLOWUPS,
+        )
+        self.emit_step(msg.id, f"Agent Inspection: Scanning outreach cadences for {comp} ({rec_email})", status="done")
+
+        msg.body = (
+            f"### Outreach Follow-Up Requiring Confirmation ({len(due_list)} Due)\n\n"
+            f"JobPilot requires human confirmation before any follow-up email is dispatched:\n\n"
+            f"• **Target Company:** **{comp}** ({role})\n"
+            f"• **Recruiter Contact:** {rec} <`{rec_email}`>\n"
+            f"• **Cadence Status:** Step {step} of 3\n"
+            f"• **Last Email Sent:** `{last_sent}`\n"
+            f"• **Previous Subject:** *\"{last_subj}\"*\n"
+            f"• **Previous Message Snippet:**\n"
+            f"> \"{snippet}\"\n\n"
+            f"---\n\n"
+            f"#### Proposed Follow-Up Draft:\n"
+            f"**Subject:** `{prop_subj}`\n\n"
+            f"```email\n"
+            f"{prop_body}\n"
+            f"```\n\n"
+            f"*Please confirm your desired action:*\n"
+            f"• Say **\"Send follow-up\"** to dispatch immediately.\n"
+            f"• Say **\"Snooze follow-up\"** to delay 3 days.\n"
+            f"• Say **\"Cancel follow-up\"** to stop this cadence."
+        )
+
+        try:
+            inv = PilotIntervention(
+                kind=InterventionKind.CHOICE,
+                prompt=f"Review follow-up for {comp} ({rec_email})",
+                options=["Send Now", "Snooze 3 Days", "Cancel Cadence"],
+                job_title=role,
+                status=InterventionStatus.OPEN,
+            )
+            self._active_interventions[inv.id] = inv
+            msg.intervention = inv
+        except Exception:
+            pass
+
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_execute_followup(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Dispatches an approved follow-up email upon user confirmation."""
+        fu_id = params.get("followup_id")
+        from app.services.followup_scheduler import FollowUpScheduler
+        scheduler = FollowUpScheduler(session_factory=self._session_factory)
+
+        if not fu_id:
+            due_list = scheduler.get_due_followups_for_user(self._get_active_user_id()) or scheduler.get_due_followups_for_user(None)
+            if due_list:
+                fu_id = due_list[0].get("id") or due_list[0].get("followup_id")
+
+        if not fu_id:
+            return self.add_pilot_message("No scheduled follow-up was found pending dispatch.")
+
+        msg = self.add_pilot_message(
+            f"Preparing and dispatching approved follow-up (Cadence #{fu_id})...",
+            action_type=PilotActionType.EXECUTE_FOLLOWUP,
+        )
+        self.emit_step(msg.id, "Agent Resolution: Resolving candidate credentials and SMTP provider", status="running")
+
+        try:
+            from app.services.outreach_coordinator import OutreachCadenceCoordinator
+            res = OutreachCadenceCoordinator.get_instance().execute_approved_followup(fu_id)
+            if res.get("success"):
+                subj = res.get("subject", "Follow-up")
+                rec_email = res.get("recipient_email", "")
+                self.emit_step(msg.id, f"Transmission: Sent email to {rec_email}", status="done")
+                self.emit_step(msg.id, "Pipeline Sync: Cadence status updated to SENT", status="done")
+                msg.body = (
+                    f"### Follow-Up Email Dispatched Successfully\n\n"
+                    f"• **Recipient:** `{rec_email}`\n"
+                    f"• **Subject:** `{subj}`\n"
+                    f"• **Status:** **SENT**\n"
+                    f"• **Cadence Status:** Successfully recorded in conversation history and dashboard."
+                )
+            else:
+                err = res.get("error", "Unknown transmission error")
+                self.emit_step(msg.id, f"Transmission Warning: {err}", status="failed")
+                msg.body = f"Could not dispatch follow-up #{fu_id}: {err}"
+        except Exception as e:
+            logger.error("Error executing follow-up: %s", e)
+            msg.body = f"Failed to dispatch follow-up: {str(e)}"
+
+        self.complete_all_steps(msg.id)
+        return msg
+
+    def _handle_snooze_followup(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Snoozes the pending follow-up cadence."""
+        days = params.get("days", 3)
+        fu_id = params.get("followup_id")
+        from app.services.followup_scheduler import FollowUpScheduler
+        scheduler = FollowUpScheduler(session_factory=self._session_factory)
+        if not fu_id:
+            due = scheduler.get_due_followups_for_user(self._get_active_user_id()) or scheduler.get_due_followups_for_user(None)
+            if due:
+                fu_id = due[0].get("id") or due[0].get("followup_id")
+
+        if not fu_id:
+            return self.add_pilot_message("No scheduled follow-up is currently due to snooze.")
+
+        scheduler.snooze_followup(fu_id, days=days)
+        try:
+            from app.ui.state import AppState
+            AppState.get_instance().notify_data_updated("dashboard")
+            AppState.get_instance().notify_data_updated("outreach")
+        except Exception:
+            pass
+        return self.add_pilot_message(f"Outreach follow-up #{fu_id} has been snoozed for {days} days.")
+
+    def _handle_cancel_followup(self, params: Dict[str, Any], summary: str) -> PilotMessage:
+        """Cancels the follow-up cadence upon user instruction."""
+        fu_id = params.get("followup_id")
+        from app.services.followup_scheduler import FollowUpScheduler
+        scheduler = FollowUpScheduler(session_factory=self._session_factory)
+        if not fu_id:
+            due = scheduler.get_due_followups_for_user(self._get_active_user_id()) or scheduler.get_due_followups_for_user(None)
+            if due:
+                fu_id = due[0].get("id") or due[0].get("followup_id")
+
+        if not fu_id:
+            return self.add_pilot_message("No scheduled follow-up is currently due to cancel.")
+
+        scheduler.cancel_followup(fu_id, reason="Cancelled via AI Pilot instruction")
+        try:
+            from app.ui.state import AppState
+            AppState.get_instance().notify_data_updated("dashboard")
+            AppState.get_instance().notify_data_updated("outreach")
+        except Exception:
+            pass
+        return self.add_pilot_message(f"Outreach cadence #{fu_id} has been cancelled. No further automated follow-ups will be sent for this application.")
 
     def _handle_chat(self, params: Dict[str, Any], summary: str) -> PilotMessage:
         text = params.get("text", "")

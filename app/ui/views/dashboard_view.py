@@ -240,6 +240,92 @@ class DashboardView(QWidget):
         sb_layout.addWidget(self.btn_resume_setup)
         main_layout.addWidget(self.setup_banner)
 
+        # 2c. Follow-Up Review Banner (Human-in-the-Loop Gate)
+        self.followup_banner = QFrame()
+        self.followup_banner.setVisible(False)
+        self.followup_banner.setStyleSheet(f"""
+            QFrame {{
+                background-color: #1A1512;
+                border: 1px solid #3E2415;
+                border-left: 4px solid #FF5F15;
+                border-radius: 8px;
+                padding: 10px 16px;
+            }}
+        """)
+        fb_layout = QHBoxLayout(self.followup_banner)
+        fb_layout.setContentsMargins(12, 8, 12, 8)
+        fb_layout.setSpacing(12)
+
+        fb_text_col = QVBoxLayout()
+        fb_text_col.setSpacing(2)
+        self.lbl_followup_title = QLabel("Follow-Up Due: Target Company")
+        self.lbl_followup_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
+        self.lbl_followup_sub = QLabel("Recruiter contact • Last email sent X days ago")
+        self.lbl_followup_sub.setStyleSheet("font-size: 11px; color: #8B949E;")
+        fb_text_col.addWidget(self.lbl_followup_title)
+        fb_text_col.addWidget(self.lbl_followup_sub)
+        fb_layout.addLayout(fb_text_col, 1)
+
+        self.btn_cancel_followup = QPushButton("Cancel Cadence")
+        self.btn_cancel_followup.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel_followup.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #F85149;
+                border: 1px solid rgba(248, 81, 73, 0.3);
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: rgba(248, 81, 73, 0.15);
+            }
+        """)
+        self.btn_cancel_followup.clicked.connect(self._on_cancel_followup_banner_clicked)
+        fb_layout.addWidget(self.btn_cancel_followup)
+
+        self.btn_snooze_followup = QPushButton("Snooze 3 Days")
+        self.btn_snooze_followup.setCursor(Qt.PointingHandCursor)
+        self.btn_snooze_followup.setStyleSheet("""
+            QPushButton {
+                background-color: #21262D;
+                color: #C9D1D9;
+                border: 1px solid #30363D;
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #30363D;
+                color: #FFFFFF;
+            }
+        """)
+        self.btn_snooze_followup.clicked.connect(self._on_snooze_followup_banner_clicked)
+        fb_layout.addWidget(self.btn_snooze_followup)
+
+        self.btn_review_followup = QPushButton("Review & Send Follow-Up")
+        self.btn_review_followup.setCursor(Qt.PointingHandCursor)
+        self.btn_review_followup.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FF5F15;
+                color: #FFFFFF;
+                font-weight: 700;
+                font-size: 11px;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 14px;
+            }}
+            QPushButton:hover {{
+                background-color: #E04E0B;
+            }}
+        """)
+        self.btn_review_followup.clicked.connect(self._on_review_followup_banner_clicked)
+        fb_layout.addWidget(self.btn_review_followup)
+
+        main_layout.addWidget(self.followup_banner)
+
         # 3. Scrollable Main Canvas
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -451,6 +537,31 @@ class DashboardView(QWidget):
                     self.setup_banner.setVisible(False)
         except Exception:
             self.setup_banner.setVisible(False)
+
+        # 5c. Update Due Follow-Up Banner (Human-in-the-Loop review gate)
+        try:
+            from app.services.followup_scheduler import FollowUpScheduler
+            scheduler = FollowUpScheduler(session_factory=self.service._session_factory)
+            due_list = scheduler.get_due_followups_for_user()
+            if due_list:
+                self._current_due_followup = due_list[0]
+                comp = self._current_due_followup.get("company_name") or "Target Company"
+                role = self._current_due_followup.get("job_title") or "Position"
+                rec = self._current_due_followup.get("contact_name") or "Recruiter"
+                rec_email = self._current_due_followup.get("contact_email") or ""
+                last_sent = str(self._current_due_followup.get("last_email_sent_at") or "")[:10]
+                step = self._current_due_followup.get("step_number", 1)
+                cnt = len(due_list)
+                cnt_prefix = f"[{cnt} Due] " if cnt > 1 else ""
+                self.lbl_followup_title.setText(f"{cnt_prefix}Follow-Up Review Required: {comp} — {role}")
+                self.lbl_followup_sub.setText(f"Recipient: {rec} <{rec_email}> • Step {step} of 3 • Last email sent: {last_sent}")
+                self.followup_banner.setVisible(True)
+            else:
+                self._current_due_followup = None
+                self.followup_banner.setVisible(False)
+        except Exception:
+            self._current_due_followup = None
+            self.followup_banner.setVisible(False)
 
         # 6. Search Performance & Funnel
         if snapshot.search_performance:
@@ -764,6 +875,46 @@ class DashboardView(QWidget):
         except Exception:
             pass
         self.setup_banner.setVisible(False)
+
+    def _on_review_followup_banner_clicked(self) -> None:
+        """Opens modal review for the due follow-up requiring human confirmation."""
+        if not getattr(self, "_current_due_followup", None):
+            return
+        try:
+            from app.ui.views.outreach.followup_review_dialog import FollowUpReviewDialog
+            dialog = FollowUpReviewDialog(self._current_due_followup, parent=self)
+            dialog.exec()
+        except Exception as e:
+            self.notification_bar.show_message("warning", f"Could not open review dialog: {e}")
+        self.refresh()
+
+    def _on_snooze_followup_banner_clicked(self) -> None:
+        """Snoozes the current due follow-up cadence by 3 days."""
+        if not getattr(self, "_current_due_followup", None):
+            return
+        fu_id = self._current_due_followup.get("id") or self._current_due_followup.get("followup_id")
+        if fu_id:
+            try:
+                from app.services.outreach_coordinator import OutreachCadenceCoordinator
+                OutreachCadenceCoordinator.get_instance().snooze_followup(fu_id, 3)
+                self.notification_bar.show_message("info", "Follow-up snoozed for 3 days.")
+            except Exception as e:
+                self.notification_bar.show_message("warning", f"Could not snooze: {e}")
+        self.refresh()
+
+    def _on_cancel_followup_banner_clicked(self) -> None:
+        """Cancels the current scheduled follow-up cadence."""
+        if not getattr(self, "_current_due_followup", None):
+            return
+        fu_id = self._current_due_followup.get("id") or self._current_due_followup.get("followup_id")
+        if fu_id:
+            try:
+                from app.services.outreach_coordinator import OutreachCadenceCoordinator
+                OutreachCadenceCoordinator.get_instance().cancel_followup(fu_id)
+                self.notification_bar.show_message("info", "Outreach cadence cancelled.")
+            except Exception as e:
+                self.notification_bar.show_message("warning", f"Could not cancel cadence: {e}")
+        self.refresh()
 
     def stop_workers(self) -> None:
         """Gracefully waits for background loaders to avoid QThread destruction aborts."""
