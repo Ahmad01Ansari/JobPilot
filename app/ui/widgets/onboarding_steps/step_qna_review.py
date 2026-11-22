@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QDialog, QRadioButton, QButtonGroup
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 
 
 class ConflictResolutionDialog(QDialog):
@@ -31,9 +32,16 @@ class ConflictResolutionDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
-        lbl_title = QLabel(f"⚠ Conflicting Data: {self.conflict.get('title', 'Field')}")
+        title_row = QHBoxLayout()
+        title_row.setSpacing(6)
+        warn_icon = QLabel()
+        warn_icon.setPixmap(render_vector_pixmap("alert", COLORS['warning'], 15))
+        lbl_title = QLabel(f"Conflicting Data: {self.conflict.get('title', 'Field')}")
         lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['warning']};")
-        layout.addWidget(lbl_title)
+        title_row.addWidget(warn_icon)
+        title_row.addWidget(lbl_title)
+        title_row.addStretch()
+        layout.addLayout(title_row)
 
         lbl_desc = QLabel("Information extracted from your resume differs from existing records:")
         lbl_desc.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']};")

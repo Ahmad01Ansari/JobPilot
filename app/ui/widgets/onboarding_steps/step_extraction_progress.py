@@ -7,11 +7,13 @@ Shows actual completed stages (Reading -> Personal -> Experience -> Skills -> Ed
 from typing import Dict, Any, Optional
 
 from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QProgressBar, QFrame, QPushButton
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 
 
 class ExtractionWorker(QThread):
@@ -62,18 +64,20 @@ class StageItem(QFrame):
         layout.addStretch()
 
     def set_pending(self):
+        self.lbl_icon.setPixmap(QPixmap())
         self.lbl_icon.setText("○")
         self.lbl_icon.setStyleSheet(f"font-size: 13px; color: {COLORS['border_light']};")
         self.lbl_text.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']};")
 
     def set_running(self):
+        self.lbl_icon.setPixmap(QPixmap())
         self.lbl_icon.setText("●")
         self.lbl_icon.setStyleSheet(f"font-size: 13px; color: {COLORS['primary']};")
         self.lbl_text.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLORS['text']};")
 
     def set_complete(self):
-        self.lbl_icon.setText("✓")
-        self.lbl_icon.setStyleSheet(f"font-size: 13px; font-weight: 800; color: {COLORS['success']};")
+        self.lbl_icon.setText("")
+        self.lbl_icon.setPixmap(render_vector_pixmap("check", COLORS['success'], 12))
         self.lbl_text.setStyleSheet(f"font-size: 12px; color: {COLORS['text']};")
 
 
@@ -180,7 +184,7 @@ class StepExtractionProgressWidget(QWidget):
         for s in self.stages[1:]:
             s.set_pending()
 
-        self.lbl_status.setText("⏳ Ingesting document...")
+        self.lbl_status.setText("Ingesting document...")
         self.lbl_status.setStyleSheet(f"color: {COLORS['info']};")
 
         self._worker = ExtractionWorker(
@@ -219,10 +223,10 @@ class StepExtractionProgressWidget(QWidget):
 
         self._extracted_data = data
         if success and data:
-            self.lbl_status.setText(f"✓ Extraction complete! Extracted {len(data)} fields. Click Continue to review.")
+            self.lbl_status.setText(f"Extraction complete. Extracted {len(data)} fields. Select Continue to review.")
             self.lbl_status.setStyleSheet(f"color: {COLORS['success']};")
         else:
-            self.lbl_status.setText(f"⚠ Document parsed. You can review and fill your profile in the next step.")
+            self.lbl_status.setText("Document parsed. Candidate details can be reviewed in the next step.")
             self.lbl_status.setStyleSheet(f"color: {COLORS['warning']};")
 
         self.extraction_completed.emit(data)

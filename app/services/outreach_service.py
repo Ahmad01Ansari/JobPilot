@@ -631,6 +631,50 @@ class OutreachService:
         logger.info("Stopped %d follow-ups on application %d", count, application_id)
         return count
 
+    def update_application_status(
+        self,
+        application_id: int,
+        new_status: str,
+        source: str = "manual",
+        notes: Optional[str] = None,
+    ) -> bool:
+        """Updates an application's lifecycle status and logs the audit trail."""
+        from app.db.models.status_history import ApplicationStatusHistory
+        norm_status = (new_status or "").strip().upper()
+        if not norm_status:
+            return False
+
+        with get_db_session(self._session_factory) as s:
+            app = s.get(Application, application_id)
+            if not app:
+                return False
+            old_status = app.status
+            app.status = norm_status
+            s.add(ApplicationStatusHistory(
+                application_id=app.id,
+                old_status=old_status,
+                new_status=norm_status,
+                source=source,
+                notes=notes or f"Status changed from {old_status} to {norm_status}",
+            ))
+            s.commit()
+
+        # If terminal state or closed, automatically stop any active follow-ups
+        if norm_status in ("CLOSED", "REJECTED", "OFFER", "WITHDRAWN"):
+            self.stop_followups(application_id, reason=f"Application transitioned to {norm_status}")
+
+        logger.info("Application %d status updated: %s -> %s", application_id, old_status, norm_status)
+        return True
+
+    def close_conversation(self, application_id: int, reason: str = "Closed by candidate") -> bool:
+        """Marks an outreach application as CLOSED and cancels all future follow-up cadences."""
+        return self.update_application_status(
+            application_id=application_id,
+            new_status="CLOSED",
+            source="manual",
+            notes=reason,
+        )
+
     def test_provider_connection(self, account_id: str = "default") -> ConnectionStatusDTO:
         provider = self._email_provider or get_email_provider(account_id)
         return provider.test_connection()
@@ -667,29 +711,17 @@ class OutreachService:
         """Returns high-level metric counts for the Outreach Center dashboard."""
         now = datetime.now(timezone.utc)
         with get_db_session(self._session_factory) as s:
-            total_apps = s.execute(
-                select(func.count(Application.id)).where(
-                    Application.application_type == CANONICAL_APPLICATION_METHOD_EMAIL
-                )
-            ).scalar() or 0
+            apps = s.execute(
+                select(Application)
+                .where(Application.application_type == CANONICAL_APPLICATION_METHOD_EMAIL)
+            ).scalars().all()
+
+            total_apps = len(apps)
 
             total_sent = s.execute(
                 select(func.count(Communication.id)).where(
                     Communication.status == MessageStatus.SENT.value,
                     Communication.direction == "OUTBOUND",
-                )
-            ).scalar() or 0
-
-            total_replied = s.execute(
-                select(func.count(func.distinct(Communication.application_id))).where(
-                    Communication.direction == "INBOUND"
-                )
-            ).scalar() or 0
-
-            followups_due = s.execute(
-                select(func.count(FollowUp.id)).where(
-                    FollowUp.status.in_([FollowUpStatus.PENDING.value, FollowUpStatus.DUE.value]),
-                    FollowUp.due_at <= now,
                 )
             ).scalar() or 0
 
@@ -699,7 +731,51 @@ class OutreachService:
                 )
             ).scalar() or 0
 
-            awaiting_reply = max(0, total_sent - total_replied)
+            waiting_count = 0
+            replied_count = 0
+            followups_due = 0
+            closed_count = 0
+            actions_count = 0
+
+            for app in apps:
+                comms = s.execute(
+                    select(Communication)
+                    .where(Communication.application_id == app.id)
+                    .order_by(Communication.occurred_at.desc())
+                ).scalars().all()
+
+                has_inbound = any(c.direction == "INBOUND" for c in comms)
+                latest_inbound = next((c for c in comms if c.direction == "INBOUND"), None)
+                latest_inbound_class = getattr(latest_inbound, "ai_classification", None) if latest_inbound else None
+                last_comm = comms[0] if comms else None
+                has_draft = any(c.status == MessageStatus.DRAFT.value and c.direction == "OUTBOUND" for c in comms)
+
+                follow_ups = s.execute(
+                    select(FollowUp)
+                    .where(FollowUp.application_id == app.id)
+                    .order_by(FollowUp.step_number.asc())
+                ).scalars().all()
+
+                last_act = (last_comm.occurred_at if last_comm else None) or app.applied_at or app.created_at
+                p_state = self._resolve_presentation_state(
+                    app_status=app.status or "",
+                    has_inbound=has_inbound,
+                    latest_inbound_classification=latest_inbound_class,
+                    follow_ups=follow_ups,
+                    has_draft=has_draft,
+                    last_activity_at=last_act,
+                )
+
+                if p_state in (PresentationConversationState.COMPLETED, PresentationConversationState.PAUSED) or (app.status or "").upper() in ("CLOSED", "REJECTED", "WITHDRAWN"):
+                    closed_count += 1
+                elif p_state == PresentationConversationState.FOLLOW_UP_DUE:
+                    followups_due += 1
+                elif p_state == PresentationConversationState.REPLIED:
+                    replied_count += 1
+                elif p_state == PresentationConversationState.NEEDS_ACTION:
+                    actions_count += 1
+                else:
+                    waiting_count += 1
 
             delivery_rate = 100.0
             if (total_sent + total_failed) > 0:
@@ -708,10 +784,13 @@ class OutreachService:
             return {
                 "total_outreached": total_apps,
                 "total_sent": total_sent,
-                "awaiting_reply": awaiting_reply,
-                "recruiter_replied": total_replied,
+                "awaiting_reply": waiting_count,
+                "recruiter_replied": replied_count,
                 "followups_due": followups_due,
+                "actions": actions_count,
                 "total_failed": total_failed,
+                "total_closed": closed_count,
+                "closed": closed_count,
                 "delivery_success_rate": delivery_rate,
             }
 
@@ -848,11 +927,19 @@ class OutreachService:
         now = datetime.now(timezone.utc)
 
         # Terminal states
-        if app_status in ("OFFER", "REJECTED", "WITHDRAWN"):
+        if (app_status or "").upper() in ("OFFER", "REJECTED", "WITHDRAWN", "CLOSED"):
             return NextActionRecommendation(
                 action_type="WAIT",
-                headline="Conversation Completed",
+                headline="Application Closed" if (app_status or "").upper() == "CLOSED" else "Conversation Completed",
                 rationale=f"Application status: {app_status}",
+                cta_label="View Details",
+            )
+
+        if conv_state == PresentationConversationState.COMPLETED:
+            return NextActionRecommendation(
+                action_type="WAIT",
+                headline="Closed (Ghosted / Stale)",
+                rationale="No recruiter reply received within 30 days after outreach sequence",
                 cta_label="View Details",
             )
 
@@ -923,11 +1010,12 @@ class OutreachService:
         latest_inbound_classification: Optional[str],
         follow_ups: list,
         has_draft: bool,
+        last_activity_at: Optional[datetime] = None,
     ) -> PresentationConversationState:
         """Maps raw DB state to the unified PresentationConversationState."""
         now = datetime.now(timezone.utc)
 
-        if app_status in ("OFFER", "REJECTED", "WITHDRAWN"):
+        if (app_status or "").upper() in ("OFFER", "REJECTED", "WITHDRAWN", "CLOSED"):
             return PresentationConversationState.COMPLETED
 
         if has_inbound and latest_inbound_classification in (
@@ -941,12 +1029,20 @@ class OutreachService:
             return PresentationConversationState.REPLIED
 
         # Check for overdue follow-ups
+        has_pending_or_due = False
         for fu in follow_ups:
             if fu.status == FollowUpStatus.PAUSED.value:
                 return PresentationConversationState.PAUSED
             if fu.status in (FollowUpStatus.PENDING.value, FollowUpStatus.DUE.value):
+                has_pending_or_due = True
                 if fu.due_at and fu.due_at <= now:
                     return PresentationConversationState.FOLLOW_UP_DUE
+
+        # Auto-stale check: if no reply and no pending follow-ups, and last activity was >= 30 days ago
+        if last_activity_at and not has_pending_or_due:
+            act_utc = last_activity_at if last_activity_at.tzinfo else last_activity_at.replace(tzinfo=timezone.utc)
+            if (now - act_utc).days >= 30:
+                return PresentationConversationState.COMPLETED
 
         return PresentationConversationState.WAITING
 
@@ -1043,6 +1139,7 @@ class OutreachService:
                         v_raw = getattr(r_obj, "version", "1.0") or "1.0"
                         resume_tag = f"v{v_raw}" if not str(v_raw).startswith("v") else str(v_raw)
 
+                last_act = (last_comm.occurred_at if last_comm else None) or app.applied_at or app.created_at
                 # Compute state
                 p_state = self._resolve_presentation_state(
                     app_status=app.status or "",
@@ -1050,6 +1147,7 @@ class OutreachService:
                     latest_inbound_classification=latest_inbound_class,
                     follow_ups=follow_ups,
                     has_draft=has_draft,
+                    last_activity_at=last_act,
                 )
 
                 # Filter by state or work queue section
@@ -1255,9 +1353,13 @@ class OutreachService:
 
         # 7. Operational State & Next Action Resolution
         app_status_upper = (app.status or "").upper()
+        last_activity_at = last_contact_at
+        if last_activity_at and not last_activity_at.tzinfo:
+            last_activity_at = last_activity_at.replace(tzinfo=timezone.utc)
+        stale_days = (now - last_activity_at).days if (now and last_activity_at) else 0
 
         # Terminal state
-        if app_status_upper in ("OFFER", "REJECTED", "WITHDRAWN"):
+        if app_status_upper in ("OFFER", "REJECTED", "WITHDRAWN", "CLOSED"):
             conv_state = ConversationOpState.COMPLETED if app_status_upper == "OFFER" else ConversationOpState.CLOSED
             next_action_type = NextActionType.NONE
             next_action_owner = NextActionOwner.NONE
@@ -1354,6 +1456,17 @@ class OutreachService:
             next_action_rationale = "Automated outreach sequence is currently paused"
             next_action_cta = "Resume Cadence"
             section = WorkQueueSection.WAITING
+            prio = PriorityLevel.LOW
+
+        # Auto-stale check: if no reply received, cadence exhausted, and >= 30 days past last activity
+        elif stale_days >= 30:
+            conv_state = ConversationOpState.CLOSED
+            next_action_owner = NextActionOwner.NONE
+            next_action_type = NextActionType.NONE
+            next_action_headline = "Closed (Ghosted / Stale)"
+            next_action_rationale = f"No recruiter response received for {stale_days} days after outreach"
+            next_action_cta = "View Thread"
+            section = WorkQueueSection.CLOSED
             prio = PriorityLevel.LOW
 
         # Default: Waiting on recruiter
@@ -1808,6 +1921,8 @@ class OutreachService:
                     next_fu_due = fu.due_at
                     break
 
+            last_act = (comms[0].occurred_at if comms else None) or app.applied_at or app.created_at
+
             # Compute state
             p_state = self._resolve_presentation_state(
                 app_status=app.status or "",
@@ -1815,6 +1930,7 @@ class OutreachService:
                 latest_inbound_classification=latest_inbound_class,
                 follow_ups=follow_ups_raw,
                 has_draft=draft_body is not None,
+                last_activity_at=last_act,
             )
 
             next_action = self._compute_next_action(

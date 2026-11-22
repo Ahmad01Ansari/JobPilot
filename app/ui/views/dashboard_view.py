@@ -52,7 +52,7 @@ from app.utils_time import format_local_datetime, get_application_timezone, to_l
 class _DashboardLoadWorker(QThread):
     """Background worker fetching complete dashboard snapshot from local DB in <50ms without freezing GUI."""
 
-    snapshot_loaded = Signal(object)  # DashboardSnapshotDTO
+    snapshot_loaded = Signal(object, list)  # (DashboardSnapshotDTO, due_list)
     load_failed = Signal(str)
 
     def __init__(self, service: DashboardService, perf_preset: str = "ALL"):
@@ -63,7 +63,13 @@ class _DashboardLoadWorker(QThread):
     def run(self) -> None:
         try:
             snapshot = self._service.get_dashboard_snapshot(perf_preset=self._perf_preset)
-            self.snapshot_loaded.emit(snapshot)
+            due_list = []
+            try:
+                from app.services.followup_scheduler import FollowUpScheduler
+                due_list = FollowUpScheduler(session_factory=self._service._session_factory).get_due_followups_for_user()
+            except Exception:
+                due_list = []
+            self.snapshot_loaded.emit(snapshot, due_list)
         except Exception as e:
             self.load_failed.emit(str(e))
 
@@ -477,7 +483,7 @@ class DashboardView(QWidget):
         self._load_worker.load_failed.connect(self._on_load_failed)
         self._load_worker.start()
 
-    def _on_snapshot_loaded(self, snapshot: DashboardSnapshotDTO) -> None:
+    def _on_snapshot_loaded(self, snapshot: DashboardSnapshotDTO, due_list: Optional[list] = None) -> None:
         """Applies loaded snapshot to all widgets safely on the Qt main thread."""
         self.btn_refresh.setEnabled(True)
         self.btn_refresh.setText("↻ Refresh")
@@ -493,6 +499,7 @@ class DashboardView(QWidget):
         off_count = snapshot.pipeline_summary.get("offers", 0)
         wd_count = snapshot.pipeline_summary.get("withdrawn", 0)
         rej_count = snapshot.pipeline_summary.get("rejected", 0)
+        closed_count = snapshot.pipeline_summary.get("closed", 0)
         disc_count = snapshot.pipeline_summary.get("total_jobs", 0)
         if not disc_count and snapshot.search_performance:
             disc_count = snapshot.search_performance.total_discovered
@@ -504,6 +511,7 @@ class DashboardView(QWidget):
             interviewing=iv_count,
             offers=off_count,
             rejected=rej_count,
+            closed=closed_count,
         )
 
         # 2. Today's Job Hunt Queue
@@ -538,28 +546,21 @@ class DashboardView(QWidget):
         except Exception:
             self.setup_banner.setVisible(False)
 
-        # 5c. Update Due Follow-Up Banner (Human-in-the-Loop review gate)
-        try:
-            from app.services.followup_scheduler import FollowUpScheduler
-            scheduler = FollowUpScheduler(session_factory=self.service._session_factory)
-            due_list = scheduler.get_due_followups_for_user()
-            if due_list:
-                self._current_due_followup = due_list[0]
-                comp = self._current_due_followup.get("company_name") or "Target Company"
-                role = self._current_due_followup.get("job_title") or "Position"
-                rec = self._current_due_followup.get("contact_name") or "Recruiter"
-                rec_email = self._current_due_followup.get("contact_email") or ""
-                last_sent = str(self._current_due_followup.get("last_email_sent_at") or "")[:10]
-                step = self._current_due_followup.get("step_number", 1)
-                cnt = len(due_list)
-                cnt_prefix = f"[{cnt} Due] " if cnt > 1 else ""
-                self.lbl_followup_title.setText(f"{cnt_prefix}Follow-Up Review Required: {comp} — {role}")
-                self.lbl_followup_sub.setText(f"Recipient: {rec} <{rec_email}> • Step {step} of 3 • Last email sent: {last_sent}")
-                self.followup_banner.setVisible(True)
-            else:
-                self._current_due_followup = None
-                self.followup_banner.setVisible(False)
-        except Exception:
+        # 5c. Update Due Follow-Up Banner (Human-in-the-Loop review gate, loaded in background)
+        if due_list:
+            self._current_due_followup = due_list[0]
+            comp = self._current_due_followup.get("company_name") or "Target Company"
+            role = self._current_due_followup.get("job_title") or "Position"
+            rec = self._current_due_followup.get("contact_name") or "Recruiter"
+            rec_email = self._current_due_followup.get("contact_email") or ""
+            last_sent = str(self._current_due_followup.get("last_email_sent_at") or "")[:10]
+            step = self._current_due_followup.get("step_number", 1)
+            cnt = len(due_list)
+            cnt_prefix = f"[{cnt} Due] " if cnt > 1 else ""
+            self.lbl_followup_title.setText(f"{cnt_prefix}Follow-Up Review Required: {comp} — {role}")
+            self.lbl_followup_sub.setText(f"Recipient: {rec} <{rec_email}> • Step {step} of 3 • Last email sent: {last_sent}")
+            self.followup_banner.setVisible(True)
+        else:
             self._current_due_followup = None
             self.followup_banner.setVisible(False)
 

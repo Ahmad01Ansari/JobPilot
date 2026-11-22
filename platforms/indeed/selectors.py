@@ -394,14 +394,31 @@ FINAL_SUBMIT_BUTTONS = [
     "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit application')]",
     "//button[contains(., 'Submit your application')]",
     "//button[contains(., 'Submit application')]",
-    "//button[contains(., 'Submit')]",
+    "//button[contains(., 'Submit') and not(contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'continue'))]",
     "//button[@data-testid='submit-application-button']",
     "//button[@id='submit-application-button']",
-    "//button[contains(@class, 'ia-ContinueButton')]",
+    "//button[contains(@class, 'ia-ContinueButton') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit')]",
     "//button[contains(., 'Apply now') and contains(@class, 'ia-')]",
-    "//button[@type='submit' and contains(., 'Submit')]",
+    "//button[@type='submit' and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit')]",
     "//div[@role='button' and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit')]",
     "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit your application')]/ancestor-or-self::button",
+]
+
+# Exit / Discard Application Modal Selectors
+EXIT_MODAL_SELECTORS = [
+    "//div[contains(@class, 'ia-ExitModal')]",
+    "//div[@role='dialog' and (contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'exit') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save application progress'))]",
+    "//div[@role='alertdialog' and (contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'exit') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'save application progress'))]",
+]
+
+EXIT_MODAL_CONTINUE_BUTTONS = [
+    "//div[contains(@role, 'dialog') or contains(@role, 'alertdialog') or contains(@class, 'ExitModal')]//button[contains(@aria-label, 'Close') or contains(@aria-label, 'close')]",
+    "//div[contains(@role, 'dialog') or contains(@role, 'alertdialog') or contains(@class, 'ExitModal')]//button[@data-testid='close-button']",
+    "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'continue applying')]",
+    "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'return to application')]",
+    "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'keep applying')]",
+    "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stay')]",
+    "//button[contains(@data-testid, 'continue-applying')]",
 ]
 
 # Final Confirmation Banner

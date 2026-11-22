@@ -142,7 +142,7 @@ class ProductTourOverlay(QWidget):
         h_row.addWidget(self.lbl_counter)
         h_row.addStretch()
 
-        self.btn_close = QPushButton("✕")
+        self.btn_close = QPushButton("×")
         self.btn_close.setFocusPolicy(Qt.NoFocus)
         self.btn_close.setStyleSheet(f"""
             QPushButton {{
@@ -272,9 +272,9 @@ class ProductTourOverlay(QWidget):
 
             self.btn_prev.setEnabled(stop_idx > 0)
             if stop_idx == len(TOUR_STOPS) - 1:
-                self.btn_next.setText("Finish Tour ✓")
+                self.btn_next.setText("Finish Tour")
             else:
-                self.btn_next.setText("Next Stop ►")
+                self.btn_next.setText("Next Stop")
 
     def _go_prev(self):
         if self.current_stop > 0:

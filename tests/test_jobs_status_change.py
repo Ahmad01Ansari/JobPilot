@@ -80,6 +80,30 @@ class TestJobsStatusChange(unittest.TestCase):
         self.assertIn("FAILED", codes)
         self.assertIn("UNDER_REVIEW", codes)
         self.assertIn("INTERVIEW", codes)
+        self.assertIn("CLOSED", codes)
+
+    def test_change_status_to_closed_marks_job_inactive(self):
+        """Verifies changing status to CLOSED transitions application and marks job inactive."""
+        view = JobsView(job_service=self.job_service, app_service=self.app_service)
+        view.show()
+
+        # Change job1 to CLOSED
+        view._on_status_change_requested(self.job1, "CLOSED")
+
+        # Verify application status
+        app = self.app_service.get_by_job_id(self.job1.id)
+        self.assertEqual(app.status, "CLOSED")
+
+        # Verify job is_active is now False and closed_at is set
+        job = self.job_service.get_job_by_id(self.job1.id)
+        self.assertFalse(job.is_active)
+        self.assertIsNotNone(job.closed_at)
+
+        # Transition back to SUBMITTED
+        view._on_status_change_requested(self.job1, "SUBMITTED")
+        job_active = self.job_service.get_job_by_id(self.job1.id)
+        self.assertTrue(job_active.is_active)
+        self.assertIsNone(job_active.closed_at)
 
     def test_change_status_from_failed_to_submitted(self):
         """Verifies changing status of a Failed job to Submitted via JobsView."""
@@ -141,6 +165,52 @@ class TestJobsStatusChange(unittest.TestCase):
         panel.set_job(self.job1, in_pipeline=True, app_status="FAILED")
         self.assertIn("Failed", panel.btn_track_app.text())
         self.assertTrue(panel.btn_track_app.isEnabled())
+
+    def test_kpi_card_realtime_refresh_on_stage_change(self):
+        """Verifies KPI cards and category tab counts refresh in real time on stage changes."""
+        from app.repositories.application_repository import ApplicationRepository
+
+        view = JobsView(job_service=self.job_service, app_service=self.app_service)
+        view.show()
+
+        # Step 1: Change job1 to SUBMITTED
+        view._on_status_change_requested(self.job1, "SUBMITTED")
+        with view.app_service._session_factory() as session:
+            kpi = ApplicationRepository(session).get_canonical_kpi_counts()
+            self.assertEqual(kpi["submitted"], 1)
+            self.assertEqual(kpi["closed"], 0)
+
+        counts = self.job_service.get_category_counts()
+        self.assertEqual(counts["all"], 2)
+        self.assertEqual(counts["closed"], 0)
+        self.assertIn("(2)", view.category_tabs.btn_all.text())
+        self.assertIn("(0)", view.category_tabs.btn_closed.text())
+
+        # Step 2: Change job1 to CLOSED
+        view._on_status_change_requested(self.job1, "CLOSED")
+        with view.app_service._session_factory() as session:
+            kpi = ApplicationRepository(session).get_canonical_kpi_counts()
+            self.assertEqual(kpi["submitted"], 0)
+            self.assertEqual(kpi["closed"], 1)
+
+        counts = self.job_service.get_category_counts()
+        self.assertEqual(counts["all"], 1)
+        self.assertEqual(counts["closed"], 1)
+        self.assertIn("(1)", view.category_tabs.btn_all.text())
+        self.assertIn("(1)", view.category_tabs.btn_closed.text())
+
+        # Step 3: Change job1 to INTERVIEW (re-opened)
+        view._on_status_change_requested(self.job1, "INTERVIEW")
+        with view.app_service._session_factory() as session:
+            kpi = ApplicationRepository(session).get_canonical_kpi_counts()
+            self.assertEqual(kpi["closed"], 0)
+            self.assertEqual(kpi["interviews"], 1)
+
+        counts = self.job_service.get_category_counts()
+        self.assertEqual(counts["all"], 2)
+        self.assertEqual(counts["closed"], 0)
+        self.assertIn("(2)", view.category_tabs.btn_all.text())
+        self.assertIn("(0)", view.category_tabs.btn_closed.text())
 
 
 if __name__ == "__main__":

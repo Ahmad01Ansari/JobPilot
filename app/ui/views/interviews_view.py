@@ -732,7 +732,7 @@ class InterviewsView(QWidget):
 
     def refresh(self) -> None:
         """Reloads interviews matching active tab/filter and updates metrics."""
-        closed_app_statuses = {"OFFER", "REJECTED", "WITHDRAWN", "JUNK"}
+        closed_app_statuses = {"OFFER", "REJECTED", "WITHDRAWN", "JUNK", "CLOSED"}
         all_ivs = self.service.list_interviews(limit=1000)
         c_sched = sum(
             1

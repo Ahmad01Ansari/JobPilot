@@ -179,26 +179,59 @@ class SetupService:
             ss = self._get_settings_service()
             sec = self._get_secrets_service()
 
-            ss.set("ai_provider", provider)
-            ss.set("ai.provider", provider)
-            if endpoint:
-                ss.set(f"ai.{provider}.endpoint", endpoint)
-            if model:
-                ss.set(f"ai.{provider}.model", model)
-                ss.set(f"ai_model_{provider}", model)
+            clean_provider = (provider or "groq").strip().lower()
+            clean_endpoint = endpoint.strip() if endpoint else ""
+            clean_model = model.strip() if model else ""
+            clean_key = api_key.strip() if api_key else ""
+
+            ss.set("ai_provider", clean_provider)
+            ss.set("ai.provider", clean_provider)
+            ss.set("ai.provider_id", clean_provider)
+            ss.set("ai.use_AI", True)
+            if clean_endpoint:
+                ss.set(f"ai.{clean_provider}.endpoint", clean_endpoint)
+                ss.set("ai.api_url", clean_endpoint)
+            if clean_model:
+                ss.set(f"ai.{clean_provider}.model", clean_model)
+                ss.set(f"ai_model_{clean_provider}", clean_model)
+                ss.set("ai.model", clean_model)
             ss.save()
 
-            # Store key in SecretsService exclusively
-            if api_key:
-                sec.set_secret(f"ai_api_key_{provider}", api_key.strip())
+            # Store key in SecretsService exclusively (dual-write canonical and legacy keys)
+            if clean_key:
+                sec.set_secret(f"ai_api_key_{clean_provider}", clean_key)
+                if hasattr(sec, "set_ai_secret"):
+                    sec.set_ai_secret(clean_provider, clean_key)
+
+            # Synchronize to config/profile.json safely
+            try:
+                prof_path = Path("config/profile.json")
+                if prof_path.exists():
+                    with open(prof_path, "r", encoding="utf-8") as f:
+                        p_data = json.load(f)
+                    if "ai" not in p_data:
+                        p_data["ai"] = {}
+                    p_data["ai"]["provider"] = clean_provider
+                    p_data["ai"]["enabled"] = True
+                    p_data["ai"]["api_key"] = "MANAGED_BY_JOBPILOT_SECRETS_SERVICE"
+                    if clean_endpoint:
+                        p_data["ai"]["api_url"] = clean_endpoint
+                    if clean_model:
+                        p_data["ai"]["model"] = clean_model
+                    with open(prof_path, "w", encoding="utf-8") as f:
+                        json.dump(p_data, f, indent=2)
+                    from modules.config_loader import invalidate_cache
+                    invalidate_cache()
+            except Exception as prof_sync_err:
+                logger.debug("Could not sync AI settings to profile.json: %s", prof_sync_err)
 
             # Perform live capability test
             ai = self._get_ai_service()
             test_res = ai.test_connection(
-                provider=provider,
-                api_key=api_key.strip() if api_key else None,
-                api_url=endpoint.strip() if endpoint else None,
-                model=model.strip() if model else None,
+                provider=clean_provider,
+                api_key=clean_key if clean_key else None,
+                api_url=clean_endpoint if clean_endpoint else None,
+                model=clean_model if clean_model else None,
             )
             test_msg = None
             if isinstance(test_res, tuple):
@@ -219,12 +252,12 @@ class SetupService:
 
             if is_ok:
                 self._state.mark_step_completed("ai_provider")
-                self._change_summary.append(f"AI Provider ({provider}) configured and verified.")
+                self._change_summary.append(f"AI Provider ({clean_provider}) configured and verified.")
             else:
-                self._state.log_event("AI_TEST_FAILED", "ai_provider", f"Connectivity check failed for {provider}: {test_msg}")
+                self._state.log_event("AI_TEST_FAILED", "ai_provider", f"Connectivity check failed for {clean_provider}: {test_msg}")
 
             self._state.save(self._state_path)
-            err_msg = None if is_ok else (test_msg or f"Connectivity check failed for {provider}.")
+            err_msg = None if is_ok else (test_msg or f"Connectivity check failed for {clean_provider}.")
             return is_ok, err_msg, capabilities
         except Exception as exc:
             logger.error("Failed to configure AI provider in setup: %s", exc)
@@ -716,6 +749,35 @@ class SetupService:
             ss = self._get_settings_service()
             ss.set("search_preferences", preferences)
             ss.save()
+
+            # Synchronize target titles and locations into config/profile.json
+            titles = preferences.get("titles") or preferences.get("target_roles") or []
+            locations = preferences.get("locations") or []
+            negative_keywords = preferences.get("negative_keywords") or []
+
+            try:
+                prof_path = Path("config/profile.json")
+                if prof_path.exists():
+                    with open(prof_path, "r", encoding="utf-8") as f:
+                        p_data = json.load(f)
+
+                    platforms_dict = p_data.get("platforms", {})
+                    for p_name, p_cfg in platforms_dict.items():
+                        if isinstance(p_cfg, dict):
+                            if titles:
+                                p_cfg["search_terms"] = list(titles)
+                            if locations:
+                                p_cfg["search_location"] = locations[0]
+                            if negative_keywords:
+                                p_cfg["negative_title_words"] = list(negative_keywords)
+
+                    with open(prof_path, "w", encoding="utf-8") as f:
+                        json.dump(p_data, f, indent=2)
+                    from modules.config_loader import invalidate_cache
+                    invalidate_cache()
+            except Exception as prof_sync_err:
+                logger.debug("Could not sync preferences to profile.json: %s", prof_sync_err)
+
             self._state.mark_step_completed("job_strategy")
             self._change_summary.append("Job search strategy and target titles saved.")
             self._state.save(self._state_path)
@@ -738,15 +800,42 @@ class SetupService:
             sec = self._get_secrets_service()
             platforms = ps.list_platforms() if hasattr(ps, "list_platforms") else []
 
+            # Also inspect profile.json for configured search locations
+            prof_locations = {}
+            try:
+                prof_path = Path("config/profile.json")
+                if prof_path.exists():
+                    with open(prof_path, "r", encoding="utf-8") as f:
+                        p_data = json.load(f)
+                    for k, v in p_data.get("platforms", {}).items():
+                        if isinstance(v, dict) and "search_location" in v:
+                            prof_locations[k.lower()] = v["search_location"]
+            except Exception:
+                pass
+
             for p in platforms:
                 p_name = p.name.lower()
                 is_enabled = getattr(p, "is_enabled", getattr(p, "is_active", False))
-                # Check if credentials or cookies exist
-                has_cred = bool(sec.get_secret(f"platform_password_{p_name}"))
+
+                # Check if credentials or cookies exist (canonical + legacy)
+                username, password = "", ""
+                if hasattr(sec, "get_platform_credentials"):
+                    c_res = sec.get_platform_credentials(p_name)
+                    if isinstance(c_res, tuple) and len(c_res) >= 2:
+                        username = c_res[0] or ""
+                        password = c_res[1] or ""
+                    elif isinstance(c_res, dict):
+                        username = c_res.get("username", "")
+                        password = c_res.get("password", "")
+                if not username:
+                    username = sec.get_secret(f"platform_username_{p_name}") or ""
+                if not password:
+                    password = sec.get_secret(f"platform_password_{p_name}") or ""
+                has_cred = bool(username or password)
 
                 status_label = "Available"
                 if is_enabled and has_cred:
-                    status_label = "Session Configured ✓"
+                    status_label = "Configured ✓"
                 elif is_enabled:
                     status_label = "Supported ✓"
                 else:
@@ -759,6 +848,8 @@ class SetupService:
                     "is_enabled": is_enabled,
                     "status_label": status_label,
                     "has_credentials": has_cred,
+                    "username": username,
+                    "location": prof_locations.get(p_name, getattr(p, "default_location", "India")),
                 })
 
             # Append Universal ATS Platform
@@ -769,6 +860,8 @@ class SetupService:
                 "is_enabled": True,
                 "status_label": "Universal Agent Ready ✓",
                 "has_credentials": False,
+                "username": "",
+                "location": "Remote",
             })
         except Exception as exc:
             logger.warning("Error discovering supported platforms: %s", exc)
@@ -781,13 +874,63 @@ class SetupService:
             sec = self._get_secrets_service()
             ps = self._get_platform_service()
 
+            # Load profile.json for platform synchronization
+            prof_path = Path("config/profile.json")
+            p_data = {}
+            if prof_path.exists():
+                try:
+                    with open(prof_path, "r", encoding="utf-8") as f:
+                        p_data = json.load(f)
+                except Exception:
+                    p_data = {}
+
+            profile_platforms = p_data.get("platforms", {})
+
             for p_id, p_info in platforms_payload.items():
-                username = p_info.get("username")
-                password = p_info.get("password")
-                if username:
-                    sec.set_secret(f"platform_username_{p_id}", username)
-                if password:
-                    sec.set_secret(f"platform_password_{p_id}", password)
+                p_clean = str(p_id).strip().lower()
+                username = (p_info.get("username") or "").strip()
+                password = (p_info.get("password") or "").strip()
+                location = (p_info.get("location") or "").strip()
+
+                has_auth = bool(username or password)
+
+                # Store secrets dual-writing to canonical and legacy keys
+                if has_auth:
+                    if hasattr(sec, "set_platform_credentials"):
+                        sec.set_platform_credentials(p_clean, username=username, password=password)
+                    if username:
+                        sec.set_secret(f"platform_username_{p_clean}", username)
+                    if password:
+                        sec.set_secret(f"platform_password_{p_clean}", password)
+
+                # Enable platform and set default location if credentials or location provided
+                if has_auth or location or p_clean == "universal":
+                    if ps and hasattr(ps, "save_platform_config"):
+                        try:
+                            ps.save_platform_config(
+                                platform_name=p_clean,
+                                is_enabled=True,
+                                default_location=location if location else None,
+                            )
+                        except Exception as plat_err:
+                            logger.debug("Could not enable platform %s in DB: %s", p_clean, plat_err)
+
+                    # Update profile.json platform entry
+                    if p_clean in profile_platforms and isinstance(profile_platforms[p_clean], dict):
+                        profile_platforms[p_clean]["enabled"] = True
+                        if location:
+                            profile_platforms[p_clean]["search_location"] = location
+
+            # Persist profile.json updates
+            if prof_path.exists() and profile_platforms:
+                try:
+                    p_data["platforms"] = profile_platforms
+                    with open(prof_path, "w", encoding="utf-8") as f:
+                        json.dump(p_data, f, indent=2)
+                    from modules.config_loader import invalidate_cache
+                    invalidate_cache()
+                except Exception as write_err:
+                    logger.debug("Could not sync platforms to profile.json: %s", write_err)
 
             self._state.mark_step_completed("platforms")
             self._change_summary.append("Supported job platform accounts configured.")

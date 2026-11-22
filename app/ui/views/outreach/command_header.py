@@ -145,6 +145,7 @@ class CommandHeader(QWidget):
             ("Replied", "REPLIED", COLORS["info"]),
             ("Actions", "NEEDS_ACTION", COLORS["danger"]),
             ("Due", "FOLLOW_UP_DUE", COLORS["accent"]),
+            ("Closed", "CLOSED", COLORS["text_muted"]),
         ]
         for label, filter_val, color in pill_configs:
             pill = MetricPill(label, 0, filter_val, accent_color=color)
@@ -236,6 +237,7 @@ class CommandHeader(QWidget):
             "REPLIED": stats.get("recruiter_replied", 0),
             "NEEDS_ACTION": 0,  # Will be computed from conversations
             "FOLLOW_UP_DUE": stats.get("followups_due", 0),
+            "CLOSED": stats.get("closed", 0),
         }
         for filter_val, count in mapping.items():
             if filter_val in self._pills:

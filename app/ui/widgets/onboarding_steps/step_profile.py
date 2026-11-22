@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QButtonGroup
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon, render_vector_pixmap
 
 
 class NarrativeGenWorker(QThread):
@@ -97,9 +98,16 @@ class ConflictBanner(QFrame):
         old_val = self.conflict.get("existing_value", "")
         new_val = self.conflict.get("new_value", "")
 
-        lbl_head = QLabel(f"⚠ Conflicting Data for '{title}':")
+        head_row = QHBoxLayout()
+        head_row.setSpacing(6)
+        warn_icon = QLabel()
+        warn_icon.setPixmap(render_vector_pixmap("alert", COLORS['warning'], 13))
+        lbl_head = QLabel(f"Conflicting Data for '{title}':")
         lbl_head.setStyleSheet(f"font-size: 12px; font-weight: 800; color: {COLORS['warning']};")
-        layout.addWidget(lbl_head)
+        head_row.addWidget(warn_icon)
+        head_row.addWidget(lbl_head)
+        head_row.addStretch()
+        layout.addLayout(head_row)
 
         row = QHBoxLayout()
         self.btn_keep_old = QPushButton(f"Keep Existing: {old_val}")
@@ -331,7 +339,8 @@ class StepProfileWidget(QWidget):
         header_row.addWidget(lbl)
         header_row.addStretch()
 
-        self.btn_ai_gen_narrative = QPushButton("✨ Auto-Generate with AI")
+        self.btn_ai_gen_narrative = QPushButton("Auto-Generate Narrative")
+        self.btn_ai_gen_narrative.setIcon(render_vector_icon("sparkles", COLORS['primary'], 12))
         self.btn_ai_gen_narrative.setCursor(Qt.PointingHandCursor)
         self.btn_ai_gen_narrative.setStyleSheet(f"""
             QPushButton {{
@@ -520,8 +529,8 @@ class StepProfileWidget(QWidget):
         layout.addWidget(lbl)
 
         lbl_notice = QLabel(
-            "🔒 JobPilot privacy invariant: These compliance fields are NEVER inferred by AI models. "
-            "They are strictly user-controlled for company ATS equal opportunity compliance."
+            "Compliance Invariant: Equal opportunity and demographic fields are strictly manual "
+            "and never inferred by automated models. They are user-controlled for company ATS equal opportunity compliance."
         )
         lbl_notice.setWordWrap(True)
         lbl_notice.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
@@ -697,7 +706,7 @@ class StepProfileWidget(QWidget):
         }
 
         self.btn_ai_gen_narrative.setEnabled(False)
-        self.btn_ai_gen_narrative.setText("✨ Generating with AI...")
+        self.btn_ai_gen_narrative.setText("Generating narrative...")
         self.lbl_ai_status.setVisible(True)
         self.lbl_ai_status.setText("Connecting to AI engine to draft headline, summary, and cover letter...")
         self.lbl_ai_status.setStyleSheet(f"""
@@ -719,7 +728,7 @@ class StepProfileWidget(QWidget):
 
     def _on_ai_gen_finished(self, ok: bool, err: str, data: Dict[str, str]):
         self.btn_ai_gen_narrative.setEnabled(True)
-        self.btn_ai_gen_narrative.setText("✨ Auto-Generate with AI")
+        self.btn_ai_gen_narrative.setText("Auto-Generate Narrative")
 
         if ok and data:
             if data.get("headline"):
@@ -733,7 +742,7 @@ class StepProfileWidget(QWidget):
                 self.pill_cover_letter.set_source("AI Generated")
 
             self.lbl_ai_status.setVisible(True)
-            self.lbl_ai_status.setText("✓ Successfully generated Headline, Summary, and Cover Letter from your data!")
+            self.lbl_ai_status.setText("Successfully generated headline, summary, and cover letter.")
             self.lbl_ai_status.setStyleSheet(f"""
                 QLabel {{
                     font-size: 11px;
@@ -747,7 +756,7 @@ class StepProfileWidget(QWidget):
             """)
         else:
             self.lbl_ai_status.setVisible(True)
-            self.lbl_ai_status.setText(f"⚠ AI Generation failed: {err}")
+            self.lbl_ai_status.setText(f"Generation failed: {err}")
             self.lbl_ai_status.setStyleSheet(f"""
                 QLabel {{
                     font-size: 11px;

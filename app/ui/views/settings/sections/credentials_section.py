@@ -147,15 +147,27 @@ class CredentialsSection(QWidget):
         lbl_platforms.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {COLORS.get('text', '#F0F6FC')};")
         layout.addWidget(lbl_platforms)
 
-        self.card_linkedin = PlatformCard("linkedin", "LinkedIn", "💼", self)
+        self.card_linkedin = PlatformCard("linkedin", "LinkedIn", "globe", self)
         self.card_linkedin.edit_clicked.connect(self._open_credential_dialog)
         layout.addWidget(self.card_linkedin)
 
-        self.card_naukri = PlatformCard("naukri", "Naukri.com", "🎯", self)
+        self.card_naukri = PlatformCard("naukri", "Naukri.com", "search", self)
         self.card_naukri.edit_clicked.connect(self._open_credential_dialog)
         layout.addWidget(self.card_naukri)
 
-        self.card_workday = PlatformCard("workday", "Workday / Universal ATS", "🏢", self)
+        self.card_indeed = PlatformCard("indeed", "Indeed", "file_check", self)
+        self.card_indeed.edit_clicked.connect(self._open_credential_dialog)
+        layout.addWidget(self.card_indeed)
+
+        self.card_foundit = PlatformCard("foundit", "Foundit (Monster India)", "briefcase", self)
+        self.card_foundit.edit_clicked.connect(self._open_credential_dialog)
+        layout.addWidget(self.card_foundit)
+
+        self.card_glassdoor = PlatformCard("glassdoor", "Glassdoor", "building", self)
+        self.card_glassdoor.edit_clicked.connect(self._open_credential_dialog)
+        layout.addWidget(self.card_glassdoor)
+
+        self.card_workday = PlatformCard("workday", "Workday / Universal ATS", "shield", self)
         self.card_workday.edit_clicked.connect(self._open_credential_dialog)
         self.card_workday.secondary_clicked.connect(self._open_workday_accounts_dialog)
         layout.addWidget(self.card_workday)
@@ -355,15 +367,22 @@ class CredentialsSection(QWidget):
             self.btn_toggle_email_pwd.setToolTip("Show password")
             self._apply_eye_default_style()
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh_display()
+
     def _open_credential_dialog(self, platform_key: str) -> None:
         names = {
             "linkedin": "LinkedIn",
             "naukri": "Naukri.com",
+            "indeed": "Indeed",
+            "foundit": "Foundit (Monster India)",
+            "glassdoor": "Glassdoor",
             "workday": "Workday / Universal ATS",
         }
         name = names.get(platform_key, platform_key.title())
         username, _ = self.secrets_service.get_platform_credentials(platform_key)
-        if not username and platform_key == "workday":
+        if not username and platform_key in ["workday", "indeed", "glassdoor"]:
             try:
                 from modules.config_loader import get_personal
                 username = get_personal().get("email", "")
@@ -372,6 +391,7 @@ class CredentialsSection(QWidget):
         dialog = CredentialDialog(platform_key, name, self.secrets_service, username or "", self)
         dialog.credentials_saved.connect(lambda _k, _u: self.refresh_display())
         dialog.exec()
+        self.refresh_display()
 
     def _open_workday_accounts_dialog(self, platform_key: str = "workday") -> None:
         dlg = WorkdayAccountsDialog(account_service=self.workday_account_service, parent=self)
@@ -387,6 +407,18 @@ class CredentialsSection(QWidget):
         nk_user, nk_pwd = self.secrets_service.get_platform_credentials("naukri")
         self.card_naukri.set_configured(nk_user, bool(nk_pwd))
 
+        # Indeed (email-based OTP login)
+        ind_user, ind_pwd = self.secrets_service.get_platform_credentials("indeed")
+        self.card_indeed.set_configured(ind_user, bool(ind_pwd))
+
+        # Foundit
+        fd_user, fd_pwd = self.secrets_service.get_platform_credentials("foundit")
+        self.card_foundit.set_configured(fd_user, bool(fd_pwd))
+
+        # Glassdoor
+        gd_user, gd_pwd = self.secrets_service.get_platform_credentials("glassdoor")
+        self.card_glassdoor.set_configured(gd_user, bool(gd_pwd))
+
         # Workday / Universal ATS
         wd_user, wd_pwd = self.secrets_service.get_platform_credentials("workday")
         self.card_workday.set_configured(wd_user, bool(wd_pwd))
@@ -399,7 +431,14 @@ class CredentialsSection(QWidget):
             pass
 
         # Count configured
-        count = sum([bool(li_user and li_pwd), bool(nk_user and nk_pwd), bool(wd_pwd)])
+        count = sum([
+            bool(li_user and li_pwd),
+            bool(nk_user and nk_pwd),
+            bool(ind_user),
+            bool(fd_user and fd_pwd),
+            bool(gd_user or gd_pwd),
+            bool(wd_pwd),
+        ])
         self.credentials_updated.emit(count)
 
         # Email

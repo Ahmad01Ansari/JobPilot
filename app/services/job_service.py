@@ -166,18 +166,21 @@ class JobService:
             )
 
     def get_category_counts(self) -> Dict[str, int]:
-        """Returns live counts for the primary category tabs plus junk."""
+        """Returns live counts for the primary category tabs plus closed and junk."""
         with get_db_session(self._session_factory) as session:
             repo = JobRepository(session)
-            easy_cnt = repo.count_jobs(application_method="EASY_APPLY")
-            portal_cnt = repo.count_jobs(application_method="COMPANY_PORTAL")
+            easy_cnt = repo.count_jobs(is_active=True, application_method="EASY_APPLY")
+            portal_cnt = repo.count_jobs(is_active=True, application_method="COMPANY_PORTAL")
+            closed_cnt = repo.count_jobs(status="CLOSED")
             junk_cnt = repo.count_jobs(status="JUNK")
+            all_active = repo.count_jobs(is_active=True)
             return {
-                "all": repo.count_jobs(),
+                "all": all_active,
                 "easy_apply": easy_cnt,
                 "easy": easy_cnt,
                 "company_portal": portal_cnt,
                 "portal": portal_cnt,
+                "closed": closed_cnt,
                 "junk": junk_cnt,
             }
 
@@ -273,6 +276,15 @@ class JobService:
         with get_db_session(self._session_factory) as session:
             repo = JobRepository(session)
             success = repo.mark_as_closed(job_id)
+            if success:
+                session.commit()
+            return success
+
+    def mark_job_active(self, job_id: int) -> bool:
+        """Marks a job listing as active or open."""
+        with get_db_session(self._session_factory) as session:
+            repo = JobRepository(session)
+            success = repo.mark_as_active(job_id)
             if success:
                 session.commit()
             return success

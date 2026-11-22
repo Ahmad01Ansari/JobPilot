@@ -432,7 +432,11 @@ class SetupReadinessService:
             if not isinstance(provider, str):
                 provider = "groq"
             provider_key_name = f"ai_api_key_{provider}"
-            has_key = bool(sec.get_secret(provider_key_name))
+            has_key = bool(
+                (sec.get_ai_secret(provider) if hasattr(sec, "get_ai_secret") else None)
+                or sec.get_secret(provider_key_name)
+                or sec.get_secret("llm_api_key")
+            )
 
             # Local Ollama doesn't require an API key
             if provider == "ollama":

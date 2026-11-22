@@ -87,7 +87,8 @@ class SecretsService:
                     decrypted_bytes = f.decrypt(record["encrypted"].encode("utf-8"))
                     return decrypted_bytes.decode("utf-8")
                 except Exception as exc:
-                    logger.error("Failed to decrypt secret '%s': %s", key, exc)
+                    err_name = str(exc) or exc.__class__.__name__
+                    logger.warning("Could not decrypt secret '%s' (%s).", key, err_name)
                     return default
 
         return default
@@ -114,43 +115,45 @@ class SecretsService:
             return True
 
     def get_platform_credentials(self, platform: str) -> Tuple[Optional[str], Optional[str]]:
-        """Returns (username, password) for the given platform without leaking other secrets."""
+        """Returns (username, password) for the given platform without leaking other secrets.
+        Resolves both canonical '{platform}_{field}' and legacy 'platform_username_{platform}' keys.
+        """
         p = platform.strip().lower()
-        if p == "linkedin":
-            user = self.get_secret("linkedin_username")
-            pwd = self.get_secret("linkedin_password")
-            return user, pwd
-        elif p == "naukri":
-            user = self.get_secret("naukri_username")
-            pwd = self.get_secret("naukri_password")
-            return user, pwd
-        elif p == "foundit":
-            user = self.get_secret("foundit_username")
-            pwd = self.get_secret("foundit_password")
-            return user, pwd
-        elif p == "glassdoor":
-            user = self.get_secret("glassdoor_username")
-            pwd = self.get_secret("glassdoor_password")
-            return user, pwd
-        elif p in ("workday", "universal"):
-            user = self.get_secret("workday_username")
-            pwd = self.get_secret("workday_password")
-            if not user or not pwd:
-                try:
-                    from modules.config_loader import get_platform, get_personal
-                    plat = get_platform("workday")
-                    pwd = pwd or plat.get("password")
-                    user = user or plat.get("username") or get_personal().get("email")
-                except Exception:
-                    pass
-            return user, pwd
-        return None, None
+        user = self.get_secret(f"{p}_username") or self.get_secret(f"platform_username_{p}")
+        pwd = self.get_secret(f"{p}_password") or self.get_secret(f"platform_password_{p}")
+
+        if p in ("workday", "universal") and (not user or not pwd):
+            try:
+                from modules.config_loader import get_platform, get_personal
+                plat = get_platform("workday")
+                pwd = pwd or plat.get("password")
+                user = user or plat.get("username") or get_personal().get("email")
+            except Exception:
+                pass
+        return user, pwd
+
+    def set_platform_credentials(
+        self,
+        platform: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> bool:
+        """Stores platform credentials securely under both canonical and setup-wizard compatibility keys."""
+        p = platform.strip().lower()
+        if username:
+            self.set_secret(f"{p}_username", username.strip())
+            self.set_secret(f"platform_username_{p}", username.strip())
+        if password:
+            self.set_secret(f"{p}_password", password.strip())
+            self.set_secret(f"platform_password_{p}", password.strip())
+        return True
 
     def get_ai_secret(self, provider_id: str, default: Optional[str] = None) -> Optional[str]:
         """Returns the decrypted API key for a specific provider.
 
         Strictly enforces provider credential isolation:
         - First checks provider-scoped secret 'secret.ai.api_key.<provider>'.
+        - Checks setup-wizard secret format 'secret.ai_api_key_<provider>'.
         - Only falls back to legacy 'secret.llm_api_key' if:
           1) provider_id is empty/unspecified, OR
           2) provider_id matches the active provider configured in the database,
@@ -159,7 +162,7 @@ class SecretsService:
         """
         p_clean = (provider_id or "").strip().lower()
         if p_clean:
-            scoped = self.get_secret(f"ai.api_key.{p_clean}")
+            scoped = self.get_secret(f"ai.api_key.{p_clean}") or self.get_secret(f"ai_api_key_{p_clean}")
             if scoped:
                 return scoped
 
@@ -177,10 +180,11 @@ class SecretsService:
         return self.get_secret("llm_api_key", default=default)
 
     def set_ai_secret(self, provider_id: str, value: str) -> bool:
-        """Stores encrypted API key scoped to the specific provider."""
+        """Stores encrypted API key scoped to the specific provider under canonical and setup keys."""
         p_clean = (provider_id or "").strip().lower()
         if p_clean:
             self.set_secret(f"ai.api_key.{p_clean}", value)
+            self.set_secret(f"ai_api_key_{p_clean}", value)
 
         # Only mirror to legacy global key if this provider is the active provider
         try:

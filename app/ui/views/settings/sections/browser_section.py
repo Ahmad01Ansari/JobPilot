@@ -136,7 +136,7 @@ class BrowserSection(QWidget):
                 background-color: {COLORS.get('surface_alt', '#1C2128')};
                 border: 1px solid {COLORS.get('border', '#262C36')};
                 border-radius: 8px;
-                padding: 12px 14px;
+                padding: 14px 16px;
             }}
             QLabel {{
                 background: transparent;
@@ -145,42 +145,99 @@ class BrowserSection(QWidget):
             }}
         """)
         p_layout = QVBoxLayout(profiles_box)
-        p_layout.setContentsMargins(8, 8, 8, 8)
-        p_layout.setSpacing(6)
+        p_layout.setContentsMargins(4, 4, 4, 4)
+        p_layout.setSpacing(10)
 
         lbl_p_title = QLabel("Persistent Browser Profiles")
         lbl_p_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS.get('text', '#F0F6FC')};")
         p_layout.addWidget(lbl_p_title)
 
-        # Check existing profiles on disk
+        lbl_p_subtitle = QLabel("Each platform uses a dedicated, isolated Chrome session to preserve cookies and prevent cross-site contamination.")
+        lbl_p_subtitle.setStyleSheet(f"font-size: 11px; color: {COLORS.get('text_muted', '#8B949E')};")
+        p_layout.addWidget(lbl_p_subtitle)
+
+        # Profiles list
+        self._profile_labels: Dict[str, QLabel] = {}
+        self._profile_paths: Dict[str, Path] = {}
+
         from modules.browser_lock import get_profile_dir
-        li_path = Path(get_profile_dir("linkedin"))
-        li_exists = li_path.exists()
+        profile_defs = [
+            ("linkedin", "LinkedIn Session Profile"),
+            ("naukri", "Naukri.com Session Profile"),
+            ("indeed", "Indeed Session Profile"),
+            ("foundit", "Foundit Session Profile"),
+            ("glassdoor", "Glassdoor Session Profile"),
+            ("universal", "Universal ATS Session Profile"),
+        ]
 
-        nk_path = Path(get_profile_dir("naukri"))
-        nk_exists = nk_path.exists()
+        for plat_key, plat_name in profile_defs:
+            p_path = Path(get_profile_dir(plat_key))
+            self._profile_paths[plat_key] = p_path
 
-        lbl_li = QLabel(f"• <b>LinkedIn Session Profile:</b> {'● Ready' if li_exists else '○ Initialized on first run'}")
-        lbl_li.setStyleSheet(f"font-size: 12px; color: {COLORS.get('success', '#2EA043') if li_exists else COLORS.get('text_muted', '#8B949E')};")
-        p_layout.addWidget(lbl_li)
+            row_frame = QFrame()
+            row_frame.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {COLORS.get('surface', '#161B22')};
+                    border: 1px solid {COLORS.get('border', '#262C36')};
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                }}
+            """)
+            r_layout = QHBoxLayout(row_frame)
+            r_layout.setContentsMargins(8, 6, 8, 6)
+            r_layout.setSpacing(10)
 
-        lbl_nk = QLabel(f"• <b>Naukri Session Profile:</b> {'● Ready' if nk_exists else '○ Initialized on first run'}")
-        lbl_nk.setStyleSheet(f"font-size: 12px; color: {COLORS.get('success', '#2EA043') if nk_exists else COLORS.get('text_muted', '#8B949E')};")
-        p_layout.addWidget(lbl_nk)
+            lbl_name = QLabel(f"<b>{plat_name}</b>")
+            lbl_name.setStyleSheet(f"font-size: 12px; color: {COLORS.get('text', '#F0F6FC')};")
+            r_layout.addWidget(lbl_name)
 
-        # Profile directory button
+            lbl_status = QLabel("○ Checking...")
+            lbl_status.setStyleSheet(f"font-size: 11px; color: {COLORS.get('text_muted', '#8B949E')};")
+            self._profile_labels[plat_key] = lbl_status
+            r_layout.addWidget(lbl_status)
+
+            r_layout.addStretch()
+
+            btn_open = QPushButton("Open Folder")
+            btn_open.setCursor(Qt.PointingHandCursor)
+            btn_open.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: 1px solid {COLORS.get('border', '#262C36')};
+                    color: {COLORS.get('text', '#F0F6FC')};
+                    font-size: 11px;
+                    font-weight: 600;
+                    padding: 3px 10px;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS.get('surface_hover', '#262C36')};
+                    border-color: {COLORS.get('border_light', '#333A46')};
+                }}
+            """)
+            # Capture path in closure
+            btn_open.clicked.connect(lambda _, p=p_path: self._open_profile_folder(p))
+            r_layout.addWidget(btn_open)
+
+            p_layout.addWidget(row_frame)
+
+        # Main action buttons row
         p_btn_row = QHBoxLayout()
-        p_btn_row.setContentsMargins(0, 4, 0, 0)
-        btn_open_profile = QPushButton("📁 Open Chrome Profile Folder")
-        btn_open_profile.setCursor(Qt.PointingHandCursor)
-        btn_open_profile.setStyleSheet(f"""
+        p_btn_row.setContentsMargins(0, 8, 0, 0)
+        p_btn_row.setSpacing(12)
+        p_btn_row.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        btn_open_all = QPushButton("Open All Profiles Folder")
+        btn_open_all.setCursor(Qt.PointingHandCursor)
+        btn_open_all.setFixedHeight(32)
+        btn_open_all.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS.get('surface', '#161B22')};
                 border: 1px solid {COLORS.get('border', '#262C36')};
                 color: {COLORS.get('text', '#F0F6FC')};
                 font-weight: 600;
                 font-size: 11px;
-                padding: 4px 10px;
+                padding: 0 14px;
                 border-radius: 6px;
             }}
             QPushButton:hover {{
@@ -188,10 +245,31 @@ class BrowserSection(QWidget):
                 border-color: {COLORS.get('border_light', '#333A46')};
             }}
         """)
-        from app.services.os.app_paths import AppPaths
-        target_dir = li_path if li_path.exists() else AppPaths.get_user_data_dir()
-        btn_open_profile.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir))))
-        p_btn_row.addWidget(btn_open_profile)
+        btn_open_all.clicked.connect(self._open_main_profiles_dir)
+        p_btn_row.addWidget(btn_open_all)
+
+        btn_refresh = QPushButton("Refresh Status")
+        btn_refresh.setCursor(Qt.PointingHandCursor)
+        btn_refresh.setFixedHeight(32)
+        btn_refresh.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS.get('surface', '#161B22')};
+                border: 1px solid {COLORS.get('border', '#262C36')};
+                color: {COLORS.get('text_muted', '#8B949E')};
+                font-weight: 600;
+                font-size: 11px;
+                padding: 0 14px;
+                border-radius: 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS.get('surface_hover', '#262C36')};
+                color: {COLORS.get('text', '#F0F6FC')};
+                border-color: {COLORS.get('border_light', '#333A46')};
+            }}
+        """)
+        btn_refresh.clicked.connect(self.refresh_profiles)
+        p_btn_row.addWidget(btn_refresh)
+
         p_btn_row.addStretch()
         p_layout.addLayout(p_btn_row)
 
@@ -200,6 +278,54 @@ class BrowserSection(QWidget):
 
         scroll.setWidget(container)
         outer_layout.addWidget(scroll)
+
+        self.refresh_profiles()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh_profiles()
+
+    def refresh_profiles(self) -> None:
+        """Inspects disk paths and updates profile status badges."""
+        from modules.browser_lock import get_profile_dir
+        for plat_key, lbl_status in self._profile_labels.items():
+            path = Path(get_profile_dir(plat_key))
+            self._profile_paths[plat_key] = path
+            is_ready = False
+            try:
+                if path.exists() and path.is_dir():
+                    # Check if directory has files (active browser profile)
+                    is_ready = any(path.iterdir())
+            except Exception:
+                pass
+
+            if is_ready:
+                lbl_status.setText("● Ready")
+                lbl_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {COLORS.get('success', '#2EA043')};")
+            else:
+                lbl_status.setText("○ Initialized on first run")
+                lbl_status.setStyleSheet(f"font-size: 11px; color: {COLORS.get('text_muted', '#8B949E')};")
+
+    def _open_profile_folder(self, target_path: Path) -> None:
+        """Opens specific platform profile directory."""
+        target_path.mkdir(parents=True, exist_ok=True)
+        from app.services.os.system_service import SystemService
+        SystemService.open_file_or_dir(target_path)
+        self.refresh_profiles()
+
+    def _open_main_profiles_dir(self) -> None:
+        """Opens parent folder containing browser profiles."""
+        from app.services.os.app_paths import AppPaths
+        from app.services.os.system_service import SystemService
+        # Check if profiles directory has items or open home directory where dot-profiles reside
+        profiles_dir = AppPaths.get_profiles_dir()
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            has_files = any(profiles_dir.iterdir())
+        except Exception:
+            has_files = False
+        target = profiles_dir if has_files else Path.home()
+        SystemService.open_file_or_dir(target)
 
     def get_values(self) -> Dict[str, Any]:
         return {

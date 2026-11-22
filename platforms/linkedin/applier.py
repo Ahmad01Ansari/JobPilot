@@ -5,6 +5,7 @@ Handles Easy Apply wizard steps, screening questions, and direct event emission.
 
 import time
 from typing import Optional, Any, Dict, Tuple
+from urllib.parse import urlparse, parse_qs, unquote
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
@@ -72,30 +73,84 @@ class LinkedInApplier:
         if not driver:
             return
         try:
-            dismiss_buttons = driver.find_elements(By.XPATH, MODAL_DISMISS_BUTTON_XPATH)
+            # 1. If confirmation modal ("Save this application?") is already visible, click Discard immediately
+            driver.execute_script("""
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const discardBtn = buttons.find(b => {
+                    const txt = (b.textContent || '').trim().toLowerCase();
+                    const cname = (b.getAttribute('data-control-name') || '').toLowerCase();
+                    const testId = (b.getAttribute('data-test-dialog-secondary-action') || '').toLowerCase();
+                    return (txt === 'discard' || txt.includes('discard') || cname.includes('discard') || testId.includes('discard'));
+                });
+                if (discardBtn) discardBtn.click();
+            """)
+            time.sleep(0.4)
+
+            # Direct Selenium click on Discard button if present
+            try:
+                d_btns = driver.find_elements(By.XPATH, "//button[normalize-space(.)='Discard' or contains(., 'Discard') or contains(@data-control-name, 'discard')]")
+                for d in d_btns:
+                    if d.is_displayed():
+                        driver.execute_script("arguments[0].click();", d)
+                        time.sleep(0.5)
+                        break
+            except Exception:
+                pass
+
+            # 2. Click dismiss [X] if Easy Apply modal is open
+            dismiss_buttons = driver.find_elements(
+                By.XPATH,
+                "//button[contains(@aria-label, 'Dismiss') or contains(@aria-label, 'Close') or normalize-space(.)='✕' or contains(@class, 'artdeco-modal__dismiss')]"
+            )
             for btn in dismiss_buttons:
                 if btn.is_displayed():
                     try:
                         btn.click()
                     except Exception:
                         driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(1)
+                    time.sleep(0.8)
                     break
 
-            confirm_buttons = driver.find_elements(By.XPATH, CONFIRM_DISCARD_BUTTON_XPATH)
-            for btn in confirm_buttons:
-                if btn.is_displayed():
-                    try:
-                        btn.click()
-                    except Exception:
-                        driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(1)
+            # 3. Check and click "Discard" button on secondary confirmation dialog ("Save this application?")
+            for _ in range(3):
+                discarded = driver.execute_script("""
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const discardBtn = buttons.find(b => {
+                        const txt = (b.textContent || '').trim().toLowerCase();
+                        const cname = (b.getAttribute('data-control-name') || '').toLowerCase();
+                        const testId = (b.getAttribute('data-test-dialog-secondary-action') || '').toLowerCase();
+                        return (txt === 'discard' || txt.includes('discard') || cname.includes('discard') || testId.includes('discard'));
+                    });
+                    if (discardBtn) {
+                        discardBtn.click();
+                        return true;
+                    }
+                    return false;
+                """)
+                if discarded:
+                    time.sleep(0.4)
                     break
-        except Exception:
+                try:
+                    d_btns = driver.find_elements(By.XPATH, "//button[normalize-space(.)='Discard' or contains(., 'Discard') or contains(@data-control-name, 'discard')]")
+                    for d in d_btns:
+                        if d.is_displayed():
+                            driver.execute_script("arguments[0].click();", d)
+                            time.sleep(0.4)
+                            discarded = True
+                            break
+                except Exception:
+                    pass
+                if discarded:
+                    break
+                time.sleep(0.4)
+
+            # 4. Fallback ESC key
             try:
                 self.browser.actions.send_keys(Keys.ESCAPE).perform()
             except Exception:
                 pass
+        except Exception as e:
+            logger.debug("Notice in discard_modal: %s", e)
 
     def _answer_radio_groups(self, driver, modal, job_description: str = "", work_location: str = "") -> None:
         """Discovers and answers all radio button groups on the current modal step."""
@@ -325,8 +380,17 @@ class LinkedInApplier:
                         "//ul[contains(@class, 'typeahead')]//li"
                     )
                     options = driver.find_elements(By.XPATH, options_xpath)
-                    visible_opts = [opt for opt in options if opt.is_displayed() and opt.text.strip()]
-                    opt_texts = [opt.text.strip() for opt in visible_opts]
+                    visible_opts = []
+                    opt_texts = []
+                    for opt in options:
+                        try:
+                            if opt.is_displayed():
+                                t = opt.text.strip()
+                                if t:
+                                    visible_opts.append(opt)
+                                    opt_texts.append(t)
+                        except Exception:
+                            continue
 
                     matched_opt = None
                     is_currency = any(w in cb_label.lower() for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"])
@@ -337,37 +401,58 @@ class LinkedInApplier:
                         if self.qna_engine and hasattr(self.qna_engine, "salary_currency"):
                             pref_curr = str(self.qna_engine.salary_currency).lower()
                         for opt in visible_opts:
-                            t = opt.text.lower()
-                            if any(c in t for c in [pref_curr, "inr", "rupee", "₹", "indian"]):
-                                matched_opt = opt
-                                break
-                        if not matched_opt:
-                            for opt in visible_opts:
+                            try:
                                 t = opt.text.lower()
-                                if any(c in t for c in ["usd", "$", "dollar"]):
+                                if any(c in t for c in [pref_curr, "inr", "rupee", "₹", "indian"]):
                                     matched_opt = opt
                                     break
+                            except Exception:
+                                continue
+                        if not matched_opt:
+                            for opt in visible_opts:
+                                try:
+                                    t = opt.text.lower()
+                                    if any(c in t for c in ["usd", "$", "dollar"]):
+                                        matched_opt = opt
+                                        break
+                                except Exception:
+                                    continue
                     elif self.qna_engine and opt_texts:
                         _, matched_text = self.qna_engine.answer_select_or_radio(cb_label, opt_texts, work_location=work_location)
                         if matched_text:
                             for opt in visible_opts:
-                                if opt.text.strip().lower() == matched_text.strip().lower():
-                                    matched_opt = opt
-                                    break
+                                try:
+                                    if opt.text.strip().lower() == matched_text.strip().lower():
+                                        matched_opt = opt
+                                        break
+                                except Exception:
+                                    continue
 
                     if not matched_opt and visible_opts:
                         # Fallback to first non-placeholder option
                         for opt in visible_opts:
-                            if opt.text.strip().lower() not in placeholder_values:
-                                matched_opt = opt
-                                break
+                            try:
+                                if opt.text.strip().lower() not in placeholder_values:
+                                    matched_opt = opt
+                                    break
+                            except Exception:
+                                continue
 
                     if matched_opt:
+                        opt_label_str = ""
+                        try:
+                            opt_label_str = matched_opt.text.strip()
+                        except Exception:
+                            pass
                         try:
                             matched_opt.click()
                         except Exception:
-                            driver.execute_script("arguments[0].click();", matched_opt)
-                        print_lg(f"[LinkedInApplier] Selected custom dropdown option '{matched_opt.text.strip()}' for '{cb_label[:60]}'")
+                            try:
+                                driver.execute_script("arguments[0].click();", matched_opt)
+                            except Exception:
+                                pass
+                        if opt_label_str:
+                            print_lg(f"[LinkedInApplier] Selected custom dropdown option '{opt_label_str}' for '{cb_label[:60]}'")
                 except Exception as e:
                     print_lg(f"[LinkedInApplier] Notice handling custom dropdown item: {e}")
         except Exception as e:
@@ -507,6 +592,26 @@ class LinkedInApplier:
                 prompt = (inp.get_attribute("aria-label") or "").strip()
                 if not prompt:
                     try:
+                        prompt = driver.execute_script("""
+                            const inp = arguments[0];
+                            const id = inp.id;
+                            if (id) {
+                                try {
+                                    const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+                                    if (lbl && lbl.textContent && lbl.textContent.trim()) return lbl.textContent.trim();
+                                } catch (e) {}
+                            }
+                            const parent = inp.closest('.fb-dash-form-element, .jobs-easy-apply-form-section__grouping, div[class*="form-element"], fieldset');
+                            if (parent) {
+                                const lbl = parent.querySelector('label, p, span[class*="label"], legend');
+                                if (lbl && lbl.textContent && lbl.textContent.trim()) return lbl.textContent.trim();
+                            }
+                            return '';
+                        """, inp) or ""
+                    except Exception:
+                        pass
+                if not prompt:
+                    try:
                         inp_id = inp.get_attribute("id")
                         if inp_id:
                             lbl = modal.find_element(By.XPATH, f".//label[@for='{inp_id}']")
@@ -515,7 +620,7 @@ class LinkedInApplier:
                         pass
                 if not prompt:
                     try:
-                        p_el = inp.find_element(By.XPATH, "./ancestor::div[p][1]//p[1]")
+                        p_el = inp.find_element(By.XPATH, "./ancestor::div[p or label or span][1]//(label|p|span)[1]")
                         prompt = p_el.text.strip()
                     except Exception:
                         pass
@@ -529,17 +634,66 @@ class LinkedInApplier:
                     if ans:
                         answer = ans
 
+                # Defensive sanitization for numeric inputs and specific domains
+                inp_type = (inp.get_attribute("type") or "text").lower()
+                p_lower = prompt.lower()
+                is_num_field = inp_type in ["number", "tel"] or any(u in p_lower for u in ["(in days)", "in days", "number of days", "years", "in lpa", "how many"])
+                if is_num_field:
+                    if answer.lower() in ["yes", "no", "true", "false"] or not any(c.isdigit() for c in answer):
+                        if any(w in p_lower for w in ["join", "notice", "start", "day"]):
+                            n_days = 30
+                            if self.qna_engine and hasattr(self.qna_engine, "notice_period"):
+                                n_days = getattr(self.qna_engine, "notice_period", 30)
+                            answer = str(n_days)
+                        elif any(w in p_lower for w in ["salary", "ctc", "lpa", "pay"]):
+                            if "lpa" in p_lower or "lac" in p_lower:
+                                d_sal = 550000
+                                if self.qna_engine and hasattr(self.qna_engine, "desired_salary"):
+                                    d_sal = getattr(self.qna_engine, "desired_salary", 550000)
+                                answer = f"{round(d_sal / 100000, 2):.2f}"
+                            else:
+                                answer = "550000"
+                        else:
+                            answer = cand_exp
+
+                # Check maxlength constraint (e.g. 0/20 in LinkedIn Easy Apply form elements)
+                max_len_attr = inp.get_attribute("maxlength")
+                if max_len_attr:
+                    try:
+                        m_len = int(max_len_attr)
+                        if m_len > 0 and len(answer) > m_len:
+                            if any(w in p_lower for w in ["exp", "role", "developer", "experience", "year"]):
+                                answer = "2 years" if m_len >= 7 else "2"
+                            elif any(w in p_lower for w in ["salary", "ctc", "lpa"]):
+                                answer = "550000" if m_len >= 6 else "5.5"
+                            elif any(w in p_lower for w in ["notice", "join", "day"]):
+                                answer = "15" if m_len >= 2 else "1"
+                            else:
+                                answer = answer[:m_len]
+                    except Exception:
+                        pass
+
                 try:
                     inp.clear()
                     inp.send_keys(answer)
                 except Exception:
                     pass
                 try:
+                    # Enforce exact clean value via React descriptor setter to prevent concatenation
                     driver.execute_script("""
-                        arguments[0].focus();
-                        arguments[0].value = arguments[1];
-                        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                        arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                        const inp = arguments[0];
+                        const val = arguments[1];
+                        inp.focus();
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+                            || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                        if (nativeSetter) {
+                            nativeSetter.call(inp, val);
+                        } else {
+                            inp.value = val;
+                        }
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                        inp.dispatchEvent(new Event('change', { bubbles: true }));
+                        inp.dispatchEvent(new Event('blur', { bubbles: true }));
                     """, inp, answer)
                 except Exception:
                     pass
@@ -632,6 +786,54 @@ class LinkedInApplier:
         except Exception:
             pass
 
+    def _fill_pending_fields(self, driver, modal, user_input: str) -> None:
+        """Populates any empty or invalid text inputs on the current modal with the candidate-provided answer."""
+        try:
+            inputs = modal.find_elements(
+                By.XPATH,
+                ".//input[not(@type) or @type='text' or @type='number' or @type='tel' or @type='email'] | .//textarea"
+            )
+            for inp in inputs:
+                if not inp.is_displayed():
+                    continue
+                curr = inp.get_attribute("value") or ""
+                if not curr.strip():
+                    driver.execute_script("""
+                        const inp = arguments[0];
+                        const val = arguments[1];
+                        inp.focus();
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+                            || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                        if (nativeSetter) {
+                            nativeSetter.call(inp, val);
+                        } else {
+                            inp.value = val;
+                        }
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                        inp.dispatchEvent(new Event('change', { bubbles: true }));
+                        inp.dispatchEvent(new Event('blur', { bubbles: true }));
+                    """, inp, user_input)
+                    print_lg(f"[LinkedInApplier] Populated candidate answer '{user_input}' into form field.")
+        except Exception as e:
+            logger.debug("Notice filling pending fields: %s", e)
+
+    def _try_advance_step(self, driver, modal) -> bool:
+        """Attempts to click Review, Next, or Submit to advance after human input."""
+        for xpath in [MODAL_SUBMIT_BUTTON_XPATH, MODAL_REVIEW_BUTTON_XPATH, MODAL_NEXT_BUTTON_XPATH]:
+            try:
+                btns = modal.find_elements(By.XPATH, xpath)
+                for b in btns:
+                    if b.is_displayed():
+                        try:
+                            b.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", b)
+                        time.sleep(1.0)
+                        return True
+            except Exception:
+                continue
+        return False
+
     def apply_to_job(
         self,
         job_id: str,
@@ -709,8 +911,6 @@ class LinkedInApplier:
             new_tab = [h for h in handles_after if h not in handles_before][-1]
             driver.switch_to.window(new_tab)
             # Allow brief redirect wait for destination company website
-            import time
-            from urllib.parse import urlparse, parse_qs, unquote
             t_wait = time.time()
             ext_url = ""
             while time.time() - t_wait < 3.0:
@@ -797,6 +997,11 @@ class LinkedInApplier:
         while step_counter < max_steps:
             step_counter += 1
             human_delay(0.8, 1.6, action="click")
+
+            # Always re-acquire the live modal to prevent StaleElementReferenceException across wizard steps
+            live_modal = self._find_modal(driver)
+            if live_modal:
+                modal = live_modal
 
             # Check if security challenge was triggered mid-wizard
             if self.captcha_detector.is_captcha_present(driver, platform="linkedin")[0] and not self.captcha_detector.is_captcha_solved(driver, platform="linkedin"):
@@ -886,7 +1091,15 @@ class LinkedInApplier:
                     break
 
             if clicked_review:
-                continue
+                # Check if clicking review advanced or if validation errors kept us on the same step
+                time.sleep(1.0)
+                submits_now = driver.find_elements(By.XPATH, MODAL_SUBMIT_BUTTON_XPATH)
+                if any(s.is_displayed() for s in submits_now):
+                    continue
+                err_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'artdeco-inline-feedback--error')] | //*[contains(@class, 'form-element--error')]")
+                has_errors = any(e.is_displayed() for e in err_elements)
+                if not has_errors:
+                    continue
 
             # Check for Next button
             next_buttons = driver.find_elements(By.XPATH, MODAL_NEXT_BUTTON_XPATH)
@@ -901,12 +1114,63 @@ class LinkedInApplier:
                     clicked_next = True
                     break
 
-            if not clicked_next:
-                # Neither Next, Review, nor Submit was found/clickable
-                break
+            if clicked_next:
+                continue
 
-        # If reached here without submitting, modal requires manual input or encountered error
-        print_lg(f"[LinkedInApplier] Could not automatically complete application for {job_id}. Discarding modal.")
+            # Step could not be advanced automatically: form requires human intervention
+            is_headless = False
+            if self.browser and hasattr(self.browser, "headless"):
+                is_headless = bool(self.browser.headless)
+
+            if not is_headless and self.automation_bridge:
+                print_lg(f"[LinkedInApplier] Application requires candidate intervention on '{title}' @ '{company}'. Pausing automation and waiting for user...")
+                self.automation_bridge.reset_captcha_status()
+                self.tracker.record_state(
+                    {"platform": "linkedin", "job_id": job_id, "title": title, "company": company, "location": location, "source_url": source_url},
+                    state="MANUAL_REQUIRED",
+                    failure_reason="Unanswered screening questions or candidate input needed",
+                    user_id=self.user_id,
+                )
+
+                start_wait = time.time()
+                step_resolved = False
+                while time.time() - start_wait < 180:
+                    # 1. Did candidate cancel / skip via UI?
+                    if self.automation_bridge.is_captcha_cancelled_by_user():
+                        print_lg("[LinkedInApplier] Candidate cancelled or skipped this application.")
+                        break
+
+                    # 2. Did candidate provide answer via UI dialog?
+                    u_input = self.automation_bridge.get_pending_input()
+                    if u_input:
+                        print_lg(f"[LinkedInApplier] Candidate provided answer: '{u_input}'. Applying to form fields...")
+                        live_modal = self._find_modal(driver) or modal
+                        if live_modal:
+                            self._fill_pending_fields(driver, live_modal, u_input)
+                            time.sleep(0.5)
+                            if self._try_advance_step(driver, live_modal):
+                                step_resolved = True
+                                break
+
+                    # 3. Did candidate solve directly in open browser?
+                    if self.automation_bridge.is_captcha_resolved_by_user():
+                        print_lg("[LinkedInApplier] Candidate marked manual resolution in browser.")
+                        live_modal = self._find_modal(driver) or modal
+                        if live_modal:
+                            self._try_advance_step(driver, live_modal)
+                        step_resolved = True
+                        break
+
+                    time.sleep(1.0)
+
+                if step_resolved:
+                    continue
+
+            # Headless run, user cancelled, or wait timeout expired without input
+            break
+
+        # If reached here without submitting, modal requires cleanup
+        print_lg(f"[LinkedInApplier] Application incomplete for {job_id}. Cleaning up modal.")
         self.discard_modal()
         self.tracker.record_state(
             {"platform": "linkedin", "job_id": job_id, "title": title, "company": company, "location": location, "source_url": source_url},

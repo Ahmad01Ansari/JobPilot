@@ -4,7 +4,7 @@ Assembles Sidebar, TopBar, NotificationBar, Stacked Content Views, and StatusBar
 """
 
 from typing import Any, Dict, Optional
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -167,6 +167,12 @@ class MainWindow(QMainWindow):
         # Trigger initial reminder scan and start background timer
         self.notification_service.check_reminders()
         self.notification_service.start_reminder_timer(15)
+
+        # Trigger background maintenance: auto-close stale applications if enabled
+        QTimer.singleShot(1500, self._check_stale_applications)
+
+        # Trigger background update check (delayed 4.5s so startup remains instantaneous)
+        QTimer.singleShot(4500, self._check_for_updates)
 
         # Wire dashboard navigation & action requests
         if dashboard_view and hasattr(dashboard_view, "navigation_requested"):
@@ -452,6 +458,23 @@ class MainWindow(QMainWindow):
         self._on_data_updated("all")
         self.state.notify("info", "All views refreshed and synchronized.")
 
+    def _check_stale_applications(self) -> None:
+        """Background maintenance check to auto-close stale applications based on configured settings."""
+        try:
+            from app.services.application_service import ApplicationService
+            app_service = ApplicationService()
+            res = app_service.auto_close_stale_applications()
+            if res.get("closed_count", 0) > 0:
+                count = res["closed_count"]
+                days = res.get("inactivity_days", 60)
+                self.state.notify(
+                    "info",
+                    f"Auto-archived {count} stale application{'s' if count > 1 else ''} older than {days} days.",
+                )
+                self._on_data_updated("pipeline")
+        except Exception as e:
+            logger.debug("Auto-close stale applications check: %s", e)
+
 
     def _on_status_changed(self, component: str, status_text: str):
         """Updates status bar labels when AppState status changes."""
@@ -508,6 +531,38 @@ class MainWindow(QMainWindow):
                 self.notification_bar.show_message("warning", f"Could not open review: {e}")
 
         self.notification_bar.show_action("warning", msg, "Review Follow-Up", _open_review, duration_ms=15000)
+
+    def _check_for_updates(self) -> None:
+        """Asynchronously checks for newer JobPilot releases without blocking UI."""
+        from app.services.update_service import UpdateService, UpdateCheckWorker
+        from app.services.automation_service import AutomationService
+
+        # Safety gate: never check or prompt if automation engine is actively running
+        mgr = AutomationService.get_instance()
+        if mgr and mgr.is_running():
+            return
+
+        self._update_service = UpdateService()
+        self._update_worker = UpdateCheckWorker(self._update_service, parent=self)
+        self._update_worker.update_found.connect(self._on_update_found)
+        self._update_worker.start()
+
+    def _on_update_found(self, update_info: object) -> None:
+        """Surfaces non-intrusive notification banner with 1-click update action."""
+        from app.ui.dialogs.update_dialog import UpdateDialog
+
+        def open_update_modal():
+            dialog = UpdateDialog(update_info=update_info, update_service=self._update_service, parent=self)
+            dialog.exec()
+
+        ver_str = getattr(update_info, "version", "")
+        self.notification_bar.show_action(
+            "info",
+            f"JobPilot v{ver_str} is available with new improvements!",
+            "View & Update",
+            open_update_modal,
+            duration_ms=15000,
+        )
 
     def closeEvent(self, event) -> None:
         """Gracefully stops timers, background workers, and coordinates system teardown."""

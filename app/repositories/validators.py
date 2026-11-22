@@ -53,9 +53,10 @@ PIPELINE_STATUSES = (
     "OFFER",
     "REJECTED",
     "WITHDRAWN",
+    "CLOSED",
 )
 
-TERMINAL_OUTCOME_STATUSES = {"OFFER", "REJECTED", "WITHDRAWN", "JUNK"}
+TERMINAL_OUTCOME_STATUSES = {"OFFER", "REJECTED", "WITHDRAWN", "CLOSED", "JUNK"}
 
 CANONICAL_STAGE_LABELS = {
     "NOT_APPLIED": "Not Applied",
@@ -73,6 +74,7 @@ CANONICAL_STAGE_LABELS = {
     "OFFER": "Offer",
     "REJECTED": "Rejected",
     "WITHDRAWN": "Withdrawn",
+    "CLOSED": "Closed",
     "JUNK": "Junk",
 }
 
@@ -155,6 +157,7 @@ ALLOWED_TRANSITIONS = {
         "INTERVIEW",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
         "JUNK",
     },
     "UNDER_REVIEW": {
@@ -166,6 +169,7 @@ ALLOWED_TRANSITIONS = {
         "OFFER",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "SHORTLISTED": {
         "UNDER_REVIEW",
@@ -175,6 +179,7 @@ ALLOWED_TRANSITIONS = {
         "OFFER",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "RECRUITER_CONTACTED": {
         "ASSESSMENT",
@@ -184,6 +189,7 @@ ALLOWED_TRANSITIONS = {
         "SHORTLISTED",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "ASSESSMENT": {
         "INTERVIEW",
@@ -192,6 +198,7 @@ ALLOWED_TRANSITIONS = {
         "SHORTLISTED",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "INTERVIEW": {
         "INTERVIEW",
@@ -203,15 +210,18 @@ ALLOWED_TRANSITIONS = {
         "SUBMITTED",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "OFFER": {
         "OFFER",
         "INTERVIEW",
         "REJECTED",
         "WITHDRAWN",
+        "CLOSED",
     },
     "REJECTED": set(),
     "WITHDRAWN": set(),
+    "CLOSED": set(),
 }
 
 

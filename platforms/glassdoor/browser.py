@@ -90,7 +90,8 @@ class GlassdoorBrowser:
         options.add_argument("--deny-permission-prompts")
         options.add_argument("--disable-geolocation")
         options.add_argument("--disable-popup-blocking")
-        options.add_argument("--disable-gpu")
+        if self.headless:
+            options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1600,1000")

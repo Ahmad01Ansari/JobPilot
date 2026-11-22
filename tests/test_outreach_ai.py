@@ -164,23 +164,35 @@ class TestOutreachAI(unittest.TestCase):
             s.add(app_rec)
             s.commit()
             app_id = app_rec.id
+            job_id = job.id
+            comp_id = comp.id
 
-        # Apply INTERVIEW status
-        res = self.client.post(
-            f"/api/outreach/conversations/{app_id}/apply-status",
-            json={
-                "status": "INTERVIEW",
-                "notes": "Recruiter invited to technical screen",
-            },
-        )
-        self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertTrue(data["success"])
-        self.assertEqual(data["new_status"], "INTERVIEW")
+        try:
+            # Apply INTERVIEW status
+            res = self.client.post(
+                f"/api/outreach/conversations/{app_id}/apply-status",
+                json={
+                    "status": "INTERVIEW",
+                    "notes": "Recruiter invited to technical screen",
+                },
+            )
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["new_status"], "INTERVIEW")
 
-        with get_db_session(SessionLocal) as s:
-            updated_app = s.get(Application, app_id)
-            self.assertEqual(updated_app.status, "INTERVIEW")
+            with get_db_session(SessionLocal) as s:
+                updated_app = s.get(Application, app_id)
+                self.assertEqual(updated_app.status, "INTERVIEW")
+        finally:
+            with get_db_session(SessionLocal) as s:
+                from app.db.models import ApplicationStatusHistory, Interview
+                s.query(Interview).filter(Interview.application_id == app_id).delete(synchronize_session=False)
+                s.query(ApplicationStatusHistory).filter(ApplicationStatusHistory.application_id == app_id).delete(synchronize_session=False)
+                s.query(Application).filter(Application.id == app_id).delete(synchronize_session=False)
+                s.query(Job).filter(Job.id == job_id).delete(synchronize_session=False)
+                s.query(Company).filter(Company.id == comp_id).delete(synchronize_session=False)
+                s.commit()
 
 
 if __name__ == "__main__":

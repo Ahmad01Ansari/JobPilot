@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QScrollArea
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 
 
 class StepWelcomeWidget(QWidget):
@@ -61,7 +62,7 @@ class StepWelcomeWidget(QWidget):
         lbl_sub.setStyleSheet(f"font-size: 13px; color: {COLORS['text_muted']}; line-height: 1.4;")
         layout.addWidget(lbl_sub)
 
-        # Local-First Sovereign Privacy Card (Creative Message & Quote)
+        # Local-First Architecture Guarantee Card
         privacy_card = QFrame()
         privacy_card.setObjectName("privacy_card")
         privacy_card.setStyleSheet(f"""
@@ -80,14 +81,20 @@ class StepWelcomeWidget(QWidget):
         p_layout.setContentsMargins(16, 12, 16, 12)
         p_layout.setSpacing(6)
 
-        lbl_quote = QLabel("“Your career data belongs to you — not the cloud.”")
-        lbl_quote.setStyleSheet(f"font-size: 13px; font-weight: 700; font-style: italic; color: {COLORS['primary']};")
-        p_layout.addWidget(lbl_quote)
+        p_header = QHBoxLayout()
+        p_header.setSpacing(8)
+        p_icon = QLabel()
+        p_icon.setPixmap(render_vector_pixmap("shield", COLORS['success'], 15))
+        p_title = QLabel("Local-First Architecture & Privacy Invariant")
+        p_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS['text']};")
+        p_header.addWidget(p_icon)
+        p_header.addWidget(p_title)
+        p_header.addStretch()
+        p_layout.addLayout(p_header)
 
         lbl_guarantee = QLabel(
-            "🔒 100% Local & Sovereign Privacy: All your resumes, profile details, screening answers, "
-            "and portal credentials stay encrypted exclusively on your local computer. "
-            "No online intervention is required, no external tracking exists, and zero data is sent to third-party clouds. "
+            "All resumes, candidate facts, credentials, and application histories are stored locally "
+            "on your machine in encrypted storage. JobPilot operates without external cloud dependencies. "
             "You maintain complete ownership of every job application submitted."
         )
         lbl_guarantee.setWordWrap(True)
@@ -101,12 +108,12 @@ class StepWelcomeWidget(QWidget):
         cards_row.setSpacing(12)
 
         pillars = [
-            ("🔒 100% Private & Local", "Candidate data, resumes, and credentials stay securely encrypted on your local machine."),
-            ("🧠 Verified AI Screening", "Uses local Ollama or high-speed cloud LLMs (Groq, NVIDIA, OpenAI) for precise ATS answers."),
-            ("🎯 Autonomous Pipeline", "Orchestrates LinkedIn, Naukri, Indeed, and Universal ATS portals (Greenhouse, Lever, Workday)."),
+            ("shield", "Local Data Storage", "Candidate data, resumes, and credentials stay securely encrypted on your local machine."),
+            ("brain", "Verified AI Screening", "Deterministic candidate fact extraction paired with local or API LLMs for verified questionnaire answers."),
+            ("globe", "Autonomous Pipeline", "Orchestrates LinkedIn, Naukri, Indeed, and Universal ATS portals (Greenhouse, Lever, Workday)."),
         ]
 
-        for title, desc in pillars:
+        for icon_key, title, desc in pillars:
             card = QFrame()
             card.setObjectName("pillar_card")
             card.setStyleSheet(f"""
@@ -122,15 +129,23 @@ class StepWelcomeWidget(QWidget):
             """)
             c_layout = QVBoxLayout(card)
             c_layout.setContentsMargins(14, 12, 14, 12)
-            c_layout.setSpacing(4)
+            c_layout.setSpacing(6)
 
+            card_header = QHBoxLayout()
+            card_header.setSpacing(6)
+            c_icon = QLabel()
+            c_icon.setPixmap(render_vector_pixmap(icon_key, COLORS['primary'], 14))
             t_lbl = QLabel(title)
             t_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLORS['text']};")
+            card_header.addWidget(c_icon)
+            card_header.addWidget(t_lbl)
+            card_header.addStretch()
+
             d_lbl = QLabel(desc)
             d_lbl.setWordWrap(True)
             d_lbl.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']}; line-height: 1.3;")
 
-            c_layout.addWidget(t_lbl)
+            c_layout.addLayout(card_header)
             c_layout.addWidget(d_lbl)
             c_layout.addStretch()
             cards_row.addWidget(card)
@@ -161,7 +176,7 @@ class StepWelcomeWidget(QWidget):
 
         self.btn_group = QButtonGroup(self)
 
-        self.rad_quick = QRadioButton("Quick Setup (Recommended · ~2–3 minutes)")
+        self.rad_quick = QRadioButton("Quick Setup (Recommended · 2–3 minutes)")
         self.rad_quick.setChecked(True)
         self.rad_quick.setStyleSheet(f"""
             QRadioButton {{
@@ -172,10 +187,10 @@ class StepWelcomeWidget(QWidget):
             }}
         """)
 
-        lbl_quick_hint = QLabel("    Configures AI, imports resume, and reviews candidate profile. Reaches 'Core Ready' fast.")
+        lbl_quick_hint = QLabel("    Configures AI connection, imports primary resume, and reviews candidate profile.")
         lbl_quick_hint.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
 
-        self.rad_adv = QRadioButton("Complete Setup (~5–8 minutes)")
+        self.rad_adv = QRadioButton("Complete Setup (5–8 minutes)")
         self.rad_adv.setStyleSheet(f"""
             QRadioButton {{
                 font-size: 13px;
@@ -185,7 +200,7 @@ class StepWelcomeWidget(QWidget):
             }}
         """)
 
-        lbl_adv_hint = QLabel("    Walks through all 10 stages: AI, resume, profile, 398+ Q&A rules, job portals, and safety limits.")
+        lbl_adv_hint = QLabel("    Walks through all 10 stages: AI, resume, profile, screening Q&A facts, job portals, and safety limits.")
         lbl_adv_hint.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
 
         self.btn_group.addButton(self.rad_quick, 1)

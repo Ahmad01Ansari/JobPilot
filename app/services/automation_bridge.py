@@ -75,14 +75,33 @@ class AutomationBridge:
         """Returns True if a human-in-the-loop intervention dialog/challenge is currently active."""
         return bool(self._intervention_active)
 
-    def dismiss_intervention(self) -> None:
+    def dismiss_intervention(self, intervention_id: Optional[str] = None) -> None:
         """Signals the UI to dismiss any active intervention dialog."""
         self._intervention_active = False
         if callable(self.on_dismiss_intervention):
             try:
-                self.on_dismiss_intervention()
+                self.on_dismiss_intervention(intervention_id)
+            except TypeError:
+                try:
+                    self.on_dismiss_intervention()
+                except Exception as e:
+                    logger.debug("Notice dismissing intervention dialog via callback: %s", e)
             except Exception as e:
                 logger.debug("Notice dismissing intervention dialog via callback: %s", e)
+
+    def resolve_intervention(self, resolution_data: Optional[dict] = None, intervention_id: Optional[str] = None) -> None:
+        """Resolves active human intervention and notifies waiting automation."""
+        self._intervention_active = False
+        self._captcha_resolved = True
+        self._captcha_cancelled = False
+        self.dismiss_intervention(intervention_id)
+        if callable(getattr(self, "on_input_provided", None)) and resolution_data:
+            try:
+                val = str(resolution_data.get("value") or resolution_data.get("notes") or "").strip()
+                if val:
+                    self.on_input_provided(val, intervention_id, resolution_data)
+            except Exception as e:
+                logger.debug("Notice calling on_input_provided from resolve_intervention: %s", e)
 
     def handle_job_discovered(self, event: JobDiscoveredEvent) -> Optional[int]:
         """Upserts a discovered job listing idempotently based on SHA-256 fingerprint."""
@@ -233,6 +252,20 @@ class AutomationBridge:
             self._pending_input = None
             self._pending_input_id = None
         return val
+
+    def resolve_intervention(self, data: Optional[dict] = None) -> None:
+        """Signals resolution of an active intervention with optional candidate data."""
+        self._captcha_resolved = True
+        self._captcha_cancelled = False
+        val = (data or {}).get("value") or (data or {}).get("code") or (data or {}).get("notes")
+        if val:
+            self._pending_input = str(val).strip()
+            if callable(getattr(self, "on_input_provided", None)):
+                try:
+                    self.on_input_provided(str(val).strip(), None, data)
+                except Exception as e:
+                    logger.debug("Error in on_input_provided: %s", e)
+        self.dismiss_intervention()
 
     def dismiss_intervention(self, intervention_id: Optional[str] = None) -> None:
         """Dismisses the active intervention across the UI and registered listeners."""

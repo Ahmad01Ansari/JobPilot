@@ -1,6 +1,6 @@
 """Repository for Application lifecycle management and status transitions."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from sqlalchemy import desc, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -230,9 +230,11 @@ class ApplicationRepository(BaseRepository):
                     iv.completed_at = now
                 iv.notes = (iv.notes or "") + " [Auto-completed: application reached Offer]"
 
-        # Cancel pending interviews if application is rejected, withdrawn, junked, or reset
-        elif target in ("REJECTED", "WITHDRAWN", "JUNK", "NOT_APPLIED"):
+        # Cancel pending interviews and follow-ups if application is rejected, withdrawn, junked, reset, or closed
+        elif target in ("REJECTED", "WITHDRAWN", "JUNK", "NOT_APPLIED", "CLOSED"):
             from app.db.models.interview import Interview
+            from app.db.models.follow_up import FollowUp
+            from app.services.dto.outreach_enums import FollowUpStatus
             pending_ivs = self.session.execute(
                 select(Interview).where(
                     Interview.application_id == app.id,
@@ -242,6 +244,16 @@ class ApplicationRepository(BaseRepository):
             for iv in pending_ivs:
                 iv.status = "CANCELLED"
                 iv.notes = (iv.notes or "") + f" [Auto-cancelled: application {target}]"
+
+            pending_fus = self.session.execute(
+                select(FollowUp).where(
+                    FollowUp.application_id == app.id,
+                    FollowUp.status.in_([FollowUpStatus.PENDING.value, FollowUpStatus.DUE.value, FollowUpStatus.PAUSED.value]),
+                )
+            ).scalars().all()
+            for fu in pending_fus:
+                fu.status = FollowUpStatus.CANCELLED.value
+                fu.paused_reason = f"Application {target}"
 
         self.session.flush()
         return app
@@ -493,12 +505,19 @@ class ApplicationRepository(BaseRepository):
         end_date: Optional[datetime] = None,
     ) -> Dict[str, int]:
         """Single source of truth for Dashboard and Applications KPI card counts."""
-        q_jobs = select(func.count(Job.id))
+        q_jobs = select(func.count(Job.id)).where(Job.is_active == True)
         if start_date:
             q_jobs = q_jobs.where(Job.created_at >= start_date)
         if end_date:
             q_jobs = q_jobs.where(Job.created_at <= end_date)
         total_jobs = self.session.scalar(q_jobs) or 0
+
+        q_discovered = select(func.count(Job.id))
+        if start_date:
+            q_discovered = q_discovered.where(Job.created_at >= start_date)
+        if end_date:
+            q_discovered = q_discovered.where(Job.created_at <= end_date)
+        total_discovered = self.session.scalar(q_discovered) or 0
 
         q_submitted = select(func.count(Application.id)).where(
             Application.status == "SUBMITTED"
@@ -529,7 +548,7 @@ class ApplicationRepository(BaseRepository):
         )
         q_interviews = select(func.count(func.distinct(Application.id))).where(
             (
-                Application.status.notin_(("OFFER", "REJECTED", "WITHDRAWN", "JUNK"))
+                Application.status.notin_(("OFFER", "REJECTED", "WITHDRAWN", "JUNK", "CLOSED"))
                 & has_scheduled_iv
             )
             | ((Application.status == "INTERVIEW") & (~has_any_iv))
@@ -569,10 +588,21 @@ class ApplicationRepository(BaseRepository):
             q_rejected = q_rejected.where(Application.created_at <= end_date)
         rejections_count = self.session.scalar(q_rejected) or 0
 
+        q_closed = select(func.count(Application.id)).where(
+            Application.status == "CLOSED"
+        )
+        if start_date:
+            q_closed = q_closed.where(Application.created_at >= start_date)
+        if end_date:
+            q_closed = q_closed.where(Application.created_at <= end_date)
+        closed_count = self.session.scalar(q_closed) or 0
+
         in_pipeline = submitted_apps + under_review_count + interviews_count
 
         return {
             "total_jobs": total_jobs,
+            "total_discovered": total_discovered,
+            "active_jobs": total_jobs,
             "applications_submitted": submitted_apps,
             "submitted": submitted_apps,
             "under_review": under_review_count,
@@ -582,7 +612,58 @@ class ApplicationRepository(BaseRepository):
             "withdrawn": withdrawn_count,
             "rejections": rejections_count,
             "rejected": rejections_count,
+            "closed": closed_count,
         }
+
+    def find_stale_applications(
+        self,
+        inactivity_days: int = 60,
+        eligible_statuses: Optional[List[str]] = None,
+    ) -> List[Application]:
+        """Finds non-terminal applications that have had zero activity for >= inactivity_days."""
+        if eligible_statuses is None:
+            eligible_statuses = ["SUBMITTED", "UNDER_REVIEW", "APPLYING", "MANUAL_REQUIRED"]
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=inactivity_days)
+
+        last_activity = func.coalesce(Application.applied_at, Application.updated_at, Application.created_at)
+        stmt = (
+            select(Application)
+            .where(Application.status.in_(eligible_statuses))
+            .where(last_activity <= cutoff)
+        )
+        return list(self.session.scalars(stmt).all())
+
+    def auto_close_stale_applications(
+        self,
+        inactivity_days: int = 60,
+        eligible_statuses: Optional[List[str]] = None,
+    ) -> List[int]:
+        """Transitions stale applications to CLOSED and records audit notes. Returns list of closed application IDs."""
+        stale_apps = self.find_stale_applications(
+            inactivity_days=inactivity_days,
+            eligible_statuses=eligible_statuses,
+        )
+        closed_ids = []
+        for app in stale_apps:
+            try:
+                updated = self.transition_status(
+                    application_id=app.id,
+                    new_status="CLOSED",
+                    source="SYSTEM",
+                    notes=f"Auto-closed after {inactivity_days} days of inactivity without recruiter response",
+                    allow_override=True,
+                )
+                if updated:
+                    closed_ids.append(app.id)
+                    if app.job_id:
+                        from app.repositories.job_repository import JobRepository
+                        JobRepository(self.session).mark_as_closed(app.job_id)
+            except Exception:
+                continue
+
+        return closed_ids
 
 
 

@@ -288,3 +288,37 @@ class ApplicationService:
                 ).scalar_one_or_none()
                 return app or True, None
             return None, "Job not found or not in junk status"
+
+    def auto_close_stale_applications(
+        self,
+        inactivity_days: Optional[int] = None,
+        eligible_statuses: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Scans and auto-closes stale applications in non-terminal early stages after prolonged recruiter inactivity.
+
+        Uses configured settings (defaults to 60 days). Only affects non-terminal stages
+        (SUBMITTED, UNDER_REVIEW, APPLYING, MANUAL_REQUIRED). Protected stages like
+        INTERVIEW, SHORTLISTED, and OFFER are NEVER auto-closed.
+        """
+        from app.services.settings_service import SettingsService
+        settings = SettingsService(session_factory=self._session_factory)
+
+        enabled = settings.get("auto_close_stale_applications", True)
+        if not enabled:
+            return {"enabled": False, "closed_count": 0, "closed_ids": [], "inactivity_days": 60}
+
+        days = inactivity_days if inactivity_days is not None else int(settings.get("auto_close_stale_days", 60))
+        with get_db_session(self._session_factory) as session:
+            repo = ApplicationRepository(session)
+            closed_ids = repo.auto_close_stale_applications(
+                inactivity_days=days,
+                eligible_statuses=eligible_statuses,
+            )
+            if closed_ids:
+                session.commit()
+            return {
+                "enabled": True,
+                "inactivity_days": days,
+                "closed_count": len(closed_ids),
+                "closed_ids": closed_ids,
+            }

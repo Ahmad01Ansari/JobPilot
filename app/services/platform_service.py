@@ -137,8 +137,8 @@ class PlatformService:
                 {
                     "name": "glassdoor",
                     "display_name": "Glassdoor",
-                    "description": "Glassdoor Job Search & Easy Apply Automation",
-                    "is_enabled": True,
+                    "description": "Glassdoor Job Search & Easy Apply Automation (Experimental)",
+                    "is_enabled": False,
                     "default_location": "India",
                     "experience_years": 3,
                     "max_applications": 20,
@@ -270,9 +270,51 @@ class PlatformService:
                 plat.is_enabled = not plat.is_enabled
                 new_state = plat.is_enabled
                 session.commit()
-                return new_state, None
+
+            if not self.is_test and os.environ.get("TESTING") != "1":
+                try:
+                    import json
+                    from pathlib import Path
+                    profile_path = Path(__file__).resolve().parent.parent.parent / "config" / "profile.json"
+                    if profile_path.exists():
+                        with open(profile_path, "r", encoding="utf-8") as f:
+                            p_data = json.load(f)
+                        p_key = name.strip().lower()
+                        if "platforms" in p_data and p_key in p_data["platforms"]:
+                            p_data["platforms"][p_key]["enabled"] = bool(new_state)
+                            with open(profile_path, "w", encoding="utf-8") as f:
+                                json.dump(p_data, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+            return new_state, None
         except Exception as e:
             return False, f"Error toggling platform: {e}"
+
+    def is_platform_enabled(self, name: str) -> bool:
+        """Returns True if the platform is enabled in the database or config."""
+        try:
+            with get_db_session(self._session_factory) as session:
+                repo = PlatformRepository(session)
+                plat = repo.get_platform_by_name(name)
+                if plat is not None:
+                    return bool(plat.is_enabled)
+        except Exception:
+            pass
+
+        try:
+            import json
+            from pathlib import Path
+            profile_path = Path(__file__).resolve().parent.parent.parent / "config" / "profile.json"
+            if profile_path.exists():
+                with open(profile_path, "r", encoding="utf-8") as f:
+                    p_data = json.load(f)
+                p_key = name.strip().lower()
+                if "platforms" in p_data and p_key in p_data["platforms"]:
+                    return bool(p_data["platforms"][p_key].get("enabled", True))
+        except Exception:
+            pass
+        return False
 
     def get_platform_config(self, platform_name: str) -> Dict[str, Any]:
         """Returns unified configuration parameters for a platform and its default account."""
@@ -400,6 +442,8 @@ class PlatformService:
                             p_data = json.load(f)
                         p_key = platform_name.strip().lower()
                         if "platforms" in p_data and p_key in p_data["platforms"]:
+                            if is_enabled is not None:
+                                p_data["platforms"][p_key]["enabled"] = bool(is_enabled)
                             if max_applications is not None:
                                 p_data["platforms"][p_key]["switch_number"] = max_applications
                             if daily_application_goal is not None:

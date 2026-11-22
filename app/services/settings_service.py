@@ -34,6 +34,10 @@ DEFAULT_SETTINGS: Dict[str, Dict[str, Any]] = {
     "pause_at_failed_question": {"value": True, "category": "automation", "description": "Pause if a screening question cannot be answered"},
     "follow_companies": {"value": False, "category": "automation", "description": "Follow companies automatically on apply"},
     "close_tabs": {"value": False, "category": "automation", "description": "Close external application tabs after processing"},
+    "auto_close_stale_applications": {"value": True, "category": "automation", "description": "Automatically close stale applications after prolonged inactivity with no response"},
+    "auto_close_stale_days": {"value": 60, "category": "automation", "description": "Inactivity threshold (in days) before marking applications as Closed"},
+    "batch_size_per_platform": {"value": 10, "category": "automation", "description": "Maximum job applications submitted per platform in each round-robin batch cycle"},
+    "batch_daily_goal_per_platform": {"value": 25, "category": "automation", "description": "Daily application target per platform in multi-platform batch runs"},
 
     # Logging & diagnostics
     "logs_folder_path": {"value": "logs/", "category": "logging", "description": "Relative directory for execution log files"},

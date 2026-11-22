@@ -14,6 +14,32 @@ from modules.tracker import ApplicationTracker
 from modules.helpers import print_lg
 
 
+def _resolve_browser_settings(
+    platform_cfg: Optional[Dict[str, Any]] = None,
+    session_factory: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Resolves browser settings merging SettingsService database values with platform overrides."""
+    settings = {
+        "run_in_background": False,
+        "stealth_mode": True,
+        "safe_mode": True,
+        "disable_extensions": False,
+        "keep_screen_awake": True,
+    }
+    try:
+        from app.services.settings_service import SettingsService
+        svc = SettingsService(session_factory=session_factory)
+        stored = svc.get_category_settings("browser")
+        settings.update(stored)
+    except Exception:
+        pass
+    if platform_cfg:
+        for k in ["run_in_background", "stealth_mode", "safe_mode", "disable_extensions", "keep_screen_awake"]:
+            if k in platform_cfg and platform_cfg[k] is not None:
+                settings[k] = platform_cfg[k]
+    return settings
+
+
 class LinkedInPlatform(BasePlatformApplier):
     """Encapsulates LinkedIn automation within the BasePlatformApplier interface."""
 
@@ -45,9 +71,9 @@ class LinkedInPlatform(BasePlatformApplier):
         """Initializes LinkedIn modular components."""
         if not self.browser and not self.runner_func:
             from platforms.linkedin.browser import LinkedInBrowser
-            ln_cfg = self.platform_config or {}
-            stealth = ln_cfg.get("stealth_mode", True)
-            headless = ln_cfg.get("run_in_background", False)
+            b_cfg = _resolve_browser_settings(self.platform_config)
+            stealth = b_cfg.get("stealth_mode", True)
+            headless = b_cfg.get("run_in_background", False)
             self.browser = LinkedInBrowser(stealth=stealth, headless=headless, user_id=self.user_id)
             self.browser.start()
 
@@ -67,6 +93,7 @@ class LinkedInPlatform(BasePlatformApplier):
             on_site = ln_cfg.get("on_site")
             max_pages = ln_cfg.get("max_pages_per_search", 5)
             consecutive_skips = ln_cfg.get("consecutive_skips_limit", 25)
+            max_applications = ln_cfg.get("max_applications") or ln_cfg.get("switch_number") or ln_cfg.get("batch_slice")
 
             if not search_terms:
                 try:
@@ -108,6 +135,7 @@ class LinkedInPlatform(BasePlatformApplier):
                 on_site=on_site,
                 max_pages_per_term=max_pages,
                 consecutive_skips_limit=consecutive_skips,
+                max_applications=max_applications,
                 user_id=self.user_id,
             )
 
@@ -173,8 +201,28 @@ class LinkedInPlatform(BasePlatformApplier):
 
         # Fallback to manual authentication gate
         print_lg("[LinkedInPlatform] Awaiting manual login/OTP in the open Chrome browser window...")
+        intervention_id = f"linkedin_login_{self.user_id}"
+        if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
+            try:
+                from app.services.automation_events import AutomationInterventionEvent, InterventionType
+                self.automation_bridge.on_intervention(
+                    AutomationInterventionEvent(
+                        run_id=intervention_id,
+                        platform="linkedin",
+                        intervention_type=InterventionType.LOGIN_REQUIRED,
+                        message="LinkedIn login or verification required. Please complete authentication in the open Chrome browser window. The bot will automatically detect your login.",
+                    )
+                )
+            except Exception as e:
+                print_lg(f"[LinkedInPlatform] Notice emitting login intervention: {e}")
+
         if self.browser.ensure_authenticated(max_wait_seconds=180):
             print_lg("[LinkedInPlatform] Authentication confirmed! Proceeding with session.")
+            if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention_resolved") and self.automation_bridge.on_intervention_resolved:
+                try:
+                    self.automation_bridge.on_intervention_resolved(intervention_id)
+                except Exception:
+                    pass
             return True
 
         print_lg("[LinkedInPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
@@ -532,11 +580,31 @@ class NaukriPlatform(BasePlatformApplier):
             from platforms.naukri.rotator import SearchRotationConfig
             self.config = SearchRotationConfig.from_profile()
 
+        if self.platform_config and self.config:
+            max_apps = (
+                self.platform_config.get("max_applications")
+                or self.platform_config.get("switch_number")
+                or self.platform_config.get("batch_slice")
+            )
+            if max_apps is not None:
+                self.config.max_applications = int(max_apps)
+                self.config.switch_number = int(max_apps)
+            if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
+                self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "search_location" in self.platform_config and self.platform_config["search_location"]:
+                self.config.location = self.platform_config["search_location"]
+            elif "default_location" in self.platform_config and self.platform_config["default_location"]:
+                self.config.location = self.platform_config["default_location"]
+            if "search_terms" in self.platform_config and self.platform_config["search_terms"]:
+                self.config.search_terms = list(self.platform_config["search_terms"])
+            if "experience_years" in self.platform_config and self.platform_config["experience_years"] is not None:
+                self.config.experience_years = int(self.platform_config["experience_years"])
+
         if not self.browser:
             from platforms.naukri.browser import NaukriBrowser
-            naukri_cfg = self.platform_config or {}
-            stealth = naukri_cfg.get("stealth_mode", True)
-            headless = naukri_cfg.get("run_in_background", False)
+            b_cfg = _resolve_browser_settings(self.platform_config)
+            stealth = b_cfg.get("stealth_mode", True)
+            headless = b_cfg.get("run_in_background", False)
             self.browser = NaukriBrowser(stealth=stealth, headless=headless)
             self.browser.start()
 
@@ -613,8 +681,28 @@ class NaukriPlatform(BasePlatformApplier):
 
         # Fallback to manual authentication gate
         print_lg("[NaukriPlatform] Awaiting manual login/OTP in the open Chrome browser window...")
+        intervention_id = f"naukri_login_{self.user_id}"
+        if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
+            try:
+                from app.services.automation_events import AutomationInterventionEvent, InterventionType
+                self.automation_bridge.on_intervention(
+                    AutomationInterventionEvent(
+                        run_id=intervention_id,
+                        platform="naukri",
+                        intervention_type=InterventionType.LOGIN_REQUIRED,
+                        message="Naukri login or OTP verification required. Please complete authentication in the open Chrome browser window. The bot will automatically detect your login.",
+                    )
+                )
+            except Exception as e:
+                print_lg(f"[NaukriPlatform] Notice emitting login intervention: {e}")
+
         if self.browser.ensure_authenticated(max_wait_seconds=180):
             print_lg("[NaukriPlatform] Authentication confirmed! Proceeding with session.")
+            if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention_resolved") and self.automation_bridge.on_intervention_resolved:
+                try:
+                    self.automation_bridge.on_intervention_resolved(intervention_id)
+                except Exception:
+                    pass
             return True
 
         print_lg("[NaukriPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
@@ -724,11 +812,31 @@ class IndeedPlatform(BasePlatformApplier):
             from platforms.indeed.rotator import IndeedRotationConfig
             self.config = IndeedRotationConfig.from_profile()
 
+        if self.platform_config and self.config:
+            max_apps = (
+                self.platform_config.get("max_applications")
+                or self.platform_config.get("switch_number")
+                or self.platform_config.get("batch_slice")
+            )
+            if max_apps is not None:
+                self.config.max_applications = int(max_apps)
+                self.config.switch_number = int(max_apps)
+            if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
+                self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "search_location" in self.platform_config and self.platform_config["search_location"]:
+                self.config.search_location = self.platform_config["search_location"]
+            elif "default_location" in self.platform_config and self.platform_config["default_location"]:
+                self.config.search_location = self.platform_config["default_location"]
+            if "search_terms" in self.platform_config and self.platform_config["search_terms"]:
+                self.config.search_terms = list(self.platform_config["search_terms"])
+            if "experience_years" in self.platform_config and self.platform_config["experience_years"] is not None:
+                self.config.experience_years = int(self.platform_config["experience_years"])
+
         if not self.browser:
             from platforms.indeed.browser import IndeedBrowser
-            cfg = self.platform_config or {}
-            stealth = cfg.get("stealth_mode", True)
-            headless = cfg.get("run_in_background", False)
+            b_cfg = _resolve_browser_settings(self.platform_config)
+            stealth = b_cfg.get("stealth_mode", True)
+            headless = b_cfg.get("run_in_background", False)
             self.browser = IndeedBrowser(
                 stealth=stealth,
                 headless=headless,
@@ -780,13 +888,22 @@ class IndeedPlatform(BasePlatformApplier):
             print_lg("[IndeedPlatform] Active authenticated session confirmed.")
             return True
 
-        # Attempt credentials from secrets.py or environment or profile.json
+        # Attempt credentials from SecretsService, secrets.py, environment, or profile.json
         user = None
         try:
-            import config.secrets as secrets
-            user = getattr(secrets, "indeed_username", None) or os.environ.get("INDEED_USERNAME")
+            from app.services.secrets_service import SecretsService
+            sec_user, _ = SecretsService().get_platform_credentials("indeed")
+            if sec_user:
+                user = sec_user
         except Exception:
-            user = os.environ.get("INDEED_USERNAME")
+            pass
+
+        if not user:
+            try:
+                import config.secrets as secrets
+                user = getattr(secrets, "indeed_username", None) or os.environ.get("INDEED_USERNAME")
+            except Exception:
+                user = os.environ.get("INDEED_USERNAME")
 
         if not user:
             try:
@@ -797,8 +914,28 @@ class IndeedPlatform(BasePlatformApplier):
                 pass
 
         print_lg("[IndeedPlatform] Awaiting OTP or manual login in open Chrome browser window...")
+        intervention_id = f"indeed_login_{self.user_id}"
+        if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
+            try:
+                from app.services.automation_events import AutomationInterventionEvent, InterventionType
+                self.automation_bridge.on_intervention(
+                    AutomationInterventionEvent(
+                        run_id=intervention_id,
+                        platform="indeed",
+                        intervention_type=InterventionType.LOGIN_REQUIRED,
+                        message="Indeed verification required. Please enter the verification code sent to your email or log into your account in the open Chrome browser window. The bot will automatically detect your login.",
+                    )
+                )
+            except Exception as e:
+                print_lg(f"[IndeedPlatform] Notice emitting login intervention: {e}")
+
         if self.browser.ensure_authenticated(email=user, max_wait_seconds=180):
             print_lg("[IndeedPlatform] Authentication confirmed! Proceeding with session.")
+            if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention_resolved") and self.automation_bridge.on_intervention_resolved:
+                try:
+                    self.automation_bridge.on_intervention_resolved(intervention_id)
+                except Exception:
+                    pass
             return True
 
         print_lg("[IndeedPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
@@ -906,11 +1043,31 @@ class FounditPlatform(BasePlatformApplier):
             from platforms.foundit.rotator import FounditRotationConfig
             self.config = FounditRotationConfig.from_profile()
 
+        if self.platform_config and self.config:
+            max_apps = (
+                self.platform_config.get("max_applications")
+                or self.platform_config.get("switch_number")
+                or self.platform_config.get("batch_slice")
+            )
+            if max_apps is not None:
+                self.config.max_applications = int(max_apps)
+                self.config.switch_number = int(max_apps)
+            if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
+                self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "search_location" in self.platform_config and self.platform_config["search_location"]:
+                self.config.search_location = self.platform_config["search_location"]
+            elif "default_location" in self.platform_config and self.platform_config["default_location"]:
+                self.config.search_location = self.platform_config["default_location"]
+            if "search_terms" in self.platform_config and self.platform_config["search_terms"]:
+                self.config.search_terms = list(self.platform_config["search_terms"])
+            if "experience_years" in self.platform_config and self.platform_config["experience_years"] is not None:
+                self.config.experience_years = int(self.platform_config["experience_years"])
+
         if not self.browser:
             from platforms.foundit.browser import FounditBrowser
-            cfg = self.platform_config or {}
-            stealth = cfg.get("stealth_mode", True)
-            headless = cfg.get("run_in_background", False)
+            b_cfg = _resolve_browser_settings(self.platform_config)
+            stealth = b_cfg.get("stealth_mode", True)
+            headless = b_cfg.get("run_in_background", False)
             self.browser = FounditBrowser(stealth=stealth, headless=headless, user_id=self.user_id)
             self.browser.start()
 
@@ -973,8 +1130,28 @@ class FounditPlatform(BasePlatformApplier):
 
         print_lg(f"[FounditPlatform] Authentication notice: {msg}")
         print_lg("[FounditPlatform] Awaiting manual login/OTP/CAPTCHA in the open Chrome browser window...")
+        intervention_id = f"foundit_login_{self.user_id}"
+        if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
+            try:
+                from app.services.automation_events import AutomationInterventionEvent, InterventionType
+                self.automation_bridge.on_intervention(
+                    AutomationInterventionEvent(
+                        run_id=intervention_id,
+                        platform="foundit",
+                        intervention_type=InterventionType.LOGIN_REQUIRED,
+                        message="Foundit login or verification required. Please complete authentication in the open Chrome browser window. The bot will automatically detect your login.",
+                    )
+                )
+            except Exception as e:
+                print_lg(f"[FounditPlatform] Notice emitting login intervention: {e}")
+
         if self.browser.ensure_authenticated(max_wait_seconds=180):
             print_lg("[FounditPlatform] Authentication confirmed! Proceeding with session.")
+            if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention_resolved") and self.automation_bridge.on_intervention_resolved:
+                try:
+                    self.automation_bridge.on_intervention_resolved(intervention_id)
+                except Exception:
+                    pass
             return True
 
         print_lg("[FounditPlatform] Authentication not completed. Halting run to prevent unauthenticated access.")
@@ -1067,9 +1244,9 @@ class GlassdoorPlatform(BasePlatformApplier):
 
         if not self.browser:
             from platforms.glassdoor.browser import GlassdoorBrowser
-            cfg = self.platform_config or {}
-            stealth = cfg.get("stealth_mode", True)
-            headless = cfg.get("run_in_background", False)
+            b_cfg = _resolve_browser_settings(self.platform_config)
+            stealth = b_cfg.get("stealth_mode", True)
+            headless = b_cfg.get("run_in_background", False)
             self.browser = GlassdoorBrowser(stealth=stealth, headless=headless, user_id=self.user_id)
             self.browser.start()
 
@@ -1130,12 +1307,31 @@ class GlassdoorPlatform(BasePlatformApplier):
             print_lg("[GlassdoorPlatform] Active authenticated session confirmed.")
             return True
 
+        # Check SecretsService for credentials
+        user = None
+        pwd = None
+        try:
+            from app.services.secrets_service import SecretsService
+            sec_user, sec_pwd = SecretsService().get_platform_credentials("glassdoor")
+            if sec_user and sec_pwd:
+                user, pwd = sec_user, sec_pwd
+        except Exception:
+            pass
+
+        if user and pwd:
+            from platforms.glassdoor.auth import GlassdoorAuth
+            auth = GlassdoorAuth(self.browser)
+            if auth.login(username=user, password=pwd) and self.browser.is_logged_in():
+                print_lg("[GlassdoorPlatform] Login successful with stored credentials.")
+                return True
+
+        intervention_id = f"glassdoor_login_{self.user_id}"
         if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
             try:
                 from app.services.automation_events import AutomationInterventionEvent, InterventionType
                 self.automation_bridge.on_intervention(
                     AutomationInterventionEvent(
-                        run_id="glassdoor_login",
+                        run_id=intervention_id,
                         platform="glassdoor",
                         intervention_type=InterventionType.LOGIN_REQUIRED,
                         message="Glassdoor login required. Please log into your Glassdoor account in the opened Chrome browser window. The bot will automatically detect your login.",
@@ -1144,7 +1340,17 @@ class GlassdoorPlatform(BasePlatformApplier):
             except Exception as e:
                 print_lg(f"[GlassdoorPlatform] Notice emitting login intervention: {e}")
 
-        return self.browser.ensure_authenticated(max_wait_seconds=180)
+        if self.browser.ensure_authenticated(max_wait_seconds=180):
+            print_lg("[GlassdoorPlatform] Authentication confirmed! Proceeding with session.")
+            if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention_resolved") and self.automation_bridge.on_intervention_resolved:
+                try:
+                    self.automation_bridge.on_intervention_resolved(intervention_id)
+                except Exception:
+                    pass
+            return True
+
+        print_lg("[GlassdoorPlatform] Authentication not completed. Halting run.")
+        return False
 
     def search_and_apply(
         self,

@@ -17,6 +17,7 @@ from platforms.foundit.selectors import (
     HOME_URL,
     USER_HOME_URL,
     SEARCH_BASE_URL,
+    SRP_BASE_URL,
     CARD_CONTAINER_SELECTOR,
     ACTIVE_CARD_SELECTOR,
     PAGINATION_CONTAINER,
@@ -64,10 +65,8 @@ def build_search_url(
     freshness_days: Optional[int] = None,
     page: int = 1,
 ) -> str:
-    """Builds a verified, canonical search URL for Foundit (Screenshot 2).
-    Generates standard search view with the left filter sidebar and Quick Apply toggle:
-    e.g. https://www.foundit.in/search/rpa-developer-jobs-in-india?query=rpa+developer&location=india
-    Filters such as Experience are applied through the left sidebar UI, avoiding the split-screen /srp/results mode.
+    """Builds a verified, canonical search URL for Foundit.
+    Filters such as Experience are applied through the left sidebar UI.
     """
     kw_slug = slugify(keyword) if keyword else ""
     loc_slug = slugify(location) if location and location.strip() else ""
@@ -94,6 +93,30 @@ def build_search_url(
 
     query_string = urlencode(params)
     return f"{base_url}?{query_string}" if query_string else base_url
+
+
+def build_srp_url(
+    keyword: str,
+    location: Optional[str] = "India",
+    experience_years: Optional[int] = None,
+    freshness_days: Optional[int] = None,
+    page: int = 1,
+) -> str:
+    """Builds a verified, canonical search URL for Foundit using the official /srp/results endpoint."""
+    params: Dict[str, Any] = {}
+    if keyword and keyword.strip():
+        params["query"] = keyword.strip()
+    if location and location.strip():
+        params["locations"] = location.strip()
+    if experience_years is not None and experience_years >= 0:
+        params["experience"] = str(experience_years)
+    if freshness_days is not None and freshness_days > 0:
+        params["freshness"] = str(freshness_days)
+    if page > 1:
+        params["start"] = str((page - 1) * 15)
+
+    query_string = urlencode(params)
+    return f"{SRP_BASE_URL}?{query_string}" if query_string else SRP_BASE_URL
 
 
 def is_valid_job_card(card_elem: WebElement) -> bool:
@@ -141,6 +164,15 @@ def is_valid_job_card(card_elem: WebElement) -> bool:
         if not has_job_indicator:
             return False
 
+        # Reject recommendation cards (e.g. from homepage/dashboard with platformreco)
+        try:
+            for a in card_elem.find_elements(By.TAG_NAME, "a"):
+                href = (a.get_attribute("href") or "").lower()
+                if "platformreco" in href:
+                    return False
+        except Exception:
+            pass
+
         return True
     except Exception:
         return False
@@ -174,32 +206,39 @@ class FounditSearch:
         return False
 
     def recover_from_access_denied(self) -> bool:
-        """Recovers from Akamai plaintext HTTP Access Denied by forcing HTTPS."""
+        """Recovers from Akamai Access Denied by converting blocked /search/* URLs to verified /srp/results endpoint."""
         if not self.driver:
             return False
         try:
             curr_url = (self.driver.current_url or "").strip()
             if "/search" in curr_url or "/srp" in curr_url:
-                if curr_url.startswith("http://"):
-                    secure_url = curr_url.replace("http://", "https://", 1)
-                elif not curr_url.startswith("https://"):
-                    secure_url = "https://" + curr_url.lstrip("/")
+                from urllib.parse import urlparse, parse_qs, quote
+                parsed = urlparse(curr_url)
+                qs = parse_qs(parsed.query)
+                q = qs.get("query", [""])[0]
+                if not q and "/search" in curr_url:
+                    m = re.search(r'/search/([a-zA-Z0-9_-]+?)(?:-jobs|\?|$)', curr_url)
+                    if m:
+                        q = m.group(1).replace("-", " ")
+                if q:
+                    secure_url = f"https://www.foundit.in/srp/results?query={quote(q)}&locations=India"
                 else:
-                    secure_url = curr_url
-                print_lg(f"[FounditSearch] Transient Access Denied on search page. Upgrading to secure HTTPS: {secure_url}...")
+                    secure_url = "https://www.foundit.in/srp/results?query=jobs&locations=India"
+
+                print_lg(f"[FounditSearch] Transforming blocked search URL to verified HTTPS SRP: {secure_url}...")
                 if hasattr(self.browser, "navigate"):
                     self.browser.navigate(secure_url)
                 else:
                     self.driver.get(secure_url)
-                time.sleep(2.5)
+                time.sleep(3.0)
                 return not self.is_access_denied()
 
-            print_lg("[FounditSearch] Recovering from Access Denied via home URL...")
+            print_lg(f"[FounditSearch] Recovering from Access Denied via home URL ({HOME_URL})...")
             if hasattr(self.browser, "navigate"):
                 self.browser.navigate(HOME_URL)
             else:
                 self.driver.get(HOME_URL)
-            time.sleep(2)
+            time.sleep(2.0)
             return not self.is_access_denied()
         except Exception:
             return False
@@ -264,9 +303,11 @@ class FounditSearch:
             time.sleep(2)
 
         current_url = (self.driver.current_url or "").lower()
-        if "foundit.in" not in current_url:
-            self.browser.navigate(USER_HOME_URL)
-            time.sleep(2)
+        if "/search" not in current_url and "/srp" not in current_url:
+            if "foundit.in" not in current_url or "/home/user" in current_url:
+                print_lg(f"[FounditSearch] Navigating to Foundit home page ({HOME_URL}) to access search bar...")
+                self.browser.navigate(HOME_URL)
+                time.sleep(2.5)
 
         # 1. Locate Skills input (Home or SRP)
         skills_input = self._find_visible_element([
@@ -279,8 +320,8 @@ class FounditSearch:
 
         if not skills_input:
             # If not on home or SRP with inputs, navigate to home
-            print_lg("[FounditSearch] Navigating to Foundit home page to access search bar...")
-            self.browser.navigate(USER_HOME_URL)
+            print_lg(f"[FounditSearch] Skills input not visible. Navigating to Foundit home page ({HOME_URL})...")
+            self.browser.navigate(HOME_URL)
             time.sleep(2.5)
             skills_input = self._find_visible_element([
                 HOME_SKILLS_INPUT,
@@ -434,8 +475,10 @@ class FounditSearch:
             SRP_SEARCH_BUTTON,
             "button.search_submit_btn",
             "button[class*='search_submit_btn']",
+            "button[class*='searchBtn']",
+            "button[class*='search-btn']",
             "button[aria-label='search']",
-            "//button[contains(@class, 'search') or .//*[name()='svg']]",
+            "//button[contains(translate(normalize-space(), 'SEARCH', 'search'), 'search') and not(contains(@class, 'close'))]",
         ])
 
         if search_btn:
@@ -444,12 +487,12 @@ class FounditSearch:
                 search_btn.click()
             except Exception:
                 self.driver.execute_script("arguments[0].click();", search_btn)
-            time.sleep(4.0)
+            time.sleep(2.0)
         elif skills_input:
             print_lg("[FounditSearch] Search button not found. Submitting search via ENTER key...")
             try:
                 skills_input.send_keys(Keys.ENTER)
-                time.sleep(4.0)
+                time.sleep(2.0)
             except Exception as e:
                 print_lg(f"[FounditSearch] Notice submitting via Enter: {e}")
                 return False
@@ -457,9 +500,18 @@ class FounditSearch:
             print_lg("[FounditSearch] Notice: Search button not found.")
             return False
 
-        # Wait for page transition
+        # Fallback submission: if not transitioned yet, hit ENTER on skills_input
+        cur_url = (self.driver.current_url or "").lower()
+        if "/search" not in cur_url and "/srp" not in cur_url and skills_input:
+            try:
+                skills_input.send_keys(Keys.ENTER)
+                time.sleep(2.0)
+            except Exception:
+                pass
+
+        # Wait for page transition strictly to search results page
         start_wait = time.time()
-        while time.time() - start_wait < 10:
+        while time.time() - start_wait < 12:
             if self.is_access_denied():
                 print_lg("[FounditSearch] Warning: Access Denied encountered during UI search. Attempting HTTPS recovery...")
                 if self.recover_from_access_denied():
@@ -467,12 +519,17 @@ class FounditSearch:
                     break
                 return False
             cur_url = (self.driver.current_url or "").lower()
-            if "/search" in cur_url or "/srp" in cur_url or self.find_job_cards():
+            if "/search" in cur_url or "/srp" in cur_url:
                 break
             time.sleep(0.5)
 
         # Close any lingering popups after search
         self.close_open_modals()
+
+        cur_url = (self.driver.current_url or "").lower()
+        if "/search" not in cur_url and "/srp" not in cur_url:
+            print_lg(f"[FounditSearch] Search did not transition to search results page (current: {cur_url}).")
+            return False
 
         # 5. Apply Experience Filter on left sidebar if requested
         if experience_years is not None and experience_years >= 0:
@@ -750,16 +807,19 @@ class FounditSearch:
 
         # 2. If page > 1, advance strictly via UI pagination controls on the active search results page
         if page > 1:
-            if not self.driver or "/search" not in (self.driver.current_url or "").lower():
-                print_lg(f"[FounditSearch] Notice: Browser is not on search results page for page {page}. Navigating to canonical search URL...")
-                direct_url = build_search_url(
+            if not self.driver or ("/search" not in (self.driver.current_url or "").lower() and "/srp" not in (self.driver.current_url or "").lower()):
+                canonical_srp = build_srp_url(
                     keyword=keyword,
                     location=location,
                     experience_years=experience_years,
                     freshness_days=freshness_days,
                     page=page,
                 )
-                self.browser.navigate(direct_url)
+                print_lg(f"[FounditSearch] Navigating to page {page} via verified SRP endpoint: {canonical_srp}...")
+                if hasattr(self.browser, "navigate"):
+                    self.browser.navigate(canonical_srp)
+                else:
+                    self.driver.get(canonical_srp)
                 time.sleep(3.0)
                 if self.is_access_denied():
                     self.recover_from_access_denied()
@@ -827,24 +887,29 @@ class FounditSearch:
         if not ui_success:
             print_lg("[FounditSearch] UI search execution was not completed or encountered a block.")
             if self.is_access_denied():
-                print_lg("[FounditSearch] Blocked by Akamai EdgeSuite Access Denied during UI search. Attempting HTTPS recovery...")
+                print_lg("[FounditSearch] Blocked by Akamai EdgeSuite Access Denied during UI search. Attempting recovery...")
                 self.recover_from_access_denied()
+                time.sleep(2.0)
+                self.search_via_ui(
+                    keyword=keyword,
+                    location=location,
+                    experience_years=experience_years,
+                    freshness_days=freshness_days,
+                    quick_apply=quick_apply,
+                )
 
-        cards = self.find_job_cards()
-        if not cards or self.is_access_denied():
-            # Intelligent fallback: Navigate to canonical HTTPS search URL directly
-            print_lg("[FounditSearch] Falling back to direct canonical HTTPS search navigation...")
-            direct_url = build_search_url(
-                keyword=keyword,
-                location=location,
-                experience_years=experience_years,
-                freshness_days=freshness_days,
-                page=page,
-            )
-            self.browser.navigate(direct_url)
-            time.sleep(3.0)
-            if self.is_access_denied():
-                self.recover_from_access_denied()
+        # Poll up to 6 seconds for cards to hydrate in DOM
+        start_poll = time.time()
+        cards = []
+        while time.time() - start_poll < 6.0:
+            cards = self.find_job_cards()
+            if cards:
+                break
+            time.sleep(0.5)
+
+        if not cards and self.is_access_denied():
+            print_lg("[FounditSearch] Access Denied detected while waiting for cards. Recovering...")
+            self.recover_from_access_denied()
             cards = self.find_job_cards()
 
         print_lg(f"[FounditSearch] Found {len(cards)} job cards via UI search on page 1.")
@@ -853,6 +918,13 @@ class FounditSearch:
         """Returns all visible, validated job cards currently present on the page."""
         if not self.driver:
             return []
+
+        # Guard: Only search results page cards should be considered valid job cards.
+        # Reject cards on homepage / dashboard (which are platformreco recommendations that lack split pane).
+        curr_url = (self.driver.current_url or "").lower()
+        if "/search" not in curr_url and "/srp" not in curr_url:
+            return []
+
         cards_found = []
         seen_ids = set()
 

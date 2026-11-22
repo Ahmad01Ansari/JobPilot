@@ -391,12 +391,13 @@ class QualificationEngine:
             allowance = 2
 
         req_exp = required_experience_min
-        if req_exp is None and description:
+        if (req_exp is None or req_exp == 0) and description:
             extracted_min, _ = extract_experience_bounds(description)
-            req_exp = extracted_min
+            if extracted_min is not None and extracted_min > 0:
+                req_exp = extracted_min
 
-        # If required experience is not stated in text, infer conservative lower bound from title
-        if req_exp is None and title:
+        # If required experience is not stated or 0, infer conservative lower bound from senior title
+        if (req_exp is None or req_exp == 0) and title:
             lower_title = title.lower()
             if any(re.search(r'\b' + re.escape(w) + r'\b', lower_title) for w in ["principal", "director", "vice president", "head of", "chief", "fellow"]):
                 req_exp = 8
@@ -440,9 +441,16 @@ class QualificationEngine:
                 return comp_res
 
         # 3. Description & Experience Check
+        eff_exp_min = job.required_experience_min
+        exp_txt = getattr(job, "experience_text", None) or (job.raw_metadata.get("experience_text") if getattr(job, "raw_metadata", None) else None)
+        if (eff_exp_min is None or eff_exp_min == 0) and exp_txt:
+            extracted_min, _ = extract_experience_bounds(exp_txt)
+            if extracted_min is not None and extracted_min > 0:
+                eff_exp_min = extracted_min
+
         desc_res = self.qualify_description(
             description=job.description,
-            required_experience_min=job.required_experience_min,
+            required_experience_min=eff_exp_min,
             title=job.title
         )
         if not desc_res:

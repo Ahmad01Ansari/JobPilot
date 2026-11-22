@@ -230,7 +230,7 @@ class PilotView(QWidget):
             self._refresh_telemetry()
         elif event_name == "step_emitted":
             step = payload
-            if step is None or (hasattr(step, "title") and any(k in step.title.lower() for k in ["finished", "completed", "stopped"])):
+            if step is None or (hasattr(step, "title") and any(k in step.title.lower() for k in ["automation finished", "automation completed", "automation execution completed", "stopped by user", "batch completed", "stopped naturally"])):
                 for c in self._message_cards.values():
                     if hasattr(c, "console_box") and c.console_box and getattr(c.console_box, "_pulse_timer", None) and c.console_box._pulse_timer.isActive():
                         is_stop = step is not None and "stop" in step.title.lower()
@@ -264,8 +264,11 @@ class PilotView(QWidget):
         self._latest_pilot_card = None
 
         timeline = self._service.get_timeline()
-        for msg in timeline:
-            card = self._create_card_for_message(msg, is_live=False)
+        mgr = getattr(self._service, "automation_manager", None)
+        is_running = mgr.is_running() if mgr else False
+        for idx, msg in enumerate(timeline):
+            is_card_live = is_running and (idx == len(timeline) - 1 or msg.action_type == PilotActionType.START_AUTOMATION)
+            card = self._create_card_for_message(msg, is_live=is_card_live)
             if card:
                 self.timeline_layout.insertWidget(self.timeline_layout.count() - 1, card)
                 self._message_cards[msg.id] = card
@@ -329,6 +332,12 @@ class PilotView(QWidget):
         self.composer.send_btn.setEnabled(False)
         self.composer.send_btn.setText("Working...")
         self.composer.editor.setPlaceholderText("AI Copilot is executing task...")
+
+        # Immediate responsive feedback: display user bubble and active copilot card instantly
+        self._service.add_user_message(clean_text)
+        live_msg = self._service.add_pilot_message("", action_type=PilotActionType.CHAT)
+        self._service.emit_step(live_msg.id, "Agent Thought: Analyzing candidate intent & JobPilot context", status="running")
+        self._service.emit_step(live_msg.id, "Agent Inspection: Querying system knowledge base, active records & rules", status="running")
 
         self._active_worker = _PilotPromptWorker(self._service, clean_text)
         self._active_worker.prompt_processed.connect(self._on_prompt_worker_done)

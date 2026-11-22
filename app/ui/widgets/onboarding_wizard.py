@@ -8,12 +8,14 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFrame, QStackedWidget, QMessageBox, QLineEdit
 )
 
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon, render_vector_pixmap
 from app.services.setup.setup_service import SetupService
 from app.services.setup.setup_requirements import RequirementStatus
 from app.ui.widgets.onboarding_steps import (
@@ -113,6 +115,7 @@ class CompactRailItem(QFrame):
                     padding: 0;
                 }}
             """)
+            self.lbl_node.setPixmap(QPixmap())
             self.lbl_node.setText("●")
             self.lbl_node.setStyleSheet(f"color: {COLORS['primary']}; font-size: 11px;")
             self.lbl_title.setStyleSheet(f"color: {COLORS['text']}; font-weight: 700; font-size: 11px;")
@@ -128,8 +131,8 @@ class CompactRailItem(QFrame):
                     padding: 0;
                 }}
             """)
-            self.lbl_node.setText("✓")
-            self.lbl_node.setStyleSheet(f"color: {COLORS['success']}; font-size: 11px; font-weight: 800;")
+            self.lbl_node.setText("")
+            self.lbl_node.setPixmap(render_vector_pixmap("check", COLORS['success'], 12))
             self.lbl_title.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px;")
         elif self.is_skipped:
             self.setStyleSheet(f"""
@@ -143,6 +146,7 @@ class CompactRailItem(QFrame):
                     padding: 0;
                 }}
             """)
+            self.lbl_node.setPixmap(QPixmap())
             self.lbl_node.setText("—")
             self.lbl_node.setStyleSheet(f"color: {COLORS['text_dark']}; font-size: 11px;")
             self.lbl_title.setStyleSheet(f"color: {COLORS['text_dark']}; font-size: 11px;")
@@ -158,6 +162,7 @@ class CompactRailItem(QFrame):
                     padding: 0;
                 }}
             """)
+            self.lbl_node.setPixmap(QPixmap())
             self.lbl_node.setText("○")
             self.lbl_node.setStyleSheet(f"color: {COLORS['border_light']}; font-size: 11px;")
             self.lbl_title.setStyleSheet(f"color: {COLORS['text_dark']}; font-size: 11px;")
@@ -220,7 +225,12 @@ class OnboardingWizardDialog(QDialog):
         tb_layout = QHBoxLayout(top_bar)
         tb_layout.setContentsMargins(18, 0, 18, 0)
 
-        lbl_logo = QLabel("⚡ JobPilot Setup Wizard")
+        lbl_logo_icon = QLabel()
+        lbl_logo_icon.setPixmap(render_vector_pixmap("pilot", COLORS['primary'], 16))
+        lbl_logo_icon.setStyleSheet("border: none; background: transparent; padding-right: 2px;")
+        tb_layout.addWidget(lbl_logo_icon)
+
+        lbl_logo = QLabel("JobPilot Setup Wizard")
         lbl_logo.setStyleSheet(f"font-size: 14px; font-weight: 800; color: {COLORS['text']};")
         tb_layout.addWidget(lbl_logo)
         tb_layout.addStretch()
@@ -268,7 +278,8 @@ class OnboardingWizardDialog(QDialog):
 
         rail_layout.addStretch()
 
-        btn_reset = QPushButton("↺ Restart Setup")
+        btn_reset = QPushButton("Restart Setup")
+        btn_reset.setIcon(render_vector_icon("refresh", COLORS['text_dark'], 11))
         btn_reset.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
@@ -357,7 +368,7 @@ class OnboardingWizardDialog(QDialog):
 
         d_layout.addStretch()
 
-        self.btn_back = QPushButton("< Back")
+        self.btn_back = QPushButton("Back")
         self.btn_back.setFocusPolicy(Qt.NoFocus)
         self.btn_back.setStyleSheet(f"""
             QPushButton {{
@@ -401,7 +412,7 @@ class OnboardingWizardDialog(QDialog):
         self.btn_skip.clicked.connect(self._skip_current_step)
         d_layout.addWidget(self.btn_skip)
 
-        self.btn_next = QPushButton("Continue →")
+        self.btn_next = QPushButton("Continue")
         self.btn_next.setFocusPolicy(Qt.NoFocus)
         self.btn_next.setStyleSheet(f"""
             QPushButton {{
@@ -513,7 +524,34 @@ class OnboardingWizardDialog(QDialog):
 
         self._update_navigation_buttons()
 
+    def _save_current_step_data(self):
+        """Auto-saves user modifications from the active step into underlying services."""
+        idx = self.current_step_idx
+        if idx == 1:  # AI Setup
+            ai_data = self.step_ai.get_ai_payload()
+            if ai_data.get("api_key") or ai_data.get("provider") == "ollama" or ai_data.get("endpoint") or ai_data.get("model"):
+                self.setup_service.save_ai_provider_step(
+                    provider=ai_data["provider"],
+                    api_key=ai_data.get("api_key"),
+                    endpoint=ai_data.get("endpoint"),
+                    model=ai_data.get("model"),
+                )
+        elif idx == 4:  # Profile Review
+            profile_payload = self.step_profile.get_profile_payload()
+            self.setup_service.save_profile_step(profile_payload)
+        elif idx == 6:  # Job Strategy
+            prefs_payload = self.step_prefs.get_preferences_payload()
+            self.setup_service.save_preferences_step(prefs_payload)
+        elif idx == 7:  # Platforms
+            platforms_payload = self.step_platforms.get_platforms_payload()
+            if platforms_payload:
+                self.setup_service.save_platforms_step(platforms_payload)
+        elif idx == 8:  # Safety Limits
+            safety_data = self.step_safety.get_safety_payload()
+            self.setup_service.save_safety_step(safety_data)
+
     def _on_rail_item_clicked(self, step_idx: int):
+        self._save_current_step_data()
         self._navigate_to_step(step_idx)
 
     def _navigate_to_step(self, step_idx: int):
@@ -565,6 +603,7 @@ class OnboardingWizardDialog(QDialog):
             self._navigate_to_step(self.current_step_idx - 1)
 
     def _skip_current_step(self):
+        self._save_current_step_data()
         current_key = STEP_KEYS[self.current_step_idx]
         self.setup_service.state.mark_step_skipped(current_key)
         self._go_next()
@@ -664,6 +703,7 @@ class OnboardingWizardDialog(QDialog):
             parent_win.launch_product_tour()
 
     def _on_finish_confirmed(self):
+        self._save_current_step_data()
         ok, change_log = self.setup_service.complete_setup()
         self.onboarding_completed.emit({"changes": change_log})
         self.accept()

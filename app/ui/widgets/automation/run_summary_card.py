@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -31,6 +32,8 @@ class RunHistoryRow(QFrame):
     def __init__(self, run: AutomationRun, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.run = run
+        self.setFixedHeight(34)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
         self._setup_ui()
 
@@ -167,6 +170,7 @@ class RunSummaryCard(QFrame):
 
     def _setup_ui(self) -> None:
         self.setObjectName("run_summary_card")
+        self.setMinimumHeight(240)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(8)

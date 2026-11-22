@@ -223,6 +223,22 @@ def create_undetected_chrome(options, profile_dir=None):
 
 def createChromeSession(isRetry: bool = False):
     make_directories([file_name,failed_file_name,logs_folder_path+"/screenshots",default_resume_path,generated_resume_path+"/temp"])
+    # Dynamically resolve browser settings from SettingsService if available
+    try:
+        from app.services.settings_service import SettingsService
+        svc = SettingsService()
+        b_settings = svc.get_category_settings("browser")
+        if "run_in_background" in b_settings:
+            run_in_background = bool(b_settings["run_in_background"])
+        if "stealth_mode" in b_settings:
+            stealth_mode = bool(b_settings["stealth_mode"])
+        if "disable_extensions" in b_settings:
+            disable_extensions = bool(b_settings["disable_extensions"])
+        if "safe_mode" in b_settings:
+            safe_mode = bool(b_settings["safe_mode"])
+    except Exception:
+        pass
+
     # Set up WebDriver with Chrome Profile
     if stealth_mode:
         uc = _get_uc()
@@ -242,7 +258,7 @@ def createChromeSession(isRetry: bool = False):
     options.add_argument("--disable-geolocation")
     if run_in_background:   options.add_argument("--headless")
     if disable_extensions:  options.add_argument("--disable-extensions")
-    options.add_argument("--disable-gpu")
+    if run_in_background:   options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
@@ -278,7 +294,7 @@ def createChromeSession(isRetry: bool = False):
             fresh_options.add_argument("--disable-geolocation")
             if run_in_background: fresh_options.add_argument("--headless")
             if disable_extensions: fresh_options.add_argument("--disable-extensions")
-            fresh_options.add_argument("--disable-gpu")
+            if run_in_background: fresh_options.add_argument("--disable-gpu")
             fresh_options.add_argument("--no-sandbox")
             fresh_options.add_argument("--disable-dev-shm-usage")
             driver = create_undetected_chrome(fresh_options, profile_dir=profile_dir)

@@ -91,45 +91,44 @@ class IndeedCaptchaHandler:
                 }
 
                 // C. Cloudflare Turnstile / Challenge iframe (must be visible and in viewport)
-                const turnstiles = document.querySelectorAll("iframe[src*='challenges.cloudflare.com']");
+                const turnstiles = document.querySelectorAll("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare' i], .cf-turnstile-wrapper iframe");
                 for (let i = 0; i < turnstiles.length; i++) {
                     const t = turnstiles[i];
                     const rect = t.getBoundingClientRect();
                     const style = window.getComputedStyle(t);
-                    if (style.visibility !== 'hidden' && style.display !== 'none' && rect.top >= 0 && rect.top <= window.innerHeight && rect.width >= 100 && rect.height >= 40) {
+                    if (style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 50 && rect.height >= 30) {
                         return true;
                     }
                 }
 
-                // D. Cloudflare under-attack full page challenge
-                const cfStages = document.querySelectorAll("#challenge-stage, #challenge-running");
+                // D. Cloudflare under-attack full page challenge or turnstile wrapper
+                const cfStages = document.querySelectorAll("#challenge-stage, #challenge-running, #cf-stage, .cf-turnstile-wrapper, [data-ray], .ray_id, #turnstile-wrapper");
                 for (let i = 0; i < cfStages.length; i++) {
                     const el = cfStages[i];
                     const rect = el.getBoundingClientRect();
                     const style = window.getComputedStyle(el);
-                    if (style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 100 && rect.height >= 50) {
+                    if (style.visibility !== 'hidden' && style.display !== 'none' && (rect.width >= 50 || rect.height >= 30)) {
                         return true;
                     }
                 }
 
                 // E. Active challenge heading or banner on dedicated security check page
-                // Only consider if there are NO active application inputs on the page
-                const appInputs = document.querySelectorAll("input:not([type='hidden']), textarea, select, button[type='submit']");
-                let visibleAppInputs = 0;
-                for (let i = 0; i < appInputs.length; i++) {
-                    if (isVisible(appInputs[i])) visibleAppInputs++;
+                const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+                const titleText = (document.title || '').toLowerCase();
+                if (titleText.includes("just a moment") ||
+                    titleText.includes("attention required") ||
+                    titleText.includes("additional verification") ||
+                    titleText.includes("security check")) {
+                    return true;
                 }
-
-                if (visibleAppInputs === 0) {
-                    const headings = document.querySelectorAll("h1, h2, .challenge-title");
-                    for (let i = 0; i < headings.length; i++) {
-                        if (isVisible(headings[i])) {
-                            const txt = (headings[i].innerText || "").toLowerCase();
-                            if (txt.includes("verify you are human") || txt.includes("complete the security check") || txt.includes("solve this challenge")) {
-                                return true;
-                            }
-                        }
-                    }
+                if (bodyText.includes("additional verification required") ||
+                    bodyText.includes("troubleshooting cloudflare errors") ||
+                    (bodyText.includes("ray id") && bodyText.includes("cloudflare")) ||
+                    bodyText.includes("verify you are human") ||
+                    bodyText.includes("verifying you are human") ||
+                    bodyText.includes("complete the security check") ||
+                    bodyText.includes("solve this challenge")) {
+                    return true;
                 }
 
                 return false;
@@ -145,6 +144,11 @@ class IndeedCaptchaHandler:
             "iframe[src*='recaptcha/api2/bframe']",
             "iframe[src*='recaptcha/enterprise/bframe']",
             "iframe[src*='bframe']",
+            "iframe[src*='challenges.cloudflare.com']",
+            "iframe[title*='Cloudflare' i]",
+            ".cf-turnstile-wrapper",
+            "#challenge-stage",
+            "#challenge-running",
         ]:
             try:
                 for el in drv.find_elements(By.CSS_SELECTOR, sel):
@@ -213,8 +217,20 @@ class IndeedCaptchaHandler:
                     }
                 }
 
-                // C. Cloudflare Turnstile token check
-                const cfIframe = document.querySelector("iframe[src*='challenges.cloudflare.com']");
+                // C. Cloudflare verification page or Turnstile token check
+                const bodyText = (document.body ? document.body.innerText : '').toLowerCase();
+                const titleText = (document.title || '').toLowerCase();
+                if (titleText.includes("just a moment") ||
+                    titleText.includes("attention required") ||
+                    titleText.includes("additional verification") ||
+                    titleText.includes("security check") ||
+                    bodyText.includes("additional verification required") ||
+                    bodyText.includes("troubleshooting cloudflare errors") ||
+                    (bodyText.includes("ray id") && bodyText.includes("cloudflare"))) {
+                    return false;
+                }
+
+                const cfIframe = document.querySelector("iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare' i]");
                 if (cfIframe) {
                     const cfInput = document.querySelector("input[name='cf-turnstile-response']");
                     if (cfInput && (cfInput.value || "").trim().length > 20) {
@@ -273,11 +289,18 @@ class IndeedCaptchaHandler:
         if self.is_captcha_solved(drv):
             return True
 
+        try:
+            pg_src = str(drv.page_source or "").lower()
+        except Exception:
+            pg_src = ""
+        is_cf = "cloudflare" in pg_src or "additional verification" in pg_src or "ray id" in pg_src
+        challenge_type_str = "Cloudflare Verification Challenge" if is_cf else "CAPTCHA Challenge"
+
         print_lg("\n" + "=" * 70)
-        print_lg("[IndeedCaptchaHandler] ⚠️  CAPTCHA CHALLENGE DETECTED ON INDEED!")
+        print_lg(f"[IndeedCaptchaHandler] ⚠️  {challenge_type_str.upper()} DETECTED ON INDEED!")
         if job_title or company:
             print_lg(f"[IndeedCaptchaHandler] Context: '{job_title}' at '{company}'")
-        print_lg("[IndeedCaptchaHandler] ACTION REQUIRED: Please check 'I'm not a robot' or solve challenge in Chrome window.")
+        print_lg("[IndeedCaptchaHandler] ACTION REQUIRED: Please complete verification or solve challenge in Chrome window.")
         print_lg(f"[IndeedCaptchaHandler] Waiting up to {timeout} seconds for human resolution...")
         print_lg("=" * 70 + "\n")
 
@@ -297,7 +320,7 @@ class IndeedCaptchaHandler:
                         run_id="indeed_run",
                         platform="indeed",
                         intervention_type=InterventionType.CAPTCHA_DETECTED,
-                        message=f"CAPTCHA challenge detected on Indeed for '{job_title}' at '{company}'. Please solve it in the browser window.",
+                        message=f"{challenge_type_str} detected on Indeed for '{job_title}' at '{company}'. Please complete verification in the browser window.",
                     )
                 )
             except Exception as ex:

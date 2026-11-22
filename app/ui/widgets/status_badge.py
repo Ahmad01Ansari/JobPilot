@@ -104,7 +104,7 @@ class StatusBadge(QLabel):
                 status_type = "danger"
             elif st_upper in ["JUNK"]:
                 status_type = "muted"
-            elif st_upper in ["WITHDRAWN", "SKIPPED", "NOT_APPLIED", "DISCOVERED", "IDLE"]:
+            elif st_upper in ["WITHDRAWN", "CLOSED", "SKIPPED", "NOT_APPLIED", "DISCOVERED", "IDLE"]:
                 status_type = "neutral"
 
         fg, bg, border, _ = palette.get(status_type, palette["default"])
@@ -139,6 +139,7 @@ class StatusDropdownButton(QPushButton):
         ("OFFER", "Offer", "success"),
         ("REJECTED", "Rejected", "danger"),
         ("WITHDRAWN", "Withdrawn", "neutral"),
+        ("CLOSED", "Closed", "neutral"),
         ("MANUAL_REQUIRED", "Manual Check", "warning"),
         ("FAILED", "Failed", "danger"),
         ("SKIPPED", "Skipped", "neutral"),

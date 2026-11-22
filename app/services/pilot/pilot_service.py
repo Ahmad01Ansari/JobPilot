@@ -262,16 +262,17 @@ class PilotService:
 
     def _on_bot_job_evaluated(self, event: Any) -> None:
         self._run_metrics["evaluated"] += 1
-        decision = getattr(event, "decision", "EVALUATED")
-        if decision in ("QUALIFIED", "STRONG_MATCH", "GOOD_MATCH", "POSSIBLE_MATCH"):
+        is_qual = getattr(event, "is_qualified", None)
+        decision = getattr(event, "decision", "QUALIFIED" if is_qual is True else ("SKIPPED" if is_qual is False else "EVALUATED"))
+        if is_qual is True or decision in ("QUALIFIED", "STRONG_MATCH", "GOOD_MATCH", "POSSIBLE_MATCH"):
             self._run_metrics["qualified"] += 1
-        elif decision in ("SKIPPED", "REJECTED"):
+        elif is_qual is False or decision in ("SKIPPED", "REJECTED"):
             self._run_metrics["skipped"] += 1
         self._notify("metrics_updated", dict(self._run_metrics))
 
         title = getattr(event, "title", "Job")
         score = getattr(event, "score", 0)
-        status_val = "done" if decision in ("QUALIFIED", "STRONG_MATCH", "GOOD_MATCH", "POSSIBLE_MATCH") else "failed"
+        status_val = "done" if (is_qual is True or decision in ("QUALIFIED", "STRONG_MATCH", "GOOD_MATCH", "POSSIBLE_MATCH")) else "failed"
         self.emit_step(None, f"Evaluated '{title}': Score {score}% [{decision}]", status=status_val)
         if status_val == "done":
             self.emit_step(None, f"Agent Action: Answering screening questionnaire from QnA Bank for '{title}'", status="running")
@@ -305,22 +306,22 @@ class PilotService:
             kind = InterventionKind.TWO_FACTOR
             prompt = f"{platform.capitalize()}: Two-factor authentication (2FA) or OTP required. Enter your verification code."
             options = []
-        elif any(k in itype_str for k in ["LOGIN_REQUIRED", "MANUAL_ACTION"]) or "login" in reason_lower or "sign in" in reason_lower:
+        elif "LOGIN_REQUIRED" in itype_str or any(k in reason_lower for k in ["sign in", "sign-in", "login", "log in", "credentials"]):
             kind = InterventionKind.MANUAL_LOGIN
             prompt = f"{platform.capitalize()}: Manual sign-in required in the open browser."
             options = ["I am logged in"]
-        elif "PRE_SUBMISSION" in itype_str or "review" in reason_lower:
+        elif "PRE_SUBMISSION" in itype_str or "pre-submission" in reason_lower:
             kind = InterventionKind.APPROVAL
             prompt = f"{platform.capitalize()}: Pre-submission review required. Approve to submit or skip."
             options = ["Approve & Submit", "Skip Job"]
-        elif "REQUIRED_FIELD" in itype_str or "question" in reason_lower:
+        elif any(k in itype_str for k in ["MANUAL_ACTION", "REQUIRED_FIELD"]) or any(k in reason_lower for k in ["review", "question", "screening", "form step", "unanswered"]):
             kind = InterventionKind.QUESTION
-            prompt = f"{platform.capitalize()}: {reason}"
-            options = []
+            prompt = f"{platform.capitalize()}: {reason or 'Manual review required on application form.'}"
+            options = ["I've Solved It / Continue", "Skip Job"]
         else:
             kind = InterventionKind.QUESTION
             prompt = f"{platform.capitalize()}: {reason}"
-            options = []
+            options = ["I've Solved It / Continue", "Skip Job"]
 
         self.create_intervention(prompt=prompt, kind=kind, platform=platform, options=options)
 
@@ -427,6 +428,9 @@ class PilotService:
                 if m.rule_change:
                     self._rule_changes[m.rule_change.id] = m.rule_change
                 if m.intervention:
+                    if m.intervention.status == InterventionStatus.OPEN:
+                        m.intervention.status = InterventionStatus.DISMISSED
+                        m.intervention.answer = "Session restored"
                     self._active_interventions[m.intervention.id] = m.intervention
         else:
             self._seed_initial_timeline()
@@ -733,7 +737,10 @@ class PilotService:
                         mgr.mark_captcha_resolved()
                 else:
                     if hasattr(mgr, "confirm_review"):
-                        mgr.confirm_review(notes=f"Answered via Pilot: {clean_answer}")
+                        mgr.confirm_review(
+                            notes=f"Answered via Pilot: {clean_answer}",
+                            data={"value": clean_answer, "prompt": intervention.prompt, "field_name": intervention.prompt},
+                        )
 
                 if hasattr(mgr, "dismiss_intervention"):
                     mgr.dismiss_intervention(intervention.id)
@@ -757,10 +764,28 @@ class PilotService:
     # Execution & Command Dispatching
     # -------------------------------------------------------------------------
     def process_user_prompt(self, text: str) -> PilotMessage:
-        self.add_user_message(text)
+        if not self._timeline or self._timeline[-1].body != text.strip() or self._timeline[-1].author != PilotAuthor.USER:
+            self.add_user_message(text)
 
         # Dynamic Human-in-the-Loop Intent & Input Pipeline
-        open_invs = [i for i in self._active_interventions.values() if i.status == InterventionStatus.OPEN]
+        # Check if the user text is a high-priority system command (start, stop, pause, resume, etc.)
+        # System control commands must NEVER be hijacked as intervention form answers!
+        is_control_cmd = False
+        lower_raw = text.strip().lower()
+        if any(lower_raw.startswith(pfx) for pfx in ("run ", "start ", "launch ", "stop", "pause", "resume", "freeze", "hold", "restart")):
+            is_control_cmd = True
+        else:
+            action_preview, _, _ = self.intent_router.parse_intent(text)
+            if action_preview in (
+                PilotActionType.START_AUTOMATION,
+                PilotActionType.STOP_AUTOMATION,
+                PilotActionType.PAUSE_AUTOMATION,
+                PilotActionType.UPDATE_PROFILE,
+                PilotActionType.DELETE_APPLICATION,
+            ):
+                is_control_cmd = True
+
+        open_invs = [i for i in self._active_interventions.values() if i.status == InterventionStatus.OPEN] if not is_control_cmd else []
         if open_invs:
             latest_inv = open_invs[-1]
             lower_text = text.strip().lower()
@@ -800,13 +825,15 @@ class PilotService:
                 self.resolve_intervention(latest_inv.id, text.strip())
                 return self._timeline[-1]
 
-        # 1. Immediately create and emit live active Copilot card so UI displays animated thinking stream
-        live_msg = self.add_pilot_message("", action_type=PilotActionType.CHAT)
-        self.emit_step(live_msg.id, "Agent Thought: Analyzing candidate intent & JobPilot context", status="running")
-        self.emit_step(live_msg.id, "Agent Inspection: Querying system knowledge base, active records & rules", status="running")
-        self.emit_step(live_msg.id, "Agent Synthesis: Formulating concise, actionable response", status="running")
-
-        self._active_live_msg = live_msg
+        # 1. Reuse existing live msg if UI already emitted it, otherwise create one
+        if self._active_live_msg is not None:
+            live_msg = self._active_live_msg
+        else:
+            live_msg = self.add_pilot_message("", action_type=PilotActionType.CHAT)
+            self.emit_step(live_msg.id, "Agent Thought: Analyzing candidate intent & JobPilot context", status="running")
+            self.emit_step(live_msg.id, "Agent Inspection: Querying system knowledge base, active records & rules", status="running")
+            self.emit_step(live_msg.id, "Agent Synthesis: Formulating concise, actionable response", status="running")
+            self._active_live_msg = live_msg
         try:
             action, params, summary = self.intent_router.parse_intent(text)
             logger.info("Executing pilot action [%s]: %s", action.value, summary)
@@ -953,15 +980,30 @@ class PilotService:
         self._run_metrics = {"discovered": 0, "evaluated": 0, "qualified": 0, "applied": 0, "skipped": 0}
         self._notify("metrics_updated", dict(self._run_metrics))
 
+        effective_headless = headless
+        if effective_headless is None:
+            try:
+                from app.services.settings_service import SettingsService
+                effective_headless = bool(SettingsService().get_setting("run_in_background", False))
+            except Exception:
+                effective_headless = False
+
+        mode_name = "Headless Background" if effective_headless else "Foreground"
+        platform_display = f"All Platforms ({mode_name} Batch)" if platform == "all" else f"{platform.capitalize()} automation engine"
         msg = self.add_pilot_message(
-            f"Launching **{platform.capitalize()}** automation engine...\n"
+            f"Launching **{platform_display}**...\n"
             f"Watch real-time actions, screening questionnaires, and submission milestones below.",
             action_type=PilotActionType.START_AUTOMATION,
             payload=params,
         )
 
         # Emit the first active milestone as running
-        self.emit_step(msg.id, f"Agent Action: Initializing stealth Chrome browser session for {platform.capitalize()}", status="running")
+        init_desc = (
+            f"Agent Action: Initializing {mode_name.lower()} Chrome session across all platforms"
+            if platform == "all"
+            else f"Agent Action: Initializing stealth Chrome browser session for {platform.capitalize()}"
+        )
+        self.emit_step(msg.id, init_desc, status="running")
 
         # Start the real background automation worker
         success, err = mgr.start_automation(
@@ -972,9 +1014,14 @@ class PilotService:
 
         if not success:
             self.emit_step(msg.id, f"Initialization failed: {err or 'Worker unavailable'}", status="failed")
-            self.add_pilot_message(f"Could not start **{platform.capitalize()}** automation: {err or 'Worker busy'}")
+            self.add_pilot_message(f"Could not start **{platform_display}**: {err or 'Worker busy'}")
         else:
-            self.emit_step(msg.id, f"Agent Action: Starting background runner for {platform.capitalize()}", status="running")
+            runner_desc = (
+                "Agent Action: Starting sequential batch automation runner across all platforms"
+                if platform == "all"
+                else f"Agent Action: Starting background runner for {platform.capitalize()}"
+            )
+            self.emit_step(msg.id, runner_desc, status="running")
 
         return msg
 

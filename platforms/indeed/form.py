@@ -350,19 +350,19 @@ class IndeedForm:
                 const listboxId = btn.getAttribute('aria-controls') || btn.getAttribute('aria-owns');
                 let listbox = listboxId ? document.getElementById(listboxId) : null;
                 if (!listbox) {
-                    listbox = btn.closest('div, fieldset')?.querySelector('[role="listbox"], ul[role="listbox"], ul, .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                    listbox = btn.closest('div, fieldset')?.querySelector('[role="listbox"], ul[role="listbox"], ul, .icl-Select-list, [data-testid*="dropdown"]');
                 }
                 if (!listbox) {
-                    listbox = document.querySelector('[role="listbox"]:not([aria-hidden="true"]), div[role="dialog"] [role="listbox"], .icl-Select-list, [data-testid*="menu"], [data-testid*="dropdown"]');
+                    listbox = document.querySelector('[role="listbox"]:not([aria-hidden="true"]):not(header *):not(nav *), div[role="dialog"] [role="listbox"], .icl-Select-list, [data-testid*="dropdown"]');
                 }
 
                 let optionEls = [];
                 if (listbox) {
-                    optionEls = Array.from(listbox.querySelectorAll('[role="option"], li, button, [data-testid*="option"], div[role="option"]'));
+                    optionEls = Array.from(listbox.querySelectorAll('[role="option"], li[role="option"], [data-testid*="option"], div[role="option"]'));
                 }
                 if (optionEls.length === 0) {
                     optionEls = Array.from(document.querySelectorAll(
-                        '[role="listbox"]:not([aria-hidden="true"]) [role="option"], [role="option"], li[role="option"], [data-testid*="select-option"], [data-testid*="option"], .icl-Select-option, ul[class*="menu" i] li, ul[class*="list" i] li, div[class*="popover" i] li, div[class*="dropdown" i] li, div[class*="menu" i] [role="menuitem"], div[class*="menu" i] button, div[class*="option" i], button[class*="option" i]'
+                        '[role="listbox"]:not([aria-hidden="true"]):not(header *):not(nav *) [role="option"], [role="option"]:not(header *):not(nav *), li[role="option"]:not(header *):not(nav *), [data-testid*="select-option"], .icl-Select-option, div[class*="popover" i] li, div[class*="dropdown" i] li'
                     ));
                 }
 
@@ -602,18 +602,10 @@ class IndeedForm:
         except Exception:
             pass
 
-        # Check final review module
-        if "review" in cur_url:
-            return "REVIEW"
-        for s_sel in FINAL_SUBMIT_BUTTONS:
-            try:
-                elems = self.driver.find_elements(By.XPATH, s_sel)
-                if any(e.is_displayed() for e in elems):
-                    return "REVIEW"
-            except Exception:
-                pass
+        # Dismiss exit application modal if present
+        self.dismiss_exit_modal()
 
-        # Check URL path indicators
+        # Check URL path indicators first (highest deterministic signal)
         if "contact-info" in cur_url:
             return "CONTACT_INFO"
         if "location" in cur_url or "address" in cur_url:
@@ -622,6 +614,17 @@ class IndeedForm:
             return "RESUME"
         if "questions" in cur_url:
             return "QUESTIONS"
+        if "review" in cur_url:
+            return "REVIEW"
+
+        # Check final review module via submit buttons only if not on a known sub-module
+        for s_sel in FINAL_SUBMIT_BUTTONS:
+            try:
+                elems = self.driver.find_elements(By.XPATH, s_sel)
+                if any(e.is_displayed() for e in elems):
+                    return "REVIEW"
+            except Exception:
+                pass
 
         # Check explicit contact inputs first (if first name, last name, phone, or email is visible)
         try:
@@ -1001,9 +1004,9 @@ class IndeedForm:
                 "//input[not(@type='hidden') and not(@type='submit') and not(@type='button') and not(@type='file')] "
                 "| //textarea "
                 "| //select "
-                "| //button[not(@type='submit') and not(contains(., 'Continue')) and not(contains(., 'Review')) and not(contains(., 'Submit')) and not(contains(., 'Back'))] "
                 "| //*[@role='combobox'] "
-                "| //*[@aria-haspopup='listbox' or @aria-haspopup='true' or @aria-haspopup='menu']"
+                "| //*[@aria-haspopup='listbox'] "
+                "| //div[contains(@class, 'icl-Select') or contains(@data-testid, 'combobox') or contains(@data-testid, 'select')]//button"
             )
         except Exception:
             pass
@@ -1011,6 +1014,33 @@ class IndeedForm:
         for elem in standalone_elems:
             try:
                 if elem in handled_inputs:
+                    continue
+
+                # Safety Guard: strictly reject elements from headers, navigation bars, site menus, or modals
+                is_non_form_control = bool(self.driver.execute_script("""
+                    const el = arguments[0];
+                    if (!el) return true;
+                    if (el.closest('header, nav, [role="banner"], [role="navigation"], [id*="gnav"], [id*="AccountMenu"], [data-testid*="header"], [role="dialog"], [role="alertdialog"], .ia-ExitModal, [class*="ExitModal"]')) {
+                        return true;
+                    }
+                    const txt = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    const id = (el.id || '').toLowerCase();
+                    const cls = (el.className && typeof el.className === 'string' ? el.className : '').toLowerCase();
+                    const combo = txt + ' ' + aria + ' ' + id + ' ' + cls;
+                    if (combo.includes('save and close') || combo.includes('save & close') || combo.includes('save and exit') ||
+                        combo.includes('account') || combo.includes('profile') || combo.includes('notification') ||
+                        combo.includes('message') || combo.includes('salary guide') || combo.includes('company reviews') ||
+                        combo.includes('find jobs') || combo.includes('report') || combo.includes('help') ||
+                        combo.includes('sign in') || combo.includes('sign out') ||
+                        combo.includes('back') || combo.includes('previous') || combo.includes('←') ||
+                        combo.includes('exit') || combo.includes('cancel') || combo.includes('discard') ||
+                        combo.includes('return to')) {
+                        return true;
+                    }
+                    return false;
+                """, elem))
+                if is_non_form_control:
                     continue
 
                 tag_name = elem.tag_name.lower()
@@ -1535,15 +1565,32 @@ class IndeedForm:
 
     def advance_to_next_step(self) -> bool:
         """Clicks the primary advance/continue button and waits for the step transition."""
+        self.dismiss_exit_modal()
         self.wait_for_spinner()
         cont_btn = None
+
+        def _is_safe_continue(btn) -> bool:
+            try:
+                txt = (btn.text or btn.get_attribute("value") or "").strip().lower()
+                aria = (btn.get_attribute("aria-label") or "").strip().lower()
+                combo = f"{txt} {aria}".strip()
+                if any(bad in combo for bad in [
+                    "save and close", "save & close", "save and exit", "back", "previous",
+                    "edit", "exit", "cancel", "discard", "close", "report", "account", "profile", "sign out"
+                ]):
+                    return False
+                if combo in ["←", "<", "save"]:
+                    return False
+                return True
+            except Exception:
+                return True
 
         # 1. Search via declared XPath selectors
         for sel in FORM_CONTINUE_BUTTONS:
             try:
                 for b in self.driver.find_elements(By.XPATH, sel):
                     try:
-                        if b.is_displayed():
+                        if b.is_displayed() and _is_safe_continue(b):
                             cont_btn = b
                             break
                     except Exception:
@@ -1561,7 +1608,18 @@ class IndeedForm:
                     for (const el of candidates) {
                         const style = window.getComputedStyle(el);
                         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+                        if (el.closest('header, nav, [role="banner"], [role="navigation"], [id*="gnav"], [id*="AccountMenu"], [data-testid*="header"], [role="dialog"], [role="alertdialog"], .ia-ExitModal')) {
+                            continue;
+                        }
                         const txt = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                        const combo = txt + ' ' + aria;
+                        if (combo.includes('save and close') || combo.includes('save & close') || combo.includes('save and exit') ||
+                            combo.includes('back') || combo.includes('previous') || combo.includes('edit') ||
+                            combo.includes('exit') || combo.includes('cancel') || combo.includes('discard') || combo.includes('close') ||
+                            combo === '←' || combo === '<') {
+                            continue;
+                        }
                         if (txt.includes('continue') || txt.includes('next') || txt.includes('review your application') ||
                             txt.includes('review application') || txt.includes('save and continue') || txt.includes('save & continue')) {
                             return el;
@@ -1569,7 +1627,7 @@ class IndeedForm:
                     }
                     return null;
                 """)
-                if js_btn:
+                if js_btn and _is_safe_continue(js_btn):
                     cont_btn = js_btn
             except Exception:
                 pass
@@ -2092,8 +2150,61 @@ class IndeedForm:
 
         return healed_count
 
+    def dismiss_exit_modal(self) -> bool:
+        """Detects and dismisses Indeed 'Exit application?' modal by clicking 'Continue applying'."""
+        if not self.driver:
+            return False
+        try:
+            from platforms.indeed.selectors import EXIT_MODAL_CONTINUE_BUTTONS
+            for sel in EXIT_MODAL_CONTINUE_BUTTONS:
+                try:
+                    for b in self.driver.find_elements(By.XPATH, sel):
+                        if b.is_displayed():
+                            print_lg("[IndeedForm] Detected exit application modal. Clicking 'Continue applying' to preserve flow...")
+                            self.driver.execute_script("arguments[0].click();", b)
+                            time.sleep(1)
+                            return True
+                except Exception:
+                    pass
+
+            dismissed = self.driver.execute_script("""
+                const modals = Array.from(document.querySelectorAll('div[role="dialog"], div[role="alertdialog"], .ia-ExitModal, [class*="ExitModal"], [data-testid*="exit"]'));
+                for (const modal of modals) {
+                    const txt = (modal.innerText || modal.textContent || '').toLowerCase();
+                    if (txt.includes('exit') || txt.includes('leave') || txt.includes('discard') || txt.includes('save your application') || txt.includes('save application progress')) {
+                        const buttons = Array.from(modal.querySelectorAll('button, a[role="button"]'));
+                        // 1. Try explicit continue/return buttons
+                        for (const b of buttons) {
+                            const bTxt = (b.innerText || b.textContent || b.value || '').trim().toLowerCase();
+                            if (bTxt.includes('continue applying') || bTxt.includes('return to application') || bTxt.includes('keep applying') || bTxt.includes('stay') || bTxt === 'cancel' || bTxt === 'no') {
+                                b.click();
+                                return true;
+                            }
+                        }
+                        // 2. Click modal close 'X' button to cancel exit and remain on application
+                        const closeBtn = modal.querySelector('button[aria-label*="close" i], button[data-testid*="close" i], [aria-label*="dismiss" i], button.ia-ExitModal-close, button.close');
+                        if (closeBtn) {
+                            closeBtn.click();
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            """)
+            if dismissed:
+                print_lg("[IndeedForm] Dismissed exit application modal via JS.")
+                time.sleep(1)
+                return True
+        except Exception:
+            pass
+        return False
+
     def is_review_page_ready(self) -> bool:
         """Returns True if the final Review module is rendered and submit button is interactable."""
+        cur_url = (getattr(self.driver, "current_url", "") or "").lower()
+        if any(k in cur_url for k in ["contact-info", "resume-selection", "resume", "questions", "location"]):
+            return False
+
         self.wait_for_spinner(timeout=5)
         try:
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")

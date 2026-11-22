@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QScrollArea
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon, render_vector_pixmap
 from app.services.setup.provider_definitions import get_all_providers, get_provider_by_id
 
 
@@ -131,7 +132,8 @@ class StepAIProviderWidget(QWidget):
 
         # Test Connection Button
         action_row = QHBoxLayout()
-        self.btn_test = QPushButton("⚡ Test Connection")
+        self.btn_test = QPushButton("Test Connection")
+        self.btn_test.setIcon(render_vector_icon("lightning", "#FFFFFF", 13))
         self.btn_test.setCursor(Qt.PointingHandCursor)
         self.btn_test.setStyleSheet(f"""
             QPushButton {{
@@ -210,20 +212,43 @@ class StepAIProviderWidget(QWidget):
             }}
         """)
         p_layout = QVBoxLayout(priv_card)
-        lbl_p_title = QLabel("🔒 Privacy Notice:")
+        p_head_row = QHBoxLayout()
+        p_head_row.setSpacing(6)
+        p_icon = QLabel()
+        p_icon.setPixmap(render_vector_pixmap("shield", COLORS['text_muted'], 13))
+        lbl_p_title = QLabel("Privacy Notice:")
         lbl_p_title.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {COLORS['text']};")
+        p_head_row.addWidget(p_icon)
+        p_head_row.addWidget(lbl_p_title)
+        p_head_row.addStretch()
+        p_layout.addLayout(p_head_row)
+
         lbl_p_body = QLabel(
             "Contact info and credentials are never transmitted. For 100% offline private inference, select Ollama."
         )
         lbl_p_body.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
-        p_layout.addWidget(lbl_p_title)
         p_layout.addWidget(lbl_p_body)
         layout.addWidget(priv_card)
 
         scroll.setWidget(container)
         root_layout.addWidget(scroll)
 
-        self._on_provider_changed(0)
+        # Pre-select active provider if already configured
+        initial_idx = 0
+        if hasattr(self.setup_service, "_get_settings_service"):
+            try:
+                ss = self.setup_service._get_settings_service()
+                active_prov = ss.get("ai.provider") or ss.get("ai_provider")
+                if active_prov and isinstance(active_prov, str):
+                    for i, p in enumerate(self._providers):
+                        if p.id == active_prov.lower():
+                            initial_idx = i
+                            break
+            except Exception:
+                initial_idx = 0
+
+        self.cmb_provider.setCurrentIndex(initial_idx)
+        self._on_provider_changed(initial_idx)
 
     def _on_provider_changed(self, index: int):
         provider_id = self.cmb_provider.currentData()
@@ -231,11 +256,40 @@ class StepAIProviderWidget(QWidget):
         if not meta:
             return
 
-        self.txt_endpoint.setText(meta.default_endpoint)
-        self.txt_model.setText(meta.default_model)
+        # Pre-fill saved configuration if available for this provider
+        saved_endpoint = None
+        saved_model = None
+        saved_key = None
+        if hasattr(self.setup_service, "_get_settings_service"):
+            try:
+                ss = self.setup_service._get_settings_service()
+                sec = self.setup_service._get_secrets_service()
+                is_active = (ss.get("ai.provider") == provider_id or ss.get("ai_provider") == provider_id)
+                raw_ep = ss.get(f"ai.{provider_id}.endpoint") or (ss.get("ai.api_url") if is_active else None)
+                if isinstance(raw_ep, str):
+                    saved_endpoint = raw_ep
+                raw_mod = ss.get(f"ai.{provider_id}.model") or ss.get(f"ai_model_{provider_id}") or (ss.get("ai.model") if is_active else None)
+                if isinstance(raw_mod, str):
+                    saved_model = raw_mod
+                raw_key = (
+                    (sec.get_ai_secret(provider_id) if hasattr(sec, "get_ai_secret") else None)
+                    or sec.get_secret(f"ai_api_key_{provider_id}")
+                    or (sec.get_secret("llm_api_key") if is_active else None)
+                )
+                if isinstance(raw_key, str):
+                    saved_key = raw_key
+            except Exception:
+                pass
+
+        self.txt_endpoint.setText(saved_endpoint if saved_endpoint else meta.default_endpoint)
+        self.txt_model.setText(saved_model if saved_model else meta.default_model)
         self.lbl_desc.setText(meta.description)
         self.txt_api_key.setEnabled(meta.requires_api_key)
         self.lbl_key.setText("API Key:" if meta.requires_api_key else "API Key: (Not required for Ollama)")
+        if saved_key:
+            self.txt_api_key.setText(saved_key)
+        else:
+            self.txt_api_key.clear()
         self.btn_get_key.setVisible(bool(meta.api_key_url))
         self.btn_docs.setVisible(bool(meta.documentation_url))
         self.result_frame.setVisible(False)
@@ -258,7 +312,7 @@ class StepAIProviderWidget(QWidget):
         model = self.txt_model.text().strip()
 
         self.btn_test.setEnabled(False)
-        self.lbl_res_header.setText("⏳ Connecting and pinging model...")
+        self.lbl_res_header.setText("Connecting to model endpoint...")
         self.lbl_res_header.setStyleSheet(f"color: {COLORS['info']};")
         self.lbl_chk_conn.setText("• Validating API endpoint...")
         self.lbl_chk_model.setText("• Testing chat completions...")
@@ -274,17 +328,17 @@ class StepAIProviderWidget(QWidget):
         self.btn_test.setEnabled(True)
 
         if ok:
-            self.lbl_res_header.setText(f"✓ Connection successful ({provider_id})!")
+            self.lbl_res_header.setText(f"Connection verified ({provider_id})")
             self.lbl_res_header.setStyleSheet(f"color: {COLORS['success']};")
-            self.lbl_chk_conn.setText("✓ Model available & endpoint reached")
-            self.lbl_chk_model.setText("✓ Text generation available for resume extraction")
+            self.lbl_chk_conn.setText("Model available and endpoint responsive")
+            self.lbl_chk_model.setText("Inference operational for document extraction")
             self.is_ai_tested = True
             self.ai_configured.emit(True)
         else:
-            self.lbl_res_header.setText(f"❌ Connection failed: {err or 'Could not reach endpoint'}")
+            self.lbl_res_header.setText(f"Connection failed: {err or 'Could not reach endpoint'}")
             self.lbl_res_header.setStyleSheet(f"color: {COLORS['danger']};")
-            self.lbl_chk_conn.setText("⚠ Please verify endpoint URL, network connectivity, or API key.")
-            self.lbl_chk_model.setText("ℹ You can also click 'Continue Manually' to proceed without AI.")
+            self.lbl_chk_conn.setText("Verify endpoint URL, network connectivity, or API credentials.")
+            self.lbl_chk_model.setText("Select 'Continue Manually' to proceed without AI configuration.")
             self.is_ai_tested = False
             self.ai_configured.emit(False)
 

@@ -174,6 +174,7 @@ class JobsView(QWidget):
         self._current_jobs: List[Job] = []
         self._current_method_filter: Optional[str] = None
         self._is_junk_tab: bool = False
+        self._is_closed_tab: bool = False
         self._current_page = 1
         self._page_size = 50
         self._sort_by = "first_seen_at"
@@ -272,6 +273,7 @@ class JobsView(QWidget):
         self.btn_tab_all = self.category_tabs.btn_all
         self.btn_tab_easy = self.category_tabs.btn_easy
         self.btn_tab_portal = self.category_tabs.btn_portal
+        self.btn_tab_closed = self.category_tabs.btn_closed
         self.btn_tab_junk = self.category_tabs.btn_junk
 
         # 4. Multi-Attribute Filter Toolbar & Active Chips
@@ -397,6 +399,7 @@ class JobsView(QWidget):
         """
         if method == "JUNK":
             self._is_junk_tab = True
+            self._is_closed_tab = False
             self._current_method_filter = None
             self.category_tabs.set_active_method("JUNK")
             self.toolbar.cmb_status.blockSignals(True)
@@ -407,13 +410,27 @@ class JobsView(QWidget):
             self.toolbar.update_chips()
             self.table.set_junk_view(True)
             self.bulk_bar.set_mode(is_junk_mode=True)
+        elif method == "CLOSED":
+            self._is_junk_tab = False
+            self._is_closed_tab = True
+            self._current_method_filter = None
+            self.category_tabs.set_active_method("CLOSED")
+            self.toolbar.cmb_status.blockSignals(True)
+            idx = self.toolbar.cmb_status.findText("Closed")
+            if idx >= 0:
+                self.toolbar.cmb_status.setCurrentIndex(idx)
+            self.toolbar.cmb_status.blockSignals(False)
+            self.toolbar.update_chips()
+            self.table.set_junk_view(False)
+            self.bulk_bar.set_mode(is_junk_mode=False)
         else:
             self._is_junk_tab = False
+            self._is_closed_tab = False
             val = method if method else None
             self._current_method_filter = val
             self.category_tabs.set_active_method(val)
             self.toolbar.set_method(val)
-            if self.toolbar.cmb_status.currentText() == "Junk":
+            if self.toolbar.cmb_status.currentText() in ("Junk", "Closed"):
                 self.toolbar.cmb_status.blockSignals(True)
                 self.toolbar.cmb_status.setCurrentIndex(0)
                 self.toolbar.cmb_status.blockSignals(False)
@@ -426,6 +443,7 @@ class JobsView(QWidget):
     def _on_category_tab_changed(self, method: Optional[str]) -> None:
         if method == "JUNK":
             self._is_junk_tab = True
+            self._is_closed_tab = False
             self._current_method_filter = None
             self.toolbar.cmb_status.blockSignals(True)
             idx = self.toolbar.cmb_status.findText("Junk")
@@ -435,11 +453,24 @@ class JobsView(QWidget):
             self.toolbar.update_chips()
             self.table.set_junk_view(True)
             self.bulk_bar.set_mode(is_junk_mode=True)
+        elif method == "CLOSED":
+            self._is_junk_tab = False
+            self._is_closed_tab = True
+            self._current_method_filter = None
+            self.toolbar.cmb_status.blockSignals(True)
+            idx = self.toolbar.cmb_status.findText("Closed")
+            if idx >= 0:
+                self.toolbar.cmb_status.setCurrentIndex(idx)
+            self.toolbar.cmb_status.blockSignals(False)
+            self.toolbar.update_chips()
+            self.table.set_junk_view(False)
+            self.bulk_bar.set_mode(is_junk_mode=False)
         else:
             self._is_junk_tab = False
+            self._is_closed_tab = False
             self._current_method_filter = method
             self.toolbar.set_method(method)
-            if self.toolbar.cmb_status.currentText() == "Junk":
+            if self.toolbar.cmb_status.currentText() in ("Junk", "Closed"):
                 self.toolbar.cmb_status.blockSignals(True)
                 self.toolbar.cmb_status.setCurrentIndex(0)
                 self.toolbar.cmb_status.blockSignals(False)
@@ -727,6 +758,7 @@ class JobsView(QWidget):
                 all_count=counts.get("all", 0),
                 easy_count=counts.get("easy", 0),
                 portal_count=counts.get("portal", 0),
+                closed_count=counts.get("closed", 0),
                 junk_count=counts.get("junk", 0),
             )
         except Exception:
@@ -734,16 +766,27 @@ class JobsView(QWidget):
 
         # 2. Extract active filters
         tf = self.toolbar.get_filters()
-        status_filter = "JUNK" if self._is_junk_tab else tf.get("status")
-        method_filter = None if self._is_junk_tab else (self._current_method_filter or tf.get("method"))
+        if self._is_junk_tab:
+            status_filter = "JUNK"
+        elif self._is_closed_tab:
+            status_filter = "CLOSED"
+        else:
+            status_filter = tf.get("status")
+        method_filter = None if (self._is_junk_tab or self._is_closed_tab) else (self._current_method_filter or tf.get("method"))
 
         is_junk_view = status_filter == "JUNK"
         self.table.set_junk_view(is_junk_view)
         self.bulk_bar.set_mode(is_junk_mode=is_junk_view)
 
+        # Standard category tabs (All Jobs, Easy Apply, Company Portal) show active listings unless explicit status chosen
+        is_active_filter = None
+        if not self._is_junk_tab and not self._is_closed_tab and not status_filter:
+            is_active_filter = True
+
         f = JobFilter(
             platform=tf.get("platform"),
             status=status_filter,
+            is_active=is_active_filter,
             search=tf.get("search"),
             location=tf.get("location"),
             application_method=method_filter,
@@ -957,6 +1000,10 @@ class JobsView(QWidget):
                     )
                     if updated:
                         success_count += 1
+                        if new_status == "CLOSED":
+                            self.job_service.mark_job_inactive(job.id)
+                        else:
+                            self.job_service.mark_job_active(job.id)
                     else:
                         fail_count += 1
                         last_error = err or "Transition rejected"
@@ -970,6 +1017,10 @@ class JobsView(QWidget):
                     )
                     if app:
                         success_count += 1
+                        if new_status == "CLOSED":
+                            self.job_service.mark_job_inactive(job.id)
+                        else:
+                            self.job_service.mark_job_active(job.id)
                     else:
                         fail_count += 1
                         last_error = err or "Creation failed"
@@ -993,6 +1044,7 @@ class JobsView(QWidget):
         if selected_job:
             self._on_job_selected(selected_job)
         self.data_updated.emit("pipeline")
+        self.data_updated.emit("jobs")
 
     def _on_refresh_clicked(self) -> None:
         """User-triggered refresh: clears exact isolation filter and reloads fresh jobs from DB."""

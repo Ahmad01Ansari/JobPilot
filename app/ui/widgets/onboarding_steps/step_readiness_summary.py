@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QScrollArea
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon, render_vector_pixmap
 from app.services.setup.setup_readiness import ReadinessEvaluation
 
 
@@ -85,9 +86,9 @@ class StepReadinessSummaryWidget(QWidget):
         """)
         cc_layout = QVBoxLayout(self.card_core)
         cc_layout.setContentsMargins(16, 14, 16, 14)
-        lbl_c_tag = QLabel("TIER 1: BASIC JOBPILOT READINESS")
+        lbl_c_tag = QLabel("TIER 1: CORE APPLICATION READINESS")
         lbl_c_tag.setStyleSheet(f"font-size: 10px; font-weight: 800; color: {COLORS['text_muted']};")
-        self.lbl_c_status = QLabel("✓ JOB SEARCH READY")
+        self.lbl_c_status = QLabel("Job Search Ready")
         self.lbl_c_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['success']};")
         self.lbl_c_desc = QLabel("Candidate profile, primary resume, and search criteria verified.")
         self.lbl_c_desc.setWordWrap(True)
@@ -115,7 +116,7 @@ class StepReadinessSummaryWidget(QWidget):
         ca_layout.setContentsMargins(16, 14, 16, 14)
         lbl_a_tag = QLabel("TIER 2: AUTONOMOUS AGENT READINESS")
         lbl_a_tag.setStyleSheet(f"font-size: 10px; font-weight: 800; color: {COLORS['text_muted']};")
-        self.lbl_a_status = QLabel("● AUTOMATION READY")
+        self.lbl_a_status = QLabel("Automation Ready")
         self.lbl_a_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['primary']};")
         self.lbl_a_desc = QLabel("AI provider pinged, 398+ Q&A rules active, portals & safety configured.")
         self.lbl_a_desc.setWordWrap(True)
@@ -154,7 +155,7 @@ class StepReadinessSummaryWidget(QWidget):
         self.lbl_changes.setStyleSheet(f"font-size: 12px; color: {COLORS['text']}; line-height: 1.4;")
         ch_layout.addWidget(self.lbl_changes)
 
-        lbl_safe = QLabel("🔒 All credentials securely stored in OS Keyring. Zero secrets written to setup logs.")
+        lbl_safe = QLabel("All credentials securely stored in OS Keyring. Zero secrets written to setup logs.")
         lbl_safe.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']}; font-style: italic;")
         ch_layout.addWidget(lbl_safe)
 
@@ -164,7 +165,8 @@ class StepReadinessSummaryWidget(QWidget):
         action_row = QHBoxLayout()
         action_row.setSpacing(14)
 
-        self.btn_tour = QPushButton("🧭 Take 60-Second Product Tour")
+        self.btn_tour = QPushButton("Take 60-Second Product Tour")
+        self.btn_tour.setIcon(render_vector_icon("pilot", COLORS['text'], 15))
         self.btn_tour.setCursor(Qt.PointingHandCursor)
         self.btn_tour.setMinimumHeight(48)
         self.btn_tour.setStyleSheet(f"""
@@ -185,7 +187,8 @@ class StepReadinessSummaryWidget(QWidget):
         self.btn_tour.clicked.connect(self.tour_requested.emit)
         action_row.addWidget(self.btn_tour, 1)
 
-        self.btn_finish = QPushButton("⚡ Finish and Open JobPilot ►")
+        self.btn_finish = QPushButton("Finish and Open JobPilot")
+        self.btn_finish.setIcon(render_vector_icon("check", "#FFFFFF", 15))
         self.btn_finish.setCursor(Qt.PointingHandCursor)
         self.btn_finish.setMinimumHeight(48)
         self.btn_finish.setStyleSheet(f"""
@@ -215,21 +218,21 @@ class StepReadinessSummaryWidget(QWidget):
         """Renders live evaluation results and session change history."""
         # Tier 1: Job Search Ready
         if evaluation.is_core_ready:
-            self.lbl_c_status.setText("✓ JOB SEARCH READY")
+            self.lbl_c_status.setText("Job Search Ready")
             self.lbl_c_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['success']};")
             self.lbl_c_desc.setText(f"{evaluation.core_summary}. You can use JobPilot immediately.")
         else:
-            self.lbl_c_status.setText("⚠ CORE INCOMPLETE")
+            self.lbl_c_status.setText("Configuration Incomplete")
             self.lbl_c_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['warning']};")
             self.lbl_c_desc.setText(f"{evaluation.core_summary}. Complete missing profile or resume items.")
 
         # Tier 2: Automation Ready
         if evaluation.is_automation_ready:
-            self.lbl_a_status.setText("● AUTOMATION READY")
+            self.lbl_a_status.setText("Automation Ready")
             self.lbl_a_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['primary']};")
             self.lbl_a_desc.setText("AI provider pinged, 398+ Q&A facts active, portals verified.")
         else:
-            self.lbl_a_status.setText("○ AUTOMATION OPTIONAL")
+            self.lbl_a_status.setText("Automation Optional")
             self.lbl_a_status.setStyleSheet(f"font-size: 15px; font-weight: 800; color: {COLORS['text_muted']};")
             self.lbl_a_desc.setText("Configure AI and portal accounts whenever you wish to use auto-apply.")
 

@@ -59,6 +59,10 @@ class IndeedSubmitter:
         if not self.driver:
             return None
 
+        cur_url = (getattr(self.driver, "current_url", "") or "").lower()
+        if any(k in cur_url for k in ["contact-info", "resume-selection", "resume", "questions", "location"]):
+            return None
+
         self.wait_for_spinner(timeout=5)
         start = time.time()
 
@@ -75,7 +79,12 @@ class IndeedSubmitter:
                     elems = self.driver.find_elements(By.XPATH, sel)
                     for el in elems:
                         try:
-                            # Scroll element into center
+                            # Verify element is safe and not a back/edit/exit button
+                            txt = (el.text or el.get_attribute("value") or "").strip().lower()
+                            aria = (el.get_attribute("aria-label") or "").strip().lower()
+                            combo = f"{txt} {aria}"
+                            if any(bad in combo for bad in ["back", "edit", "exit", "cancel", "discard"]):
+                                continue
                             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
                             time.sleep(0.3)
                             if el.is_displayed():
@@ -85,12 +94,17 @@ class IndeedSubmitter:
                 except Exception:
                     continue
 
-            # 3. Dynamic JavaScript query across buttons, links, and divs
+            # 3. Dynamic JavaScript query across buttons and inputs
             try:
                 js_btn = self.driver.execute_script("""
-                    const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], input[type="submit"]'));
+                    const candidates = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'));
                     for (const el of candidates) {
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
                         const txt = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                        const combo = txt + ' ' + aria;
+                        if (combo.includes('back') || combo.includes('edit') || combo.includes('exit') || combo.includes('cancel') || combo.includes('discard')) continue;
                         if (txt.includes('submit your application') || txt.includes('submit application') || txt === 'submit') {
                             el.scrollIntoView({block: 'center'});
                             return el;

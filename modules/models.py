@@ -42,6 +42,13 @@ class Job:
             return self.raw_metadata.get("salary_text")
         return None
 
+    @salary_text.setter
+    def salary_text(self, value: Optional[str]) -> None:
+        """Stores raw salary text in raw_metadata dictionary."""
+        if not isinstance(self.raw_metadata, dict):
+            self.raw_metadata = {}
+        self.raw_metadata["salary_text"] = value
+
     @property
     def experience_text(self) -> Optional[str]:
         """Returns preserved raw experience text if stored in raw_metadata, or computed range."""
@@ -49,6 +56,13 @@ class Job:
             return self.raw_metadata.get("experience_text")
         range_str = self.experience_range_str()
         return range_str if range_str != "Not specified" else None
+
+    @experience_text.setter
+    def experience_text(self, value: Optional[str]) -> None:
+        """Stores raw experience text in raw_metadata dictionary."""
+        if not isinstance(self.raw_metadata, dict):
+            self.raw_metadata = {}
+        self.raw_metadata["experience_text"] = value
 
     def experience_range_str(self) -> str:
         """Returns human-readable representation of required experience range."""

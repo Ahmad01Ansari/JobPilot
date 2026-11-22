@@ -204,7 +204,7 @@ class RecruitmentService:
         offset: int = 0,
     ) -> List[Interview]:
         """Lists interviews with eager loaded application and job records."""
-        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK")
+        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK", "CLOSED")
         with get_db_session(self._session_factory) as session:
             # Self-healing: ensure any application currently in INTERVIEW stage has at least one Interview round
             unlinked_apps = (
@@ -455,7 +455,7 @@ class RecruitmentService:
     def get_metrics(self) -> Dict[str, Any]:
         """Computes derived recruitment metrics across interviews, follow-ups, and offers."""
         now = utc_now()
-        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK")
+        closed_app_statuses = ("OFFER", "REJECTED", "WITHDRAWN", "JUNK", "CLOSED")
         with get_db_session(self._session_factory) as session:
             # Upcoming interviews: SCHEDULED, scheduled_at >= now, and parent application still active
             upcoming = session.scalar(

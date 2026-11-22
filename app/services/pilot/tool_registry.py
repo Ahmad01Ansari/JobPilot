@@ -508,9 +508,9 @@ class PilotToolRegistry:
                 },
             },
             fast_patterns=[
-                r"^run\s+(?P<platform>linkedin|naukri|indeed|foundit|glassdoor|universal)(?:\s+bot|\s+automation)?",
-                r"^start\s+(?P<platform>linkedin|naukri|indeed|foundit|glassdoor|universal)(?:\s+bot|\s+automation)?",
-                r"^launch\s+(?P<platform>linkedin|naukri|indeed|foundit|glassdoor|universal)",
+                r"^run\s+(?P<platform>all|linkedin|naukri|indeed|foundit|glassdoor|universal)(?:\s+bot|\s+automation)?",
+                r"^start\s+(?P<platform>all|linkedin|naukri|indeed|foundit|glassdoor|universal)(?:\s+bot|\s+automation)?",
+                r"^launch\s+(?P<platform>all|linkedin|naukri|indeed|foundit|glassdoor|universal)",
             ],
         ))
 

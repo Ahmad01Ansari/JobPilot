@@ -100,6 +100,7 @@ class JobsToolbar(QWidget):
             "Offer",
             "Rejected",
             "Withdrawn",
+            "Closed",
             "Skipped",
             "Failed",
             "Junk",

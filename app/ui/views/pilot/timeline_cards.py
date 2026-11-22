@@ -431,7 +431,76 @@ class NeedsYouCard(QFrame):
                 elif inv.kind == InterventionKind.APPROVAL:
                     card_options = ["Approve & Submit", "Skip Job"]
 
-            if card_options:
+            is_question_kind = (inv.kind == InterventionKind.QUESTION) or any("solved it" in opt.lower() for opt in card_options)
+
+            if is_question_kind:
+                # Provide candidate input field AND quick action buttons
+                input_row = QHBoxLayout()
+                self.input_field = QLineEdit()
+                self._input_field = self.input_field
+                self.input_field.setPlaceholderText("Enter answer (e.g. 15, 30 days, or value)...")
+                self.input_field.setStyleSheet(f"""
+                    QLineEdit {{
+                        background-color: {COLORS.get('surface', '#161B22')};
+                        color: {COLORS.get('text', '#F0F6FC')};
+                        border: 1px solid {COLORS.get('border', '#262C36')};
+                        border-radius: 6px;
+                        padding: 6px 10px;
+                        font-size: 13px;
+                    }}
+                    QLineEdit:focus {{
+                        border-color: {COLORS.get('primary', '#FF5F15')};
+                    }}
+                """)
+                self.input_field.returnPressed.connect(self._on_input_submitted)
+                input_row.addWidget(self.input_field, 1)
+
+                submit_btn = QPushButton("Submit Answer")
+                self._submit_btn = submit_btn
+                submit_btn.setCursor(Qt.PointingHandCursor)
+                submit_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {COLORS.get('primary', '#FF5F15')};
+                        color: #FFFFFF;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 6px 14px;
+                        font-weight: bold;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {COLORS.get('primary_hover', '#E04F0B')};
+                    }}
+                """)
+                submit_btn.clicked.connect(self._on_input_submitted)
+                input_row.addWidget(submit_btn)
+                layout.addLayout(input_row)
+
+                if card_options:
+                    options_box = QHBoxLayout()
+                    for opt in card_options:
+                        btn = QPushButton(opt)
+                        btn.setCursor(Qt.PointingHandCursor)
+                        btn.setStyleSheet(f"""
+                            QPushButton {{
+                                background-color: {COLORS.get('surface', '#161B22')};
+                                color: {COLORS.get('text_muted', '#8B949E')};
+                                border: 1px solid {COLORS.get('border', '#262C36')};
+                                border-radius: 6px;
+                                padding: 5px 12px;
+                                font-size: 11px;
+                                font-weight: 600;
+                            }}
+                            QPushButton:hover {{
+                                border-color: {COLORS.get('primary', '#FF5F15')};
+                                color: {COLORS.get('text', '#F0F6FC')};
+                            }}
+                        """)
+                        btn.clicked.connect(lambda _, val=opt: self._submit_answer(val))
+                        options_box.addWidget(btn)
+                        self._action_buttons.append(btn)
+                    options_box.addStretch()
+                    layout.addLayout(options_box)
+            elif card_options:
                 options_box = QHBoxLayout()
                 for opt in card_options:
                     btn = QPushButton(opt)
@@ -1181,7 +1250,7 @@ class PilotMessageCard(QFrame):
                 self.console_box.set_active_step(s.title, status=s.status)
                 log_status = "RUNNING" if s.status == "wait" else s.status.upper()
                 self.console_box.append_log(f"[{log_status}] {s.title}")
-                if any(t in s.title.lower() for t in ["finished", "completed", "stopped by user", "cycle finished", "stopped naturally"]):
+                if any(t in s.title.lower() for t in ["automation finished", "automation completed", "automation execution completed", "stopped by user", "batch completed", "stopped naturally"]):
                     has_finished_step = True
                     finish_title = s.title
 
@@ -1209,40 +1278,32 @@ class PilotMessageCard(QFrame):
                 self.simulation_box.mark_completed()
             return
 
+        is_automation_step = any(step.title.startswith(pfx) for pfx in ("Agent Action:", "Session State:", "Portal Navigation:", "Candidate Evaluation:", "Application Execution:", "Discovered posting:", "Evaluated "))
+        if is_automation_step and not self.console_box:
+            if self.simulation_box:
+                self.main_layout.removeWidget(self.simulation_box)
+                self.simulation_box.deleteLater()
+                self.simulation_box = None
+            p_name = "Automation"
+            if self.message.payload and isinstance(self.message.payload, dict):
+                p_name = self.message.payload.get("platform", "Automation")
+            self.console_box = AutomationConsoleBox(platform_name=p_name)
+            if self.message.payload and isinstance(self.message.payload, dict):
+                self.console_box.update_from_dict(self.message.payload)
+            self.main_layout.addWidget(self.console_box)
+
         if self.console_box:
             status_str = "running" if step.status == "wait" else step.status
             self.console_box.set_active_step(step.title, status=status_str)
             self.console_box.append_log(f"[{status_str.upper()}] {step.title}")
-            if any(k in step.title.lower() for k in ["finished", "completed", "stopped"]):
+            if any(k in step.title.lower() for k in ["automation finished", "automation completed", "automation execution completed", "stopped by user", "batch completed", "stopped naturally"]):
                 is_stop = "stop" in step.title.lower()
                 self.console_box.mark_completed(step.title, is_stopped=is_stop)
         elif self.simulation_box:
             self.simulation_box.add_or_update_step(step)
         else:
-            is_automation_step = any(step.title.startswith(pfx) for pfx in ("Agent Action:", "Session State:", "Portal Navigation:", "Candidate Evaluation:"))
-            if is_automation_step:
-                if self.simulation_box:
-                    self.main_layout.removeWidget(self.simulation_box)
-                    self.simulation_box.deleteLater()
-                    self.simulation_box = None
-                p_name = "Automation"
-                if self.message.payload and isinstance(self.message.payload, dict):
-                    p_name = self.message.payload.get("platform", "Automation")
-                self.console_box = AutomationConsoleBox(platform_name=p_name)
-            if self.message.payload and isinstance(self.message.payload, dict):
-                self.console_box.update_from_dict(self.message.payload)
-                for s in self.message.steps:
-                    log_status = "RUNNING" if s.status == "wait" else s.status.upper()
-                    self.console_box.append_log(f"[{log_status}] {s.title}")
-                status_str = "running" if step.status == "wait" else step.status
-                self.console_box.set_active_step(step.title, status=status_str)
-                self.console_box.append_log(f"[{status_str.upper()}] {step.title}")
-                if any(k in step.title.lower() for k in ["finished", "completed", "stopped"]):
-                    self.console_box.mark_completed(step.title, is_stopped="stop" in step.title.lower())
-                self.main_layout.addWidget(self.console_box)
-            else:
-                self._build_simulation_box()
-                self.simulation_box.add_or_update_step(step)
+            self._build_simulation_box()
+            self.simulation_box.add_or_update_step(step)
 
     def update_metrics(self, data: dict):
         """Updates live KPI banner metrics (Discovered, Evaluated, Qualified, Applied, Skipped)."""
@@ -1253,12 +1314,37 @@ class PilotMessageCard(QFrame):
         """Updates the card's body and transitions all simulation steps to completed."""
         self.message = message
         self.body.setText(format_pilot_markdown(message.body))
-        if self.simulation_box:
+
+        is_automation = (
+            message.action_type in (PilotActionType.START_AUTOMATION, PilotActionType.APPLY_JOBS)
+            or (message.payload and isinstance(message.payload, dict) and message.payload.get("platform"))
+            or any(any(s.title.startswith(pfx) for pfx in ("Agent Action:", "Session State:", "Portal Navigation:", "Candidate Evaluation:", "Application Execution:", "Discovered posting:", "Evaluated ")) for s in message.steps)
+        )
+        if is_automation and not self.console_box:
+            if self.simulation_box:
+                self.main_layout.removeWidget(self.simulation_box)
+                self.simulation_box.deleteLater()
+                self.simulation_box = None
+            p_name = "Automation"
+            if message.payload and isinstance(message.payload, dict):
+                p_name = message.payload.get("platform", "Automation")
+            self.console_box = AutomationConsoleBox(platform_name=p_name)
+            if message.payload and isinstance(message.payload, dict):
+                self.console_box.update_from_dict(message.payload)
+            for s in message.steps:
+                log_status = "RUNNING" if s.status == "wait" else s.status.upper()
+                self.console_box.append_log(f"[{log_status}] {s.title}")
+                self.console_box.set_active_step(s.title, status=s.status)
+            self.main_layout.addWidget(self.console_box)
+        elif self.console_box:
+            for s in message.steps:
+                log_status = "RUNNING" if s.status == "wait" else s.status.upper()
+                self.console_box.append_log(f"[{log_status}] {s.title}")
+                self.console_box.set_active_step(s.title, status=s.status)
+        elif self.simulation_box:
             for s in message.steps:
                 self.simulation_box.add_or_update_step(s)
             self.simulation_box.mark_completed()
         elif message.steps:
             self._build_simulation_box()
             self.simulation_box.mark_completed()
-        if self.console_box:
-            self.console_box.mark_completed()

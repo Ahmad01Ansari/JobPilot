@@ -95,7 +95,6 @@ class UniversalSessionManager:
                 "--disable-infobars",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
                 "--deny-permission-prompts",
                 "--disable-geolocation",
                 "--disable-save-password-bubble",
@@ -103,6 +102,8 @@ class UniversalSessionManager:
                 "--disable-password-manager-reauthentication",
             ],
         }
+        if headless:
+            options["args"].append("--disable-gpu")
         if not headless:
             # Prevent Stagehand from injecting a fixed 1280x800 window size that breaks start-maximized
             options["ignore_default_args"] = ["--window-size=1280,800"]

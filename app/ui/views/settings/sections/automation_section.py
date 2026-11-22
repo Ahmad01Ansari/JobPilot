@@ -4,9 +4,11 @@ from typing import Any, Dict, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QLabel,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -68,7 +70,7 @@ class AutomationSection(QWidget):
         sb_layout.setContentsMargins(8, 8, 8, 8)
         sb_layout.setSpacing(6)
 
-        self.lbl_sb_title = QLabel("🛡️ Automation Safety: ● Protected")
+        self.lbl_sb_title = QLabel("Automation Safety: ● Protected")
         self.lbl_sb_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS.get('success', '#2EA043')};")
         sb_layout.addWidget(self.lbl_sb_title)
 
@@ -159,9 +161,106 @@ class AutomationSection(QWidget):
             title="Close external job tabs after capture",
             description="Automatically closes external redirect tabs in Chrome after capturing job details.",
             control_widget=self.chk_close_tabs,
-            is_last=True,
         )
         card_layout.addWidget(row_tabs)
+
+        # 6. Auto-close stale applications (default True)
+        self.chk_auto_close = QCheckBox()
+        self.chk_auto_close.setChecked(True)
+        self.chk_auto_close.setStyleSheet(self._chk_style())
+        self.chk_auto_close.toggled.connect(self._on_control_changed)
+        row_auto_close = SettingRow(
+            title="Auto-close stale applications after inactivity",
+            description="Automatically moves ghost applications in Submitted/Under Review to Closed when no recruiter response occurs within the threshold.",
+            control_widget=self.chk_auto_close,
+        )
+        card_layout.addWidget(row_auto_close)
+
+        # 7. Stale threshold (default 60 days)
+        self.cmb_stale_days = QComboBox()
+        self.cmb_stale_days.addItem("30 Days (1 Month)", 30)
+        self.cmb_stale_days.addItem("45 Days (1.5 Months)", 45)
+        self.cmb_stale_days.addItem("60 Days (Standard — 2 Months)", 60)
+        self.cmb_stale_days.addItem("90 Days (Quarterly — 3 Months)", 90)
+        self.cmb_stale_days.setCurrentIndex(2)  # default 60 days
+        self.cmb_stale_days.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLORS.get('surface_alt', '#1C2128')};
+                color: {COLORS.get('text', '#F0F6FC')};
+                border: 1px solid {COLORS.get('border', '#262C36')};
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 12px;
+                min-width: 200px;
+            }}
+            QComboBox:hover {{
+                border-color: {COLORS.get('primary', '#38BDF8')};
+            }}
+        """)
+        self.cmb_stale_days.currentIndexChanged.connect(self._on_control_changed)
+        row_days = SettingRow(
+            title="Inactivity threshold before closing",
+            description="Duration of zero recruiter or portal activity required before an application is considered cold and auto-closed.",
+            control_widget=self.cmb_stale_days,
+            is_last=False,
+        )
+        card_layout.addWidget(row_days)
+
+        # 8. Round-Robin Batch Slice per Platform (default 10)
+        self.spn_batch_slice = QSpinBox()
+        self.spn_batch_slice.setRange(1, 50)
+        self.spn_batch_slice.setValue(10)
+        self.spn_batch_slice.setSuffix(" apps")
+        self.spn_batch_slice.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {COLORS.get('surface_alt', '#1C2128')};
+                color: {COLORS.get('text', '#F0F6FC')};
+                border: 1px solid {COLORS.get('border', '#262C36')};
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 12px;
+                min-width: 140px;
+            }}
+            QSpinBox:hover {{
+                border-color: {COLORS.get('primary', '#38BDF8')};
+            }}
+        """)
+        self.spn_batch_slice.valueChanged.connect(self._on_control_changed)
+        row_slice = SettingRow(
+            title="Round-robin batch slice per platform",
+            description="Applications submitted per platform in each cycle before yielding to the next platform in the queue.",
+            control_widget=self.spn_batch_slice,
+            is_last=False,
+        )
+        card_layout.addWidget(row_slice)
+
+        # 9. Batch Daily Goal per Platform (default 25)
+        self.spn_daily_goal = QSpinBox()
+        self.spn_daily_goal.setRange(1, 100)
+        self.spn_daily_goal.setValue(25)
+        self.spn_daily_goal.setSuffix(" apps")
+        self.spn_daily_goal.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {COLORS.get('surface_alt', '#1C2128')};
+                color: {COLORS.get('text', '#F0F6FC')};
+                border: 1px solid {COLORS.get('border', '#262C36')};
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 12px;
+                min-width: 140px;
+            }}
+            QSpinBox:hover {{
+                border-color: {COLORS.get('primary', '#38BDF8')};
+            }}
+        """)
+        self.spn_daily_goal.valueChanged.connect(self._on_control_changed)
+        row_goal = SettingRow(
+            title="Batch daily goal per platform",
+            description="Daily target applications for each platform in multi-platform mode. The runner repeats round-robin cycles until met.",
+            control_widget=self.spn_daily_goal,
+            is_last=True,
+        )
+        card_layout.addWidget(row_goal)
 
         layout.addWidget(card)
         layout.addStretch()
@@ -177,7 +276,7 @@ class AutomationSection(QWidget):
         is_safe = self.chk_pause_failed.isChecked() or self.chk_pause_submit.isChecked()
         color = COLORS.get('success', '#2EA043') if is_safe else COLORS.get('warning', '#D29922')
         status_text = "● Protected" if is_safe else "○ Unattended"
-        self.lbl_sb_title.setText(f"🛡️ Automation Safety: {status_text}")
+        self.lbl_sb_title.setText(f"Automation Safety: {status_text}")
         self.lbl_sb_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {color};")
         self.safety_banner.setStyleSheet(f"""
             QFrame#SafetyBanner {{
@@ -204,6 +303,10 @@ class AutomationSection(QWidget):
             "pause_at_failed_question": self.chk_pause_failed.isChecked(),
             "follow_companies": self.chk_follow_companies.isChecked(),
             "close_tabs": self.chk_close_tabs.isChecked(),
+            "auto_close_stale_applications": self.chk_auto_close.isChecked(),
+            "auto_close_stale_days": self.cmb_stale_days.currentData() or 60,
+            "batch_size_per_platform": self.spn_batch_slice.value(),
+            "batch_daily_goal_per_platform": self.spn_daily_goal.value(),
         }
 
     def load_values(self, values: Dict[str, Any]) -> None:
@@ -218,6 +321,26 @@ class AutomationSection(QWidget):
             self.chk_follow_companies.setChecked(bool(values["follow_companies"]))
         if "close_tabs" in values:
             self.chk_close_tabs.setChecked(bool(values["close_tabs"]))
+        if "auto_close_stale_applications" in values:
+            self.chk_auto_close.setChecked(bool(values["auto_close_stale_applications"]))
+        if "auto_close_stale_days" in values:
+            try:
+                days = int(values["auto_close_stale_days"])
+                idx = self.cmb_stale_days.findData(days)
+                if idx >= 0:
+                    self.cmb_stale_days.setCurrentIndex(idx)
+            except Exception:
+                pass
+        if "batch_size_per_platform" in values:
+            try:
+                self.spn_batch_slice.setValue(int(values["batch_size_per_platform"]))
+            except Exception:
+                pass
+        if "batch_daily_goal_per_platform" in values:
+            try:
+                self.spn_daily_goal.setValue(int(values["batch_daily_goal_per_platform"]))
+            except Exception:
+                pass
         self.blockSignals(False)
         self.update_safety_banner()
 
@@ -228,6 +351,10 @@ class AutomationSection(QWidget):
             "pause_at_failed_question": True,
             "follow_companies": False,
             "close_tabs": False,
+            "auto_close_stale_applications": True,
+            "auto_close_stale_days": 60,
+            "batch_size_per_platform": 10,
+            "batch_daily_goal_per_platform": 25,
         })
         self.changed.emit()
 

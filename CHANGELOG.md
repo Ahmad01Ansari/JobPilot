@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.9-beta] — 2026-11-22
+
+### Cross-Platform Auto-Update System, Foundit Redirect & URL Extraction, and Telemetry Real-Time Sync
+
+This release introduces an in-app cross-platform auto-updater and release notification engine (`UpdateService` and `UpdateDialog`), resolves Foundit modern green redirect toast confirmation and external portal destination extraction, fixes Automation View tab and hero card synchronization during automation execution, and expands regression test suites.
+
+#### Added
+- **Cross-Platform Auto-Update & In-App Release Notification Architecture (`UpdateService` & `UpdateDialog`)**:
+  - Implemented asynchronous background update checker with GitHub Releases API integration (`Ahmad01Ansari/JobPilot`).
+  - Added robust Semantic Versioning comparison supporting pre-release tags (`0.4.9-beta` > `0.4.8-beta`).
+  - Added platform-specific release asset auto-discovery for Windows (`.zip`/`.exe`), Linux (`.AppImage`), and macOS (`.dmg`).
+  - Implemented chunked background download engine with SHA256 cryptographic checksum verification and real-time progress callbacks.
+  - Implemented detached atomic self-updating scripts (`update_helper.bat` for Windows and atomic replacement for Linux AppImages).
+  - Built PySide6 `UpdateDialog` modal featuring release notes markdown viewer, version badges, live progress bar, and 1-click update action.
+  - Integrated non-blocking startup update notification banner (`NotificationBar`) in `MainWindow` with safety suppression during active automation.
+  - Added manual "Check for Updates" trigger in `AboutDialog`.
+- **Foundit External Portal URL Extraction & Submission Tracking**:
+  - Enhanced `FounditApplier` to click `Apply Now` on external employer postings, detect and extract the target portal URL from child browser tabs, cleanly close extra tabs, and record the application as `SUBMITTED`.
+  - Added full telemetry recording for external portal destinations in application notes.
+
+#### Fixed & Enhanced
+- **Foundit Green Redirect Toast Confirmation**:
+  - Updated `FounditSubmitter.verify_submission` to recognize modern Foundit's green redirect notification toast (`Redirecting you to apply on company site.`) and button state transformation to `Applied` as successful submission.
+- **Foundit Job Model Experience Property Fix**:
+  - Added setter for `Job.experience_text` in `modules/models.py` to prevent `AttributeError: property 'experience_text' of 'Job' object has no setter` during search result parsing.
+- **Foundit Real-Time Qualification & Submissions Telemetry**:
+  - Linked Stage 2 experience validation in `FounditRotator` directly to `tracker.record_qualified(job)` to update live qualified counters in `PilotService` and `AutomationWorker`.
+- **Automation View Platform Tab Synchronization**:
+  - Upgraded `AutomationView` to automatically synchronize active platform tabs and hero cards on progress, discovery, evaluation, and submission events, switching from `LinkedIn` to `Foundit` dynamically when Foundit automation executes.
+  - Fixed `AutomationUIState` in `app/ui/widgets/automation/state.py` to ensure discovered, evaluated, qualified, skipped, and submitted KPI counters synchronize accurately.
+- **Regression Test Coverage Expansion**:
+  - Added `tests/test_update_service.py` verifying SemVer parsing, asset selection, GitHub API payload handling, and update workflows.
+  - Added `tests/test_auto_close_stale.py`, `tests/test_outreach_lifecycle_management.py`, and `tests/test_setup_data_transfer.py`.
+
+---
+
 ## [0.4.8-beta] — 2026-11-20
 
 ### Multi-Platform Analytics Dashboard, ATS Archetype Tracking, and Outreach Attachment Pipeline

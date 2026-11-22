@@ -154,7 +154,27 @@ class AboutDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
 
-        btn_export = QPushButton("📋 Export Diagnostic Report")
+        self.btn_check_update = QPushButton("Check for Updates")
+        self.btn_check_update.setCursor(Qt.PointingHandCursor)
+        self.btn_check_update.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS.get('surface_alt', '#1C2128')};
+                color: {COLORS.get('text', '#F0F6FC')};
+                border: 1px solid {COLORS.get('border_light', '#333A46')};
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS.get('primary', '#FF5F15')};
+                color: {COLORS.get('primary', '#FF5F15')};
+            }}
+        """)
+        self.btn_check_update.clicked.connect(self._on_check_updates)
+        btn_row.addWidget(self.btn_check_update)
+
+        btn_export = QPushButton("Export Diagnostic Report")
         btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.setStyleSheet(f"""
             QPushButton {{
@@ -196,6 +216,47 @@ class AboutDialog(QDialog):
         btn_row.addWidget(btn_close)
 
         layout.addLayout(btn_row)
+
+    def _on_check_updates(self) -> None:
+        """Checks for new version in background and opens UpdateDialog if available."""
+        self.btn_check_update.setEnabled(False)
+        self.btn_check_update.setText("Checking...")
+        from app.services.update_service import UpdateService, UpdateCheckWorker
+
+        service = UpdateService()
+        self._update_worker = UpdateCheckWorker(service, parent=self)
+
+        def on_found(info):
+            self.btn_check_update.setEnabled(True)
+            self.btn_check_update.setText("Check for Updates")
+            from app.ui.dialogs.update_dialog import UpdateDialog
+            dialog = UpdateDialog(update_info=info, update_service=service, parent=self)
+            dialog.exec()
+
+        def on_not_found():
+            self.btn_check_update.setEnabled(True)
+            self.btn_check_update.setText("Up to Date")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                "JobPilot Up to Date",
+                f"You are running the latest version of JobPilot (v{VERSION}). No updates available.",
+            )
+
+        def on_err(err):
+            self.btn_check_update.setEnabled(True)
+            self.btn_check_update.setText("Check for Updates")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Update Check Failed",
+                f"Could not connect to update server: {err}",
+            )
+
+        self._update_worker.update_found.connect(on_found)
+        self._update_worker.update_not_found.connect(on_not_found)
+        self._update_worker.check_error.connect(on_err)
+        self._update_worker.start()
 
     def _on_export_diagnostics(self) -> None:
         """Prompts user for file location and exports sanitized markdown diagnostic report."""

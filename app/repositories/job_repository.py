@@ -195,6 +195,15 @@ class JobRepository(BaseRepository):
                     stmt = stmt.where(~Job.applications.any(Application.status == "JUNK"))
             elif st == "JUNK":
                 stmt = stmt.join(Job.applications).where(Application.status == "JUNK")
+            elif st == "CLOSED":
+                stmt = stmt.where(
+                    or_(
+                        Job.applications.any(Application.status == "CLOSED"),
+                        Job.is_active == False,
+                    )
+                )
+                if not include_junk:
+                    stmt = stmt.where(~Job.applications.any(Application.status == "JUNK"))
             else:
                 stmt = stmt.join(Job.applications).where(Application.status == st)
                 if not include_junk and st != "JUNK":
@@ -465,6 +474,16 @@ class JobRepository(BaseRepository):
             return False
         job.is_active = False
         job.closed_at = utc_now()
+        self.session.flush()
+        return True
+
+    def mark_as_active(self, job_id: int) -> bool:
+        """Marks a job listing as active/open."""
+        job = self.get_by_id(job_id)
+        if not job:
+            return False
+        job.is_active = True
+        job.closed_at = None
         self.session.flush()
         return True
 

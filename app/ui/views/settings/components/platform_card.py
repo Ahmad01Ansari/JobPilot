@@ -52,9 +52,26 @@ class PlatformCard(QFrame):
         layout.setSpacing(14)
 
         # Icon box
-        lbl_icon = QLabel(self.icon_symbol)
+        lbl_icon = QLabel()
+        from app.ui.sidebar_icons import render_vector_pixmap
+        known_vector_icons = {"globe", "search", "briefcase", "file_check", "building", "shield", "compass", "terminal"}
+        if self.icon_symbol in known_vector_icons:
+            lbl_icon.setPixmap(render_vector_pixmap(self.icon_symbol, COLORS.get('primary', '#58A6FF'), 18))
+        elif self.platform_key in ["linkedin", "naukri", "foundit", "indeed", "glassdoor", "workday"]:
+            platform_icon_map = {
+                "linkedin": "globe",
+                "naukri": "search",
+                "foundit": "briefcase",
+                "indeed": "file_check",
+                "glassdoor": "building",
+                "workday": "shield",
+            }
+            lbl_icon.setPixmap(render_vector_pixmap(platform_icon_map.get(self.platform_key, "globe"), COLORS.get('primary', '#58A6FF'), 18))
+        else:
+            lbl_icon.setText(self.icon_symbol)
+
         lbl_icon.setStyleSheet(f"""
-            font-size: 20px;
+            font-size: 16px;
             background-color: {COLORS.get('surface', '#161B22')};
             border: 1px solid {COLORS.get('border', '#262C36')};
             border-radius: 6px;
@@ -160,6 +177,21 @@ class PlatformCard(QFrame):
             self.lbl_account.setText(f"Account: {masked_user}")
             self.lbl_pwd_status.setText("Password: ✓ Stored securely")
             self.lbl_pwd_status.setStyleSheet(f"font-size: 12px; color: {COLORS.get('success', '#2EA043')};")
+        elif username:
+            masked_user = username
+            if "@" in username:
+                parts = username.split("@", 1)
+                prefix = parts[0]
+                masked_prefix = prefix[:2] + "***" if len(prefix) > 2 else prefix + "***"
+                masked_user = f"{masked_prefix}@{parts[1]}"
+            elif len(username) > 4:
+                masked_user = username[:2] + "***" + username[-2:]
+
+            self.lbl_status.setText("◐ Username set")
+            self.lbl_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {COLORS.get('warning', '#D29922')};")
+            self.lbl_account.setText(f"Account: {masked_user}")
+            self.lbl_pwd_status.setText("Password: Not stored")
+            self.lbl_pwd_status.setStyleSheet(f"font-size: 12px; color: {COLORS.get('text_muted', '#8B949E')};")
         else:
             self.lbl_status.setText("○ Not configured")
             self.lbl_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {COLORS.get('text_muted', '#8B949E')};")

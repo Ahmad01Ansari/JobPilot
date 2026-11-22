@@ -60,25 +60,31 @@ def parse_experience_string(exp_text: str) -> Tuple[Optional[int], Optional[int]
         return (None, None)
 
     text = exp_text.strip().lower()
-    if "fresher" in text:
+    if "fresher" in text or "entry level" in text:
         return (0, 0)
 
     # 1. Range pattern: '4 - 6 Years', '1 - 3 Yrs', '2 to 4 years'
-    range_match = re.search(r'(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:yr|year)?', text)
+    range_match = re.search(r'(\d+)\s*(?:[-–—]|to)\s*(\d+)\s*(?:yrs?|years?)\b', text)
     if range_match:
         min_val = int(range_match.group(1))
         max_val = int(range_match.group(2))
         return (min_val, max_val)
 
     # 2. Plus pattern: '2+ Years', '5+ yrs'
-    plus_match = re.search(r'(\d+)\s*\+\s*(?:yr|year)?', text)
+    plus_match = re.search(r'(\d+)\s*\+\s*(?:yrs?|years?)\b', text)
     if plus_match:
         return (int(plus_match.group(1)), None)
 
     # 3. Single integer pattern: '3 Years'
-    single_match = re.search(r'(\d+)\s*(?:yr|year)?', text)
+    single_match = re.search(r'(\d+)\s*(?:yrs?|years?)\b', text)
     if single_match:
         return (int(single_match.group(1)), None)
+
+    # Secondary fallback for range if preceded by experience keyword
+    if any(w in text for w in ["exp", "experience"]):
+        sec_range = re.search(r'(\d+)\s*(?:[-–—]|to)\s*(\d+)', text)
+        if sec_range:
+            return (int(sec_range.group(1)), int(sec_range.group(2)))
 
     return (None, None)
 
@@ -435,10 +441,24 @@ class FounditJobParser:
             return {}
         details: Dict[str, Any] = {}
 
+        pane_container = None
+        for p_sel in ["div.srpRightContainer", "div.detailsContainer", "div.headerContent"]:
+            try:
+                elems = self.driver.find_elements(By.CSS_SELECTOR, p_sel)
+                for pe in elems:
+                    if pe.is_displayed():
+                        pane_container = pe
+                        break
+                if pane_container:
+                    break
+            except Exception:
+                continue
+        search_root = pane_container or self.driver
+
         # 1. Title
         for sel in DETAILS_TITLE_SELECTORS:
             try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                for el in search_root.find_elements(By.CSS_SELECTOR, sel):
                     t = extract_element_text(el)
                     if t and len(t) > 2 and el.is_displayed():
                         details["title"] = t
@@ -451,7 +471,7 @@ class FounditJobParser:
         # 2. Company
         for sel in DETAILS_COMPANY_SELECTORS:
             try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                for el in search_root.find_elements(By.CSS_SELECTOR, sel):
                     c = extract_element_text(el)
                     if c and len(c) > 1 and el.is_displayed():
                         details["company"] = c
@@ -464,7 +484,7 @@ class FounditJobParser:
         # 3. Location
         for sel in DETAILS_LOCATION_SELECTORS:
             try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                for el in search_root.find_elements(By.CSS_SELECTOR, sel):
                     loc = extract_element_text(el)
                     if loc and el.is_displayed():
                         details["location"] = loc
@@ -477,7 +497,7 @@ class FounditJobParser:
         # 4. Experience
         for sel in DETAILS_EXPERIENCE_SELECTORS:
             try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                for el in search_root.find_elements(By.CSS_SELECTOR, sel):
                     et = extract_element_text(el)
                     if et and any(w in et.lower() for w in ["yr", "year", "fresher"]) and el.is_displayed():
                         details["experience_text"] = et
@@ -493,7 +513,7 @@ class FounditJobParser:
         # 5. Salary
         for sel in DETAILS_SALARY_SELECTORS:
             try:
-                for el in self.driver.find_elements(By.CSS_SELECTOR, sel):
+                for el in search_root.find_elements(By.CSS_SELECTOR, sel):
                     st = extract_element_text(el)
                     if st and any(w in st.lower() for w in ["lac", "lpa", "inr", "₹", "pa"]) and el.is_displayed():
                         details["salary_text"] = st

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMessageBox
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_icon
 
 
 class QnAEditDialog(QDialog):
@@ -207,7 +208,8 @@ class StepQnAKnowledgeWidget(QWidget):
         c_layout.addWidget(self.cmb_category, 1)
 
         # Edit Selected Button
-        self.btn_edit = QPushButton("✏️ Edit Answer")
+        self.btn_edit = QPushButton("Edit Answer")
+        self.btn_edit.setIcon(render_vector_icon("gear", COLORS["text"], 12))
         self.btn_edit.setFocusPolicy(Qt.NoFocus)
         self.btn_edit.setCursor(Qt.PointingHandCursor)
         self.btn_edit.setStyleSheet(f"""
@@ -233,7 +235,8 @@ class StepQnAKnowledgeWidget(QWidget):
         c_layout.addWidget(self.btn_edit)
 
         # Mark Complete Button
-        self.btn_mark_complete = QPushButton("✓ Mark Q&A Complete")
+        self.btn_mark_complete = QPushButton("Mark Q&A Complete")
+        self.btn_mark_complete.setIcon(render_vector_icon("check", COLORS["success"], 12))
         self.btn_mark_complete.setFocusPolicy(Qt.NoFocus)
         self.btn_mark_complete.setCursor(Qt.PointingHandCursor)
         self.btn_mark_complete.setStyleSheet(f"""
@@ -353,7 +356,7 @@ class StepQnAKnowledgeWidget(QWidget):
         categories = stats.get("categories", {})
 
         self.lbl_stats.setText(
-            f"✓ {self.total_entries} verified candidate facts loaded from database · "
+            f"{self.total_entries} candidate facts loaded from database · "
             f"{verified} Verified · {unreviewed} Needs Review · {len(categories)} Categories"
         )
 
@@ -386,7 +389,7 @@ class StepQnAKnowledgeWidget(QWidget):
             q_item = QTableWidgetItem(e.question_text)
             a_item = QTableWidgetItem(e.answer_text)
             c_item = QTableWidgetItem(e.category.title() if e.category else "General")
-            s_item = QTableWidgetItem("✓ Verified")
+            s_item = QTableWidgetItem("Verified")
             s_item.setForeground(Qt.green)
 
             self.table.setItem(row_idx, 0, q_item)
@@ -423,9 +426,9 @@ class StepQnAKnowledgeWidget(QWidget):
         if hasattr(self.setup_service, "state"):
             self.setup_service.state.mark_step_completed("qna_knowledge")
             self.setup_service.state.save(self.setup_service._state_path)
-        self.btn_mark_complete.setText("✓ Verified & Complete")
+        self.btn_mark_complete.setText("Verified & Complete")
         self.btn_mark_complete.setEnabled(False)
-        self.lbl_stats.setText(f"✓ All {self.total_entries} candidate screening facts verified and marked as complete.")
+        self.lbl_stats.setText(f"All {self.total_entries} candidate screening facts verified and marked as complete.")
         self.lbl_stats.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {COLORS['success']};")
         self.qna_verified_completed.emit()
 

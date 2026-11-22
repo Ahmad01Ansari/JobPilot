@@ -42,6 +42,16 @@ class TestIntentRouter(unittest.TestCase):
         self.assertEqual(action, PilotActionType.START_AUTOMATION)
         self.assertEqual(params.get("platform"), "naukri")
 
+    def test_parse_run_all_automation(self):
+        action, params, _ = self.router.parse_intent("run all automation")
+        self.assertEqual(action, PilotActionType.START_AUTOMATION)
+        self.assertEqual(params.get("platform"), "all")
+
+    def test_parse_run_all_platforms(self):
+        action, params, _ = self.router.parse_intent("start all platforms")
+        self.assertEqual(action, PilotActionType.START_AUTOMATION)
+        self.assertEqual(params.get("platform"), "all")
+
     def test_parse_today_apply_report(self):
         action, params, _ = self.router.parse_intent("today apply report")
         self.assertEqual(action, PilotActionType.GET_APPLICATIONS_REPORT)
@@ -137,10 +147,19 @@ class TestPilotService(unittest.TestCase):
             headless=None,
         )
 
+    def test_execute_run_all_automation_calls_automation_manager(self):
+        reply = self.service.process_user_prompt("run all automation")
+        self.assertEqual(reply.action_type, PilotActionType.START_AUTOMATION)
+        self.automation_mock.start_automation.assert_called_once_with(
+            platform="all",
+            target_url=None,
+            headless=None,
+        )
+
     def test_execute_all_tag_actions(self):
         router = self.service.intent_router
         # 1. Run all platforms
-        for plat in ["linkedin", "indeed", "naukri", "foundit", "glassdoor"]:
+        for plat in ["all", "linkedin", "indeed", "naukri", "foundit", "glassdoor"]:
             action, params, _ = router.parse_intent(f"run {plat}")
             self.assertEqual(action, PilotActionType.START_AUTOMATION)
             self.assertEqual(params.get("platform"), plat)
@@ -201,6 +220,24 @@ class TestPilotService(unittest.TestCase):
         self.assertEqual(inv.status, InterventionStatus.ANSWERED)
         self.assertEqual(inv.answer, "482910")
         self.automation_mock.confirm_review.assert_called_once()
+
+    def test_command_not_hijacked_by_open_intervention(self):
+        inv = self.service.create_intervention(
+            prompt="Linkedin: Manual review required for RPA - Business Analyst & Developer @ Mizuho",
+            kind=InterventionKind.QUESTION,
+            platform="LinkedIn",
+        )
+        self.assertEqual(inv.status, InterventionStatus.OPEN)
+
+        # Candidate issues automation command while question intervention is waiting
+        reply = self.service.process_user_prompt("run foundit")
+        self.assertEqual(reply.action_type, PilotActionType.START_AUTOMATION)
+        self.assertNotIn("Answer received for", reply.body)
+        self.automation_mock.start_automation.assert_called_with(
+            platform="foundit",
+            target_url=None,
+            headless=None,
+        )
 
     def test_list_resumes_returns_candidate_library(self):
         class DummyResume:

@@ -252,12 +252,15 @@ class ThreadHeader(QFrame):
         # Status pill
         status_colors = {
             "APPLIED": COLORS["info"],
+            "SUBMITTED": COLORS["info"],
             "RECRUITER_CONTACTED": COLORS["info"],
             "UNDER_REVIEW": COLORS["warning"],
             "INTERVIEWING": COLORS["purple"],
+            "INTERVIEW": COLORS["purple"],
             "OFFER": COLORS["success"],
             "REJECTED": COLORS["danger"],
             "WITHDRAWN": COLORS["text_muted"],
+            "CLOSED": COLORS["text_muted"],
         }
         pill_color = status_colors.get(recruitment_status, COLORS["text_muted"])
         status_pill = QLabel(recruitment_status.replace("_", " ").title())

@@ -316,6 +316,8 @@ class OutreachWorkspace(QWidget):
         self._context.stop_cadence.connect(self._on_stop_cadence)
         self._context.execute_followup.connect(self._on_execute_followup)
         self._context.cta_clicked.connect(self._on_cta_clicked)
+        self._context.status_change_requested.connect(self._on_change_status)
+        self._context.close_outreach_requested.connect(self._on_close_outreach)
 
     # ---------------------------------------------------------------
     # Public API (called by navigation system)
@@ -667,6 +669,40 @@ class OutreachWorkspace(QWidget):
             except Exception as e:
                 logger.error("Stop cadence failed: %s", e)
                 ModernPopup.error(self, "Action Failed", f"Could not stop cadence: {e}")
+
+    def _on_change_status(self, app_id: int, new_status: str):
+        try:
+            self._outreach_svc.update_application_status(app_id, new_status)
+            self.refresh_data()
+            if self._current_app_id == app_id:
+                self._load_detail(app_id)
+        except Exception as e:
+            logger.error("Failed to update status for application %d: %s", app_id, e)
+            ModernPopup.error(self, "Status Update Failed", f"Could not update status: {e}")
+
+    def _on_close_outreach(self, app_id: int):
+        confirmed = ModernPopup.confirm(
+            self,
+            "Close Outreach Conversation",
+            "Closing this outreach will permanently cancel all remaining follow-ups and move this conversation to the Closed archive.\n\nAre you sure you want to close this application?",
+            confirm_text="Close Application",
+            cancel_text="Keep Active",
+            is_danger=True,
+        )
+        if confirmed:
+            try:
+                self._outreach_svc.close_conversation(app_id, reason="Closed by candidate from Outreach Workspace")
+                self.refresh_data()
+                if self._current_app_id == app_id:
+                    self._load_detail(app_id)
+                ModernPopup.information(
+                    self,
+                    "Application Closed",
+                    "The outreach conversation has been marked as Closed and all future cadences cancelled.",
+                )
+            except Exception as e:
+                logger.error("Failed to close outreach for application %d: %s", app_id, e)
+                ModernPopup.error(self, "Action Failed", f"Could not close outreach: {e}")
 
     def _on_execute_followup(self, fu_id: int):
         self._followup_worker = _FollowupExecuteWorker(self._followup_scheduler, fu_id)

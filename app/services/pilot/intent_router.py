@@ -22,7 +22,7 @@ logger = logging.getLogger("JobPilot.IntentRouter")
 
 URL_REGEX = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
-PLATFORMS = ["linkedin", "indeed", "naukri", "foundit", "glassdoor", "universal"]
+PLATFORMS = ["all", "linkedin", "indeed", "naukri", "foundit", "glassdoor", "universal"]
 
 STATUS_KEYWORD_MAP = {
     "under review": "UNDER_REVIEW",
@@ -606,12 +606,15 @@ class IntentRouter:
         has_start_verb = any(re.search(rf"\b{re.escape(v)}\b", lower) for v in start_verbs)
 
         if has_start_verb and ("automation" in lower or "bot" in lower or any(p in lower for p in PLATFORMS) or "easy apply" in lower):
-            # Detect platform
-            platform = "linkedin"  # Default
-            for p in PLATFORMS:
-                if p in lower:
-                    platform = p
-                    break
+            # Detect platform (prioritize 'all' if user mentions all automation / all platforms)
+            if re.search(r"\b(all|all\s+platforms?|everything)\b", lower):
+                platform = "all"
+            else:
+                platform = "linkedin"  # Default
+                for p in PLATFORMS:
+                    if p != "all" and p in lower:
+                        platform = p
+                        break
 
             params: Dict[str, Any] = {"platform": platform}
             if urls:
@@ -623,7 +626,8 @@ class IntentRouter:
             elif "visible" in lower or "show browser" in lower:
                 params["headless"] = False
 
-            return PilotActionType.START_AUTOMATION, params, f"Starting {platform.capitalize()} automation engine."
+            display_platform = "All Platforms" if platform == "all" else platform.capitalize()
+            return PilotActionType.START_AUTOMATION, params, f"Starting {display_platform} automation engine."
 
         # 4. Stop / Pause / Resume Automation Control
         is_cv_action = any(w in lower for w in ["extract", "parse", "tailor", "list", "upload", "default", "my resume", "active resume", "resumes"])

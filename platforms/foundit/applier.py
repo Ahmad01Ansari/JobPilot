@@ -244,40 +244,6 @@ class FounditApplier:
             self.tracker.record_manual_required(job, reason="PAUSE_BEFORE_SUBMIT")
             return {"status": "MANUAL_REQUIRED", "job_id": job.job_id}
 
-        # 3.1 Handle External Company Portal flow without false submission
-        if flow == "EXTERNAL" or getattr(job, "application_method", "") == "COMPANY_PORTAL":
-            print_lg(f"[FounditApplier] External job application detected for '{job.title}'. Extracting external URL...")
-            ext_url = self.extract_external_apply_url(btn or card_elem)
-            effective_url = ext_url or job.source_url
-            job.application_url = effective_url
-            job.application_method = "COMPANY_PORTAL"
-            job.apply_type = "EXTERNAL"
-            self.tracker.record_external(job, external_url=effective_url)
-            if self.automation_bridge:
-                try:
-                    from app.services.automation_events import JobDiscoveredEvent
-                    self.automation_bridge.handle_job_discovered(JobDiscoveredEvent(
-                        platform="foundit",
-                        external_job_id=job.job_id,
-                        title=job.title or "Unknown Role",
-                        company=job.company or "Unknown Company",
-                        location=job.location,
-                        url=job.source_url,
-                        application_method="COMPANY_PORTAL",
-                        application_url=effective_url,
-                        description=job.description,
-                        experience_text=job.experience_text,
-                        salary_text=job.salary_text,
-                        salary_min=job.salary_min,
-                        salary_max=job.salary_max,
-                        required_experience_min=job.required_experience_min,
-                        required_experience_max=job.required_experience_max,
-                        work_style=job.work_style,
-                    ))
-                except Exception:
-                    pass
-            return {"status": "EXTERNAL", "job_id": job.job_id, "external_url": effective_url}
-
         # 4. Click the apply button (or card) with dynamic human pause
         target_clickable = btn or card_elem
         if target_clickable:
@@ -294,11 +260,42 @@ class FounditApplier:
         # Dynamic delay (1.5 - 2.5s) for Foundit to register click, show success on page, and trigger popup
         time.sleep(random.uniform(1.5, 2.5))
 
-        # Check if already successfully submitted via Quick Apply banner or card state
-        if self.submitter.verify_submission(timeout=4, card_elem=card_elem):
-            # Dynamic wait (1-2s) for success page to pop up, then close any extra tabs
-            time.sleep(random.uniform(1.0, 1.8))
-            self.close_extra_tabs(keep_handle=main_window)
+        # Check if external redirect toast/banner appeared
+        redirect_banner = False
+        try:
+            r_elems = self.driver.find_elements(
+                By.XPATH,
+                "//*[contains(normalize-space(), 'Redirecting you to apply on company site') or contains(normalize-space(), 'Redirecting to apply')] | //div[contains(@class, 'toast') or contains(@class, 'banner') or contains(@class, 'alert') or contains(@class, 'notification')][contains(., 'Redirecting') or contains(., 'company site')]"
+            )
+            if any(re.is_displayed() for re in r_elems):
+                redirect_banner = True
+                print_lg(f"[FounditApplier] External redirect banner detected for '{job.title}'.")
+        except Exception:
+            pass
+
+        # Check if successfully submitted via Quick Apply banner, green redirect toast, or card state
+        if redirect_banner or self.submitter.verify_submission(timeout=4, card_elem=card_elem):
+            # Check if an external tab was opened by clicking apply
+            current_windows = self.driver.window_handles
+            new_windows = [w for w in current_windows if w not in initial_windows]
+            ext_url = None
+            if new_windows:
+                try:
+                    self.driver.switch_to.window(new_windows[-1])
+                    time.sleep(0.5)
+                    ext_url = (self.driver.current_url or "").strip()
+                    if ext_url and "foundit.in" not in ext_url.lower() and ext_url != "about:blank":
+                        job.application_url = ext_url
+                        job.application_method = "COMPANY_PORTAL"
+                        job.apply_type = "EXTERNAL"
+                except Exception:
+                    pass
+                finally:
+                    self.close_extra_tabs(keep_handle=main_window)
+                    self.driver.switch_to.window(main_window)
+            else:
+                self.close_extra_tabs(keep_handle=main_window)
+
             self.tracker.record_submitted(job)
             if self.automation_bridge:
                 try:
@@ -330,12 +327,48 @@ class FounditApplier:
                     ))
                 except Exception:
                     pass
-            print_lg(f"[FounditApplier] QUICK APPLY SUCCESS: Successfully submitted '{job.title}' at '{job.company}'")
-            return {"status": "SUBMITTED", "job_id": job.job_id}
+            print_lg(f"[FounditApplier] APPLICATION SUCCESSFUL: Successfully submitted '{job.title}' at '{job.company}'")
+            return {"status": "SUBMITTED", "job_id": job.job_id, "external_url": job.application_url}
 
         # Check if a new tab opened or modal appeared
         current_windows = self.driver.window_handles
         new_windows = [w for w in current_windows if w not in initial_windows]
+        if redirect_banner and not new_windows:
+            time.sleep(1.5)
+            current_windows = self.driver.window_handles
+            new_windows = [w for w in current_windows if w not in initial_windows]
+
+        if redirect_banner and not new_windows:
+            print_lg(f"[FounditApplier] External redirection confirmed without new tab for '{job.title}'. Extracting external destination...")
+            ext_url = self.extract_external_apply_url(btn or card_elem) or job.source_url
+            job.application_url = ext_url
+            job.application_method = "COMPANY_PORTAL"
+            job.apply_type = "EXTERNAL"
+            self.tracker.record_external(job, external_url=ext_url)
+            if self.automation_bridge:
+                try:
+                    from app.services.automation_events import JobDiscoveredEvent
+                    self.automation_bridge.handle_job_discovered(JobDiscoveredEvent(
+                        platform="foundit",
+                        external_job_id=job.job_id,
+                        title=job.title or "Unknown Role",
+                        company=job.company or "Unknown Company",
+                        location=job.location,
+                        url=job.source_url,
+                        application_method="COMPANY_PORTAL",
+                        application_url=ext_url,
+                        description=job.description,
+                        experience_text=job.experience_text,
+                        salary_text=job.salary_text,
+                        salary_min=job.salary_min,
+                        salary_max=job.salary_max,
+                        required_experience_min=job.required_experience_min,
+                        required_experience_max=job.required_experience_max,
+                        work_style=job.work_style,
+                    ))
+                except Exception:
+                    pass
+            return {"status": "EXTERNAL", "job_id": job.job_id, "external_url": ext_url}
 
         # =====================================================================
         # CASE A: A new tab / window opened
@@ -463,6 +496,44 @@ class FounditApplier:
             if is_external:
                 print_lg(f"[FounditApplier] External employer website detected: {new_tab_url}")
                 job.source_url = new_tab_url
+                job.application_url = new_tab_url
+                job.application_method = "COMPANY_PORTAL"
+                job.apply_type = "EXTERNAL"
+                try:
+                    self.driver.close()
+                except Exception:
+                    pass
+                self.driver.switch_to.window(main_window)
+
+                # Check if Foundit registered application via green redirect banner or button transition
+                if self.submitter.verify_submission(timeout=3, card_elem=card_elem):
+                    self.tracker.record_submitted(job)
+                    if self.automation_bridge:
+                        try:
+                            from app.services.automation_events import ApplicationSubmittedEvent, JobDiscoveredEvent
+                            self.automation_bridge.handle_job_discovered(JobDiscoveredEvent(
+                                platform="foundit",
+                                external_job_id=job.job_id,
+                                title=job.title,
+                                company=job.company,
+                                location=job.location,
+                                url=job.source_url,
+                                application_method="COMPANY_PORTAL",
+                                application_url=new_tab_url,
+                                description=job.description,
+                            ))
+                            self.automation_bridge.handle_application_submitted(ApplicationSubmittedEvent(
+                                platform="foundit",
+                                title=job.title,
+                                company=job.company,
+                                external_job_id=job.job_id,
+                                source_url=job.source_url,
+                            ))
+                        except Exception:
+                            pass
+                    print_lg(f"[FounditApplier] APPLICATION SUCCESSFUL (portal redirect confirmed): '{job.title}' at '{job.company}'")
+                    return {"status": "SUBMITTED", "job_id": job.job_id, "external_url": new_tab_url}
+
                 self.tracker.record_external(job, external_url=new_tab_url)
                 if self.automation_bridge:
                     try:
@@ -480,11 +551,6 @@ class FounditApplier:
                         ))
                     except Exception:
                         pass
-                try:
-                    self.driver.close()
-                except Exception:
-                    pass
-                self.driver.switch_to.window(main_window)
                 return {"status": "EXTERNAL", "job_id": job.job_id, "external_url": new_tab_url}
 
             # 4. Native Foundit Apply on New Tab

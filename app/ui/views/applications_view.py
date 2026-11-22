@@ -57,8 +57,9 @@ STATUS_OPTIONS = [
     ("ASSESSMENT", "📝 Technical Assessment"),
     ("INTERVIEW", "🗓️ Interview Scheduled"),
     ("OFFER", "🎉 Offer Received"),
-    ("REJECTED", "❌ Rejected / Closed"),
+    ("REJECTED", "❌ Rejected"),
     ("WITHDRAWN", "↩️ Withdrawn"),
+    ("CLOSED", "🛑 Closed / Inactive"),
     ("JUNK", "🗑️ Junk / Discarded"),
 ]
 
@@ -929,7 +930,7 @@ class ApplicationsView(QWidget):
         2: ["SUBMITTED", "UNDER_REVIEW"],  # Submitted
         3: ["SHORTLISTED", "RECRUITER_CONTACTED", "ASSESSMENT", "INTERVIEW"],  # Interview Pipeline
         4: ["OFFER"],  # Offers
-        5: ["REJECTED", "WITHDRAWN", "SKIPPED"],  # Closed
+        5: ["REJECTED", "WITHDRAWN", "SKIPPED", "CLOSED"],  # Closed / Rejected
     }
 
     STATUS_TO_TAB = {
@@ -947,6 +948,7 @@ class ApplicationsView(QWidget):
         "REJECTED": 5,
         "WITHDRAWN": 5,
         "SKIPPED": 5,
+        "CLOSED": 5,
     }
 
     def __init__(
@@ -1037,13 +1039,15 @@ class ApplicationsView(QWidget):
         self.lbl_card_review = self._create_metric_widget("Under Review", "0", COLORS.get("warning", "#fbbf24"), target_tab=2, target_status="UNDER_REVIEW")
         self.lbl_card_interview = self._create_metric_widget("Interviewing", "0", COLORS.get("purple", "#a78bfa"), target_tab=3)
         self.lbl_card_offers = self._create_metric_widget("Offers", "0", COLORS.get("success", "#34d399"), target_tab=4, target_status="OFFER")
-        self.lbl_card_rejected = self._create_metric_widget("Rejected", "0", COLORS.get("danger", "#f87171"), target_tab=5)
+        self.lbl_card_rejected = self._create_metric_widget("Rejected", "0", COLORS.get("danger", "#f87171"), target_tab=5, target_status="REJECTED")
+        self.lbl_card_closed = self._create_metric_widget("Closed", "0", COLORS.get("text_muted", "#94a3b8"), target_tab=5, target_status="CLOSED")
 
         metrics_layout.addWidget(self.lbl_card_submitted)
         metrics_layout.addWidget(self.lbl_card_review)
         metrics_layout.addWidget(self.lbl_card_interview)
         metrics_layout.addWidget(self.lbl_card_offers)
         metrics_layout.addWidget(self.lbl_card_rejected)
+        metrics_layout.addWidget(self.lbl_card_closed)
         main_layout.addWidget(self.metrics_frame)
 
         # 4. Segmented Pipeline Stage Tabs
@@ -1582,6 +1586,7 @@ class ApplicationsView(QWidget):
             self._update_metric_val(self.lbl_card_interview, kpi.get("interviews", 0))
             self._update_metric_val(self.lbl_card_offers, kpi.get("offers", 0))
             self._update_metric_val(self.lbl_card_rejected, kpi.get("rejected", 0))
+            self._update_metric_val(self.lbl_card_closed, kpi.get("closed", 0))
         else:
             summary = self.service.get_pipeline_summary()
             self._update_metric_val(self.lbl_card_submitted, summary.get("SUBMITTED", 0))
@@ -1589,6 +1594,7 @@ class ApplicationsView(QWidget):
             self._update_metric_val(self.lbl_card_interview, summary.get("INTERVIEW", 0))
             self._update_metric_val(self.lbl_card_offers, summary.get("OFFER", 0))
             self._update_metric_val(self.lbl_card_rejected, summary.get("REJECTED", 0))
+            self._update_metric_val(self.lbl_card_closed, summary.get("CLOSED", 0))
 
         # Determine target status list
         tab_idx = self.tabs.currentIndex()
@@ -1609,6 +1615,7 @@ class ApplicationsView(QWidget):
                 "WITHDRAWN": "WITHDRAWN",
                 "FAILED": "FAILED",
                 "SKIPPED": "SKIPPED",
+                "CLOSED": "CLOSED",
             }
             target_key = status_alias_map.get(specific_status, specific_status)
             status_list = [target_key]

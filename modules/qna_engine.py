@@ -39,7 +39,13 @@ def validate_answer(
     val_str = str(answer.value).strip()
 
     # 1. Notice Period Validation
-    if any(w in lbl for w in ["notice", "joining"]):
+    is_notice_q = any(w in lbl for w in [
+        "notice", "joining", "how soon", "when can you start", "when can you join", 
+        "days to join", "joining date", "time to join", "earliest start", "start date",
+        "days after accepting"
+    ]) or ("join" in lbl and any(u in lbl for u in ["day", "week", "month", "soon", "when", "after", "time", "offer"]))
+
+    if is_notice_q:
         # Extract numbers (including negative sign if any)
         nums = re.findall(r'-?\d+', val_str)
         if nums:
@@ -52,9 +58,19 @@ def validate_answer(
                 answer.validated = False
                 answer.validation_error = f"Notice period {days} days is outside reasonable bounds (0-180 days)"
                 return answer
+            # If the question explicitly asks for "(in days)" or "in days", format as pure integer digits
+            if any(term in lbl for term in ["(in days)", "in days", "number of days"]):
+                answer.value = str(days)
         elif not any(term in val_str.lower() for term in ["immediate", "serving", "buyout", "day", "month"]):
-            answer.validated = False
-            answer.validation_error = f"Unrecognized notice period response: '{val_str}'"
+            val_days = 15
+            try:
+                from modules.config_loader import get_professional
+                val_days = int(get_professional().get("notice_period_days", 15))
+            except Exception:
+                pass
+            answer.value = str(val_days)
+            answer.validated = True
+            answer.source = "profile"
             return answer
 
     # 2. Compensation / CTC Validation
@@ -398,8 +414,25 @@ class QnAEngine:
         ])
         # Clean label by removing example parentheticals like (e.g., Jira, GitHub, ...) so examples do not falsely match short keys
         lbl_cleaned = re.sub(r'\(e\.?g\.?[^)]*\)', '', lbl)
-        is_numeric_question = any(w in lbl for w in ["how many years", "years of experience", "total years", "number of years", "how many months", "notice period"])
-        generic_rule_keys = {"experience", "work experience", "total experience", "overall experience", "title", "job title", "domain", "attach", "others", "qualification", "qualifications"}
+        is_numeric_question = any(w in lbl for w in [
+            "how many years", "years of experience", "total years", "number of years",
+            "how many months", "notice period", "how soon", "in days", "(in days)",
+            "how many days", "days after", "days to join", "joining date"
+        ])
+        is_notice_q = (
+            any(w in lbl for w in [
+                "notice", "how soon", "when can you start", "when can you join", 
+                "days to join", "joining date", "time to join", "earliest start", 
+                "start date", "joining period", "notice period", "days after accepting"
+            ]) 
+            or ("join" in lbl and any(u in lbl for u in ["day", "week", "month", "soon", "when", "after", "time", "offer"]))
+        )
+        generic_rule_keys = {
+            "experience", "work experience", "total experience", "overall experience",
+            "years of experience", "years of work experience", "total years of experience",
+            "overall years of experience", "experience in years", "total years of professional experience",
+            "title", "job title", "domain", "attach", "others", "qualification", "qualifications"
+        }
 
         sorted_qa = sorted(self.custom_qa.items(), key=lambda item: len(item[0]), reverse=True)
         for key, val in sorted_qa:
@@ -420,12 +453,19 @@ class QnAEngine:
                 val_str = str(val).strip()
                 if is_descriptive and (val_str.isdigit() or val_str.lower() in ["yes", "no"]):
                     continue
-                # For numeric experience/tenure questions, reject non-numeric rule values
-                if is_numeric_question:
+                # For numeric experience/tenure/notice questions, reject non-numeric rule values
+                if is_numeric_question or is_notice_q:
+                    if val_str.lower() in ["yes", "no", "true", "false"]:
+                        continue
                     digits = re.findall(r'\d+', val_str)
                     if not digits:
                         continue
-                    val_str = digits[0]
+                    num_val = int(digits[0])
+                    if is_numeric_question and not is_notice_q:
+                        cand_max = int(round(float(self.prof.get("years_of_experience", 2) or 2)))
+                        if num_val > cand_max and not any(w in lbl for w in ["salary", "ctc", "lpa", "pin", "zip", "phone", "mobile", "code", "year", "born"]):
+                            num_val = cand_max
+                    val_str = str(num_val)
                 ans = Answer(value=val_str, source="rule", confidence=0.92)
                 return validate_answer(ans, question_label)
 
@@ -614,7 +654,15 @@ class QnAEngine:
             return validate_answer(ans, question_label)
 
         # Notice Period calculations
-        if "notice" in lbl:
+        is_notice_q = (
+            any(w in lbl for w in [
+                "notice", "how soon", "when can you start", "when can you join", 
+                "days to join", "joining date", "time to join", "earliest start", 
+                "start date", "joining period", "notice period", "days after accepting"
+            ]) 
+            or ("join" in lbl and any(u in lbl for u in ["day", "week", "month", "soon", "when", "after", "time", "offer"]))
+        )
+        if is_notice_q:
             if "month" in lbl:
                 ans = Answer(value=str(max(1, self.notice_period // 30)), source="calculation", confidence=0.95)
             elif "week" in lbl:
@@ -684,8 +732,11 @@ class QnAEngine:
             ans_val = str(self.personal.get("date_of_birth") or self.personal.get("dob") or "15/05/2002")
         elif any(w in lbl for w in ["city", "location", "place", "address", "reside", "stay"]):
             ans_val = str(self.personal.get("current_city") or work_location or "Delhi")
-        elif any(w in lbl for w in ["notice", "joining"]):
-            ans_val = f"{self.notice_period} days"
+        elif is_notice_q or any(w in lbl for w in ["notice", "joining"]):
+            if any(u in lbl for u in ["(in days)", "in days", "number of days", "days"]):
+                ans_val = str(self.notice_period)
+            else:
+                ans_val = f"{self.notice_period} days"
         elif any(w in lbl for w in ["salary", "ctc", "lakh", "lac", "lpa"]):
             ans_val = f"{round(self.desired_salary / 100000, 2):.2f}"
         elif any(w in lbl for w in ["experience", "years"]):
@@ -695,7 +746,7 @@ class QnAEngine:
                 ans_val = str(int(f_exp)) if f_exp.is_integer() else str(f_exp)
             except Exception:
                 ans_val = str(exp_val)
-        elif any(w in lbl for w in ["ready", "willing", "authorized", "can you", "are you", "do you"]):
+        elif any(w in lbl for w in ["ready", "willing", "authorized", "can you", "are you", "do you"]) and not any(u in lbl for u in ["day", "days", "salary", "ctc", "lpa", "experience", "years"]):
             ans_val = "Yes"
         elif any(w in lbl for w in ["name", "who are you"]):
             ans_val = self.full_name
@@ -852,6 +903,15 @@ class QnAEngine:
                     target = self.personal.get("state", "Delhi")
                 else:
                     target = self.personal.get("current_city", work_location or "Delhi")
+            elif any(w in lbl for w in ["notice", "how soon", "when can you start", "when can you join", "days to join", "joining date", "time to join", "earliest start", "start date"]) or ("join" in lbl and any(u in lbl for u in ["day", "week", "month", "soon", "when"])):
+                if self.notice_period <= 15:
+                    target = "15 days"
+                elif self.notice_period <= 30:
+                    target = "30 days"
+                else:
+                    target = f"{self.notice_period} days"
+                source = "profile"
+                confidence = 0.98
             elif any(w in lbl for w in ["currency", "pay unit", "salary unit", "pay currency", "salary currency"]):
                 target = getattr(self, "salary_currency", "INR") or "INR"
                 source = "profile"

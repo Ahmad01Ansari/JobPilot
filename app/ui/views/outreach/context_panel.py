@@ -18,6 +18,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -308,6 +309,8 @@ class ContextPanel(QWidget):
     resume_cadence = Signal(int)
     stop_cadence = Signal(int)
     execute_followup = Signal(int)  # followup_id
+    status_change_requested = Signal(int, str)  # app_id, new_status
+    close_outreach_requested = Signal(int)       # app_id
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -389,12 +392,11 @@ class ContextPanel(QWidget):
         app_info = QFrame()
         app_layout = QVBoxLayout(app_info)
         app_layout.setContentsMargins(0, 0, 0, 0)
-        app_layout.setSpacing(2)
+        app_layout.setSpacing(4)
 
         for label, value in [
             ("Company", detail.company_name),
             ("Role", detail.job_title),
-            ("Status", detail.recruitment_status.replace("_", " ").title()),
             ("Applied", detail.applied_at.strftime("%b %d, %Y") if detail.applied_at else "—"),
         ]:
             row = QHBoxLayout()
@@ -406,6 +408,74 @@ class ContextPanel(QWidget):
             val.setStyleSheet(f"font-size: 11px; font-weight: 500; color: {COLORS['text']};")
             row.addWidget(val)
             app_layout.addLayout(row)
+
+        # Status row with interactive combo box to update lifecycle stage
+        status_row = QHBoxLayout()
+        status_key = QLabel("Status")
+        status_key.setStyleSheet(f"font-size: 11px; color: {COLORS['text_dark']};")
+        status_row.addWidget(status_key)
+        status_row.addStretch(1)
+
+        status_combo = QComboBox()
+        status_combo.setStyleSheet(f"""
+            QComboBox {{
+                font-size: 11px;
+                font-weight: 600;
+                color: {COLORS['text']};
+                background: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 4px;
+                padding: 2px 8px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+        """)
+        lifecycle_options = [
+            ("SUBMITTED", "Submitted"),
+            ("UNDER_REVIEW", "Under Review"),
+            ("RECRUITER_CONTACTED", "Recruiter Contacted"),
+            ("INTERVIEW", "Interviewing"),
+            ("OFFER", "Offer Received"),
+            ("REJECTED", "Rejected"),
+            ("CLOSED", "Closed"),
+        ]
+        current_status = (detail.recruitment_status or "SUBMITTED").upper()
+        cur_idx = 0
+        for i, (code, title) in enumerate(lifecycle_options):
+            status_combo.addItem(title, code)
+            if code == current_status:
+                cur_idx = i
+        status_combo.setCurrentIndex(cur_idx)
+        status_combo.currentIndexChanged.connect(
+            lambda idx, combo=status_combo, a_id=detail.application_id: self.status_change_requested.emit(
+                a_id, combo.itemData(idx)
+            )
+        )
+        status_row.addWidget(status_combo)
+        app_layout.addLayout(status_row)
+
+        # Quick action row: "Close Outreach" button
+        if current_status != "CLOSED":
+            close_btn = QPushButton("✕ Close Outreach")
+            close_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: {COLORS['danger']};
+                    background: transparent;
+                    border: 1px solid {COLORS['danger']}44;
+                    border-radius: 4px;
+                    padding: 3px 8px;
+                    margin-top: 4px;
+                }}
+                QPushButton:hover {{
+                    background: {COLORS['danger']}18;
+                    border-color: {COLORS['danger']};
+                }}
+            """)
+            close_btn.clicked.connect(lambda _, a_id=detail.application_id: self.close_outreach_requested.emit(a_id))
+            app_layout.addWidget(close_btn)
 
         self._content_layout.insertWidget(idx, app_info)
         idx += 1

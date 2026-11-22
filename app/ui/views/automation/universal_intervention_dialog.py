@@ -84,16 +84,17 @@ class UniversalInterventionDialog(QDialog):
 
         icon_char = "🛡️"
         type_str = getattr(self.intervention_type, "value", str(self.intervention_type))
+        icon_char = "!"
         if "LOGIN" in type_str:
-            icon_char = "🔑"
+            icon_char = "KEY"
         elif "EMAIL_VERIFICATION" in type_str:
-            icon_char = "✉️"
+            icon_char = "MAIL"
         elif "TWO_FACTOR" in type_str or "OTP" in type_str:
-            icon_char = "🔢"
+            icon_char = "OTP"
         elif "CAPTCHA" in type_str:
-            icon_char = "🤖"
+            icon_char = "BOT"
         elif "UNKNOWN" in type_str:
-            icon_char = "❓"
+            icon_char = "?"
 
         icon_lbl = QLabel(icon_char)
         icon_lbl.setAlignment(Qt.AlignCenter)
@@ -279,7 +280,7 @@ class UniversalInterventionDialog(QDialog):
             input_box.addWidget(self.field_input)
 
             inst_lbl = QLabel(
-                "💡 A verification code was sent to your email or phone. "
+                "A verification code was sent to your email or phone. "
                 "Type the code above and click <b>'Verify & Continue'</b>, or enter it directly in the open Chrome browser."
             )
             inst_lbl.setWordWrap(True)
@@ -287,13 +288,38 @@ class UniversalInterventionDialog(QDialog):
             input_box.addWidget(inst_lbl)
             layout.addLayout(input_box)
         else:
+            input_box = QVBoxLayout()
+            input_box.setSpacing(6)
+            lbl_prompt = QLabel("Candidate Answer / Input (Enter value if question or form requires user input):")
+            lbl_prompt.setStyleSheet(f"color: {text_color}; font-size: 12px; font-weight: 600;")
+            input_box.addWidget(lbl_prompt)
+
+            self.field_input = QLineEdit()
+            self.field_input.setPlaceholderText("Enter answer (e.g. 15, 30 days, or value)...")
+            self.field_input.setStyleSheet(f"""
+                QLineEdit {{
+                    background-color: {COLORS.get('surface_alt', '#0D1117')};
+                    border: 1px solid {border_color};
+                    border-radius: 6px;
+                    padding: 8px 10px;
+                    color: {text_color};
+                    font-size: 13px;
+                }}
+                QLineEdit:focus {{
+                    border: 1px solid {primary_color};
+                }}
+            """)
+            self.field_input.returnPressed.connect(self._on_resume_clicked)
+            self.field_input.textChanged.connect(self._on_manual_text_changed)
+            input_box.addWidget(self.field_input)
+
             inst_lbl = QLabel(
-                "💡 <b>Instructions:</b> The active Chrome window has been kept open and focused. "
-                "Complete the requested action in the browser, then click 'I've Solved It / Continue' below."
+                "<b>Instructions:</b> If a question requires an answer, enter it above and click <b>'Submit Answer & Continue'</b>. Otherwise, complete the action in the browser and click <b>'I've Solved It / Continue'</b>."
             )
             inst_lbl.setWordWrap(True)
-            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px;")
-            layout.addWidget(inst_lbl)
+            inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 11px;")
+            input_box.addWidget(inst_lbl)
+            layout.addLayout(input_box)
 
         layout.addStretch()
 
@@ -362,6 +388,13 @@ class UniversalInterventionDialog(QDialog):
         footer_layout.addWidget(self.btn_resume)
 
         layout.addLayout(footer_layout)
+
+    def _on_manual_text_changed(self, text: str) -> None:
+        if hasattr(self, "btn_resume") and self.btn_resume:
+            if text.strip():
+                self.btn_resume.setText("Submit Answer & Continue")
+            else:
+                self.btn_resume.setText("I've Solved It / Continue")
 
     def _on_resume_clicked(self) -> None:
         data: Dict[str, Any] = {"action": "RESUME"}

@@ -241,6 +241,11 @@ class SettingsView(QWidget):
         # Reset header dirty state
         self.header.set_dirty_state(False)
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.load_settings()
+        self.load_credentials_display()
+
     def load_credentials_display(self) -> None:
         """Refreshes platform and email credentials overview."""
         self.credentials_section.refresh_display()
@@ -303,6 +308,8 @@ class SettingsView(QWidget):
         target_idx = self.SECTION_MAP.get(target_section, 0)
         self.stacked_widget.setCurrentIndex(target_idx)
         self.sidebar.set_current_section(target_section)
+        if target_section == "credentials":
+            self.credentials_section.refresh_display()
 
     def _revert_section_ui(self, section: str) -> None:
         if section == "general":

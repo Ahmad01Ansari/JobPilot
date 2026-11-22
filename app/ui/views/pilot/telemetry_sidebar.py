@@ -141,7 +141,7 @@ class PilotTelemetrySidebar(QFrame):
         p_header.setStyleSheet(f"color: {COLORS.get('text_muted', '#8B949E')}; font-size: 10px; font-weight: bold;")
         pc_layout.addWidget(p_header)
 
-        for p_name in ["LinkedIn", "Indeed", "Naukri", "Universal ATS"]:
+        for p_name in ["LinkedIn", "Indeed", "Naukri", "Foundit", "Universal ATS"]:
             p_row = QHBoxLayout()
             p_lbl = QLabel(p_name)
             p_lbl.setStyleSheet(f"color: {COLORS.get('text', '#F0F6FC')}; font-size: 11px;")

@@ -7,7 +7,8 @@ Features:
 - 100% backward compatibility with QTextEdit methods (append, clear, toPlainText).
 """
 
-from typing import Dict, List, Optional, Tuple
+from collections import deque
+from typing import Deque, Dict, List, Optional, Tuple
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QClipboard, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
@@ -34,8 +35,8 @@ class LiveActivityStream(QFrame):
         self._autoscroll_enabled = True
         self._current_filter = "All"
         self._search_query = ""
-        self._events: List[Tuple[str, str, str, str]] = []  # (timestamp, category, color_key, message)
-        self._raw_lines: List[str] = []
+        self._events: Deque[Tuple[str, str, str, str]] = deque(maxlen=2000)  # (timestamp, category, color_key, message)
+        self._raw_lines: Deque[str] = deque(maxlen=2000)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -138,6 +139,7 @@ class LiveActivityStream(QFrame):
         # 3. Main Text Views (activity_stream exposed for backward compatibility)
         self.activity_stream = QTextEdit()
         self.activity_stream.setReadOnly(True)
+        self.activity_stream.document().setMaximumBlockCount(2000)
         self.activity_stream.setMinimumHeight(170)
         self.activity_stream.verticalScrollBar().valueChanged.connect(self._on_scroll_value_changed)
         layout.addWidget(self.activity_stream, 1)

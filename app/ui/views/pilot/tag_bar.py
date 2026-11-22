@@ -19,6 +19,7 @@ from app.ui.theme import COLORS
 # Comprehensive directory of all implemented capabilities (clean enterprise tags)
 CATEGORIZED_ACTIONS = [
     # Automation Bots
+    ("Run All Automation", "run all automation", "primary"),
     ("Run LinkedIn", "run the LinkedIn automation", "primary"),
     ("Run Indeed", "run indeed", "primary"),
     ("Run Naukri", "start naukri bot", "primary"),

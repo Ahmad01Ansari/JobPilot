@@ -319,8 +319,15 @@ def build_search_url(
 class IndeedSearch:
     """Executes searches and discovers job listing elements on Indeed."""
 
-    def __init__(self, browser: Any):
+    def __init__(
+        self,
+        browser: Any,
+        captcha_handler: Optional[Any] = None,
+        automation_bridge: Optional[Any] = None,
+    ):
         self.browser = browser
+        self.captcha_handler = captcha_handler
+        self.automation_bridge = automation_bridge
 
     @property
     def driver(self):
@@ -687,6 +694,20 @@ class IndeedSearch:
 
         time.sleep(3)
 
+        if self.captcha_handler and self.captcha_handler.is_captcha_present(self.driver):
+            print_lg("[IndeedSearch] CAPTCHA / Cloudflare challenge detected on search results page. Awaiting human resolution...")
+            solved = self.captcha_handler.handle_captcha(
+                self.driver,
+                job_title=f"Search: '{keyword}'",
+                company="Indeed",
+                timeout=300,
+                automation_bridge=self.automation_bridge,
+            )
+            if not solved:
+                print_lg("[IndeedSearch] CAPTCHA challenge was not solved.")
+                return []
+            time.sleep(2)
+
         if scroll_to_hydrate:
             self._scroll_results_pane()
 
@@ -759,6 +780,18 @@ class IndeedSearch:
             pass
 
         if not raw_cards:
+            if self.captcha_handler and self.captcha_handler.is_captcha_present(self.driver):
+                print_lg("[IndeedSearch] CAPTCHA / Cloudflare challenge detected while inspecting job results. Awaiting human resolution...")
+                if self.captcha_handler.handle_captcha(
+                    self.driver,
+                    job_title="Indeed Search Results",
+                    company="Indeed",
+                    timeout=300,
+                    automation_bridge=self.automation_bridge,
+                ):
+                    time.sleep(2)
+                    return self.parse_job_cards()
+
             for sel in JOB_CARD_SELECTORS:
                 try:
                     elems = self.driver.find_elements(By.CSS_SELECTOR, sel)

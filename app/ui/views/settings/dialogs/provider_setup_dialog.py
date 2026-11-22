@@ -109,21 +109,21 @@ class ProviderSetupDialog(QDialog):
         links_layout.setSpacing(8)
 
         if self.provider.docs_url:
-            btn_docs = QPushButton("📖 Documentation")
+            btn_docs = QPushButton("Documentation")
             btn_docs.setCursor(Qt.PointingHandCursor)
             btn_docs.setStyleSheet(self._link_btn_style())
             btn_docs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.provider.docs_url)))
             links_layout.addWidget(btn_docs)
 
         if self.provider.api_key_url:
-            btn_key = QPushButton("🔑 Get API Key")
+            btn_key = QPushButton("Get API Key")
             btn_key.setCursor(Qt.PointingHandCursor)
             btn_key.setStyleSheet(self._link_btn_style())
             btn_key.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.provider.api_key_url)))
             links_layout.addWidget(btn_key)
 
         if self.provider.pricing_url:
-            btn_pricing = QPushButton("💳 View Official Pricing")
+            btn_pricing = QPushButton("View Official Pricing")
             btn_pricing.setCursor(Qt.PointingHandCursor)
             btn_pricing.setStyleSheet(self._link_btn_style())
             btn_pricing.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.provider.pricing_url)))
@@ -144,7 +144,7 @@ class ProviderSetupDialog(QDialog):
         p_layout.setContentsMargins(10, 8, 10, 8)
         p_layout.setSpacing(4)
 
-        p_title = QLabel("🔒 Data Privacy & Transmission Notice" if self.provider.is_local else "🌐 Third-Party Data Transmission Notice")
+        p_title = QLabel("Data Privacy & Transmission Notice" if self.provider.is_local else "Third-Party Data Transmission Notice")
         p_title.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {COLORS.get('text', '#F0F6FC')};")
         p_layout.addWidget(p_title)
 

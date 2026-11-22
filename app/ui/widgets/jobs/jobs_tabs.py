@@ -15,7 +15,7 @@ class JobsCategoryTabs(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._current_method: Optional[str] = None
-        self._counts = {"all": 0, "easy": 0, "portal": 0, "junk": 0}
+        self._counts = {"all": 0, "easy": 0, "portal": 0, "closed": 0, "junk": 0}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -26,11 +26,12 @@ class JobsCategoryTabs(QWidget):
         self.btn_all = QPushButton("All Jobs")
         self.btn_easy = QPushButton("Easy Apply")
         self.btn_portal = QPushButton("Company Portal")
+        self.btn_closed = QPushButton("Closed")
         self.btn_junk = QPushButton("Junk")
         self.btn_junk.setIconSize(QSize(13, 13))
         self.btn_junk.setIcon(render_vector_icon("trash", COLORS["text_muted"], 13))
 
-        for btn in [self.btn_all, self.btn_easy, self.btn_portal, self.btn_junk]:
+        for btn in [self.btn_all, self.btn_easy, self.btn_portal, self.btn_closed, self.btn_junk]:
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
 
@@ -39,12 +40,14 @@ class JobsCategoryTabs(QWidget):
         self.btn_all.clicked.connect(lambda: self._on_btn_clicked(None))
         self.btn_easy.clicked.connect(lambda: self._on_btn_clicked("EASY_APPLY"))
         self.btn_portal.clicked.connect(lambda: self._on_btn_clicked("COMPANY_PORTAL"))
+        self.btn_closed.clicked.connect(lambda: self._on_btn_clicked("CLOSED"))
         self.btn_junk.clicked.connect(lambda: self._on_btn_clicked("JUNK"))
 
         layout.addWidget(self.btn_all)
         layout.addWidget(self.btn_easy)
         layout.addWidget(self.btn_portal)
         layout.addStretch()
+        layout.addWidget(self.btn_closed)
         layout.addWidget(self.btn_junk)
 
         self._apply_styles()
@@ -58,6 +61,7 @@ class JobsCategoryTabs(QWidget):
         self.btn_all.setChecked(method is None)
         self.btn_easy.setChecked(method == "EASY_APPLY")
         self.btn_portal.setChecked(method == "COMPANY_PORTAL")
+        self.btn_closed.setChecked(method == "CLOSED")
         self.btn_junk.setChecked(method == "JUNK")
 
     def get_active_method(self) -> Optional[str]:
@@ -68,6 +72,7 @@ class JobsCategoryTabs(QWidget):
         all_count: int,
         easy_count: int,
         portal_count: int,
+        closed_count: int = 0,
         junk_count: int = 0,
     ) -> None:
         """Updates the count pills in the tabs."""
@@ -75,11 +80,13 @@ class JobsCategoryTabs(QWidget):
             "all": all_count,
             "easy": easy_count,
             "portal": portal_count,
+            "closed": closed_count,
             "junk": junk_count,
         }
         self.btn_all.setText(f"All Jobs  ({all_count})")
         self.btn_easy.setText(f"Easy Apply  ({easy_count})")
         self.btn_portal.setText(f"Company Portal  ({portal_count})")
+        self.btn_closed.setText(f"Closed  ({closed_count})")
         self.btn_junk.setText(f"Junk  ({junk_count})")
 
     def _apply_styles(self) -> None:

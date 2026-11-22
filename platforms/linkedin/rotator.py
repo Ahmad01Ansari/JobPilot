@@ -46,6 +46,7 @@ class LinkedInRotator:
         on_site: Optional[List[str]] = None,
         max_pages_per_term: int = 5,
         consecutive_skips_limit: int = 25,
+        max_applications: Optional[int] = None,
         user_id: int = 1,
     ):
         self.browser = browser
@@ -57,6 +58,7 @@ class LinkedInRotator:
             user_id=user_id,
         )
         self.automation_bridge = automation_bridge
+        self.max_applications = max_applications
         cand_exp = get_candidate_experience(user_id=user_id)
         prof = get_professional(user_id=user_id)
         ln_plat = get_platform("linkedin")
@@ -307,6 +309,7 @@ class LinkedInRotator:
         """Runs the search rotation across all search terms."""
         stats = {
             "terms_searched": 0,
+            "jobs_discovered": 0,
             "jobs_evaluated": 0,
             "jobs_skipped": 0,
             "jobs_applied": 0,
@@ -323,6 +326,10 @@ class LinkedInRotator:
                 print_lg("[LinkedInRotator] Stop requested. Terminating search rotation.")
                 break
 
+            if self.max_applications is not None and stats["jobs_applied"] >= self.max_applications:
+                print_lg(f"[LinkedInRotator] Batch limit reached ({stats['jobs_applied']}/{self.max_applications} applied). Yielding to next platform.")
+                break
+
             stats["terms_searched"] += 1
             print_lg(f"\n[LinkedInRotator] Starting search for term: '{term}'")
 
@@ -330,6 +337,9 @@ class LinkedInRotator:
 
             for page in range(self.max_pages_per_term):
                 if stop_check and stop_check():
+                    break
+
+                if self.max_applications is not None and stats["jobs_applied"] >= self.max_applications:
                     break
 
                 start_idx = page * 25
@@ -401,6 +411,24 @@ class LinkedInRotator:
                     if not job_id:
                         continue
 
+                    # Extract card preview details and record discovery in SSOT tracker
+                    stats["jobs_discovered"] += 1
+                    raw_title = LinkedInJobParser.extract_title(driver, card_element=card)
+                    raw_company = LinkedInJobParser.extract_company(driver, card_element=card)
+                    card_title = raw_title if isinstance(raw_title, str) and not hasattr(raw_title, "_mock_return_value") and raw_title.strip() else None
+                    card_company = raw_company if isinstance(raw_company, str) and not hasattr(raw_company, "_mock_return_value") and raw_company.strip() else ""
+
+                    if self.tracker:
+                        job_stub = Job(
+                            platform="linkedin",
+                            job_id=job_id,
+                            title=card_title or f"Job {job_id}",
+                            company=card_company or "Company",
+                            location="",
+                            source_url=f"https://www.linkedin.com/jobs/view/{job_id}",
+                        )
+                        self.tracker.record_job(job_stub)
+
                     stats["jobs_evaluated"] += 1
 
                     # Fast pre-filtering against SSOT tracker before clicking
@@ -413,13 +441,7 @@ class LinkedInRotator:
                         consecutive_skips += 1
                         continue
 
-                    # Fast Pre-Click Filter on card title & company
-                    raw_title = LinkedInJobParser.extract_title(driver, card_element=card)
-                    raw_company = LinkedInJobParser.extract_company(driver, card_element=card)
-                    card_title = raw_title if isinstance(raw_title, str) and not hasattr(raw_title, "_mock_return_value") and raw_title.strip() else None
-                    card_company = raw_company if isinstance(raw_company, str) and not hasattr(raw_company, "_mock_return_value") and raw_company.strip() else ""
-
-                    if card_title:
+                    if card_title and card_title != "Unknown Title":
                         neg_title_words = getattr(self.qualification_engine, "negative_title_words", None)
                         core_skills = getattr(self.qualification_engine, "core_skills", None)
                         if not is_job_relevant(card_title, term, core_skills=core_skills, negative_words=neg_title_words):
@@ -515,7 +537,23 @@ class LinkedInRotator:
 
                     # Extract job details
                     post_title = LinkedInJobParser.extract_title(driver, card_element=card)
-                    title = post_title if isinstance(post_title, str) and not hasattr(post_title, "_mock_return_value") and post_title.strip() else (card_title or "Developer")
+                    valid_post_title = (
+                        post_title
+                        if isinstance(post_title, str)
+                        and not hasattr(post_title, "_mock_return_value")
+                        and post_title.strip()
+                        and post_title not in ("Unknown Title", "Unknown")
+                        else None
+                    )
+                    valid_card_title = (
+                        card_title
+                        if isinstance(card_title, str)
+                        and not hasattr(card_title, "_mock_return_value")
+                        and card_title.strip()
+                        and card_title not in ("Unknown Title", "Unknown")
+                        else None
+                    )
+                    title = valid_post_title or valid_card_title or term or "Developer"
                     post_company = LinkedInJobParser.extract_company(driver, card_element=card)
                     company = post_company if isinstance(post_company, str) and not hasattr(post_company, "_mock_return_value") and post_company.strip() else (card_company or "")
                     post_loc = LinkedInJobParser.extract_location(driver, card_element=card)
@@ -561,6 +599,10 @@ class LinkedInRotator:
                     status = res.get("status")
                     if status == "SUBMITTED":
                         stats["jobs_applied"] += 1
+                        if self.max_applications is not None and stats["jobs_applied"] >= self.max_applications:
+                            print_lg(f"[LinkedInRotator] Batch limit reached ({stats['jobs_applied']}/{self.max_applications} applied). Yielding to next platform.")
+                            should_switch_term = True
+                            break
                     elif status == "EXTERNAL":
                         stats["jobs_external"] += 1
                     elif status == "SKIPPED":

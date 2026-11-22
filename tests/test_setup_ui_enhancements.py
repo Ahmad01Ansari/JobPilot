@@ -30,8 +30,8 @@ class TestSetupUIEnhancements(unittest.TestCase):
 
     def test_readiness_buttons_equal_and_prominent(self):
         widget = StepReadinessSummaryWidget()
-        self.assertEqual(widget.btn_tour.text(), "🧭 Take 60-Second Product Tour")
-        self.assertEqual(widget.btn_finish.text(), "⚡ Finish and Open JobPilot ►")
+        self.assertEqual(widget.btn_tour.text(), "Take 60-Second Product Tour")
+        self.assertEqual(widget.btn_finish.text(), "Finish and Open JobPilot")
         self.assertGreaterEqual(widget.btn_tour.minimumHeight(), 46)
         self.assertGreaterEqual(widget.btn_finish.minimumHeight(), 46)
 

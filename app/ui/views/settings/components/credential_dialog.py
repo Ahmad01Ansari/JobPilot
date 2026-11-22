@@ -1,7 +1,9 @@
 """Focused modal dialog for editing platform credentials with temporary reveal and immediate encryption."""
 
+from pathlib import Path
 from typing import Optional
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -14,6 +16,11 @@ from PySide6.QtWidgets import (
 )
 from app.services.secrets_service import SecretsService
 from app.ui.theme import COLORS
+
+# Resolve SVG icon paths for password visibility toggle
+_ICONS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "assets" / "icons"
+_EYE_ICON_PATH = str(_ICONS_DIR / "eye.svg")
+_EYE_OFF_ICON_PATH = str(_ICONS_DIR / "eye_off.svg")
 
 
 class CredentialDialog(QDialog):
@@ -41,7 +48,7 @@ class CredentialDialog(QDialog):
 
     def _setup_ui(self) -> None:
         self.setWindowTitle(f"Configure {self.platform_name} Credentials")
-        self.setFixedWidth(460)
+        self.setFixedWidth(480)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setStyleSheet(f"""
             QDialog {{
@@ -70,11 +77,16 @@ class CredentialDialog(QDialog):
         layout.setSpacing(16)
 
         # Header Title & Explanatory Subtitle
-        lbl_title = QLabel(f"🔐 {self.platform_name} Credentials")
+        lbl_title = QLabel(f"{self.platform_name} Credentials")
         lbl_title.setStyleSheet("font-size: 16px; font-weight: 700;")
         layout.addWidget(lbl_title)
 
-        lbl_desc = QLabel("Credentials are encrypted immediately using your machine-local key and stored securely in SQLite.")
+        if self.platform_key == "indeed":
+            lbl_desc = QLabel("Indeed uses passwordless Email + Verification Code authentication. Your session is saved to your local Chrome profile upon 180s verification.")
+        elif self.platform_key == "glassdoor":
+            lbl_desc = QLabel("Glassdoor uses persistent browser sessions. Password is optional if session cookies are active.")
+        else:
+            lbl_desc = QLabel("Credentials are encrypted immediately using your machine-local key and stored securely in SQLite.")
         lbl_desc.setWordWrap(True)
         lbl_desc.setStyleSheet(f"font-size: 12px; color: {COLORS.get('text_muted', '#8B949E')};")
         layout.addWidget(lbl_desc)
@@ -105,20 +117,24 @@ class CredentialDialog(QDialog):
         _, existing_pwd = self.secrets_service.get_platform_credentials(self.platform_key)
         self.txt_password = QLineEdit(existing_pwd or "")
         self.txt_password.setEchoMode(QLineEdit.Password)
-        self.txt_password.setPlaceholderText("Enter password" if not existing_pwd else "Password stored securely (type to change)")
+        if self.platform_key == "indeed":
+            self.txt_password.setPlaceholderText("Passwordless (Indeed uses email login codes)")
+        else:
+            self.txt_password.setPlaceholderText("Enter password" if not existing_pwd else "Password stored securely (type to change)")
         pwd_layout.addWidget(self.txt_password, 1)
 
-        self.btn_toggle_pwd = QPushButton("👁")
+        self.btn_toggle_pwd = QPushButton()
+        self.btn_toggle_pwd.setIcon(QIcon(_EYE_ICON_PATH))
+        self.btn_toggle_pwd.setIconSize(QSize(16, 16))
+        self.btn_toggle_pwd.setFixedSize(36, 36)
         self.btn_toggle_pwd.setToolTip("Show password temporarily (auto-masks after 10s)")
         self.btn_toggle_pwd.setCursor(Qt.PointingHandCursor)
         self.btn_toggle_pwd.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS.get('surface_alt', '#1C2128')};
                 border: 1px solid {COLORS.get('border', '#262C36')};
-                color: {COLORS.get('text', '#F0F6FC')};
-                font-size: 14px;
-                padding: 6px 10px;
                 border-radius: 6px;
+                padding: 4px;
             }}
             QPushButton:hover {{
                 border-color: {COLORS.get('accent', '#FF5F15')};
@@ -153,7 +169,7 @@ class CredentialDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_save = QPushButton("Save & Encrypt")
+        btn_save = QPushButton("Save and Encrypt")
         btn_save.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS.get('accent', '#FF5F15')};
@@ -176,14 +192,13 @@ class CredentialDialog(QDialog):
     def _toggle_password_visibility(self) -> None:
         if self.txt_password.echoMode() == QLineEdit.Password:
             self.txt_password.setEchoMode(QLineEdit.Normal)
+            self.btn_toggle_pwd.setIcon(QIcon(_EYE_OFF_ICON_PATH))
             self.btn_toggle_pwd.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {COLORS.get('accent', '#FF5F15')}22;
                     border: 1px solid {COLORS.get('accent', '#FF5F15')};
-                    color: {COLORS.get('accent', '#FF5F15')};
-                    font-size: 14px;
-                    padding: 6px 10px;
                     border-radius: 6px;
+                    padding: 4px;
                 }}
             """)
             self._mask_timer.start(10000)  # 10s auto-mask timeout
@@ -192,14 +207,16 @@ class CredentialDialog(QDialog):
 
     def _auto_mask_password(self) -> None:
         self.txt_password.setEchoMode(QLineEdit.Password)
+        self.btn_toggle_pwd.setIcon(QIcon(_EYE_ICON_PATH))
         self.btn_toggle_pwd.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS.get('surface_alt', '#1C2128')};
                 border: 1px solid {COLORS.get('border', '#262C36')};
-                color: {COLORS.get('text', '#F0F6FC')};
-                font-size: 14px;
-                padding: 6px 10px;
                 border-radius: 6px;
+                padding: 4px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS.get('accent', '#FF5F15')};
             }}
         """)
         self._mask_timer.stop()
@@ -211,11 +228,19 @@ class CredentialDialog(QDialog):
         # Update credentials through SecretsService immediately
         existing_user, existing_pwd = self.secrets_service.get_platform_credentials(self.platform_key)
         final_pwd = new_password if new_password else (existing_pwd or "")
+        final_user = new_username if new_username else (existing_user or "")
 
-        if new_username:
-            self.secrets_service.set_secret(f"{self.platform_key}_username", new_username)
-        if final_pwd:
-            self.secrets_service.set_secret(f"{self.platform_key}_password", final_pwd)
+        if hasattr(self.secrets_service, "set_platform_credentials"):
+            self.secrets_service.set_platform_credentials(
+                self.platform_key,
+                username=final_user,
+                password=final_pwd
+            )
+        else:
+            if final_user:
+                self.secrets_service.set_secret(f"{self.platform_key}_username", final_user)
+            if final_pwd:
+                self.secrets_service.set_secret(f"{self.platform_key}_password", final_pwd)
 
-        self.credentials_saved.emit(self.platform_key, new_username)
+        self.credentials_saved.emit(self.platform_key, final_user)
         self.accept()

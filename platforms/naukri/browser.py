@@ -98,9 +98,11 @@ class NaukriBrowser:
 
         if disable_extensions:
             options.add_argument("--disable-extensions")
-        options.add_argument("--disable-gpu")
+        if self.headless:
+            options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-size=1600,1000")
         return options
 
     def start(self) -> None:
@@ -143,7 +145,17 @@ class NaukriBrowser:
             uc = _get_uc()
             self.driver = uc.Chrome(**_get_launch_kwargs())
 
-        self.driver.maximize_window()
+        if not self.headless:
+            try:
+                self.driver.set_window_position(50, 50)
+                self.driver.set_window_size(1600, 1000)
+                self.driver.maximize_window()
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+        else:
+            self.driver.maximize_window()
+
         try:
             self.driver.set_page_load_timeout(35)
         except Exception:
@@ -158,6 +170,8 @@ class NaukriBrowser:
         """Navigates to URL with eager page-load strategy, timeout handling, and popup auto-dismissal."""
         if not self.driver:
             raise RuntimeError("Browser not started. Call start() first.")
+        if "stealth" in (url or "").lower():
+            url = "https://www.naukri.com/mnjuser/homepage"
         from app.services.security.url_validator import is_safe_url
         is_safe, reason = is_safe_url(url, allow_local_ai=False)
         if not is_safe:
@@ -165,6 +179,12 @@ class NaukriBrowser:
             return False
         try:
             self.driver.get(url)
+            try:
+                if "stealth" in (self.driver.current_url or "").lower():
+                    print_lg("[NaukriBrowser] Detected Naukri Stealth spreadsheet disguise mode. Redirecting to standard jobs portal...")
+                    self.driver.get("https://www.naukri.com/mnjuser/homepage")
+            except Exception:
+                pass
             try:
                 from platforms.naukri.recovery import dismiss_unexpected_popups
                 dismiss_unexpected_popups(self.driver)

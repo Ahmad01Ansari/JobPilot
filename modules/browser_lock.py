@@ -94,10 +94,20 @@ def is_process_owned_by_active_jobpilot(pid: int) -> bool:
                 with open(f"/proc/{pid}/stat", "r") as f:
                     stat_line = f.read().split()
                     ppid = int(stat_line[3])
-                if ppid > 1 and is_pid_alive(ppid) and ppid != os.getpid():
+                if ppid > 1 and is_pid_alive(ppid):
+                    if ppid == os.getpid():
+                        return True
+                    # Check grandparent if Chrome was launched via chromedriver subprocess
+                    try:
+                        with open(f"/proc/{ppid}/stat", "r") as gf:
+                            grandparent_pid = int(gf.read().split()[3])
+                        if grandparent_pid == os.getpid():
+                            return True
+                    except Exception:
+                        pass
                     with open(f"/proc/{ppid}/cmdline", "r") as f:
                         parent_cmd = f.read().lower()
-                    if any(k in parent_cmd for k in ["jobpilot", "run_desktop", "runaibot"]):
+                    if any(k in parent_cmd for k in ["jobpilot", "run_desktop", "runaibot", "python", "chromedriver"]):
                         return True
             except Exception:
                 pass
@@ -317,7 +327,11 @@ def get_profile_dir(platform: str, user_id: Optional[int] = None) -> str:
         primary = os.path.expanduser("~/.jobpilot-naukri-profile")
         fallback = os.path.expanduser("~/.apply-and-pray-naukri-profile")
         if not os.path.exists(primary) and os.path.exists(fallback):
-            return fallback
+            try:
+                import shutil
+                shutil.copytree(fallback, primary)
+            except Exception:
+                pass
         if not os.path.exists(primary) and AppPaths.is_windows():
             win_prof = str(user_data / "profiles" / "naukri")
             make_directories([win_prof])
@@ -344,12 +358,23 @@ def get_profile_dir(platform: str, user_id: Optional[int] = None) -> str:
             make_directories([win_prof])
             return win_prof
         return primary
+    elif plat == "universal":
+        primary = os.path.expanduser("~/.jobpilot-universal-profile")
+        if not os.path.exists(primary):
+            win_prof = str(user_data / "profiles" / "universal")
+            make_directories([win_prof])
+            return win_prof
+        return primary
     else:
         # Default: LinkedIn / General
         primary = os.path.expanduser("~/.jobpilot-chrome-profile")
         fallback = os.path.expanduser("~/.apply-and-pray-chrome-profile")
         if not os.path.exists(primary) and os.path.exists(fallback):
-            return fallback
+            try:
+                import shutil
+                shutil.copytree(fallback, primary)
+            except Exception:
+                pass
         if not os.path.exists(primary) and AppPaths.is_windows():
             win_prof = str(user_data / "profiles" / "linkedin")
             make_directories([win_prof])

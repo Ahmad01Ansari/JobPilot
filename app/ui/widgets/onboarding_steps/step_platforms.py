@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QFrame, QScrollArea
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 
 
 class RealPlatformCard(QFrame):
@@ -46,13 +47,17 @@ class RealPlatformCard(QFrame):
 
         # Header Row
         h_row = QHBoxLayout()
-        lbl_name = QLabel(f"🌐 {self.p_data['name']}")
+        h_row.setSpacing(6)
+        lbl_p_icon = QLabel()
+        lbl_p_icon.setPixmap(render_vector_pixmap("globe", COLORS['primary'], 14))
+        lbl_name = QLabel(self.p_data['name'])
         lbl_name.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS['text']};")
+        h_row.addWidget(lbl_p_icon)
         h_row.addWidget(lbl_name)
 
         status_text = self.p_data.get("status_label", "Available")
         self.lbl_status = QLabel(status_text)
-        is_ready = "✓" in status_text
+        is_ready = bool(self.p_data.get("is_configured") or "ready" in status_text.lower() or "connected" in status_text.lower())
         self.lbl_status.setStyleSheet(f"""
             color: {COLORS['success'] if is_ready else COLORS['text_muted']};
             background-color: {COLORS['success_subtle'] if is_ready else COLORS['surface_alt']};
@@ -73,19 +78,19 @@ class RealPlatformCard(QFrame):
                 "• <b>How it works:</b> JobPilot connects to Indeed/Glassdoor using your local browser session cookies. "
                 "No password is required or requested.<br>"
                 "• <b>Why required:</b> Authenticated browser sessions allow searching matched listings and auto-filling Easy Apply questionnaires without CAPTCHAs.<br>"
-                "• <b>🔒 Security Note:</b> Only optional search preferences or account emails are configured here. Session cookies remain in your local Chrome profile."
+                "• <b>Security Note:</b> Only optional search preferences or account emails are configured here. Session cookies remain in your local Chrome profile."
             )
         elif p_id in ["universal"]:
             how_text = (
                 "• <b>How it works:</b> Automates public career pages on Greenhouse, Lever, Ashby, and Workday using Universal AI.<br>"
                 "• <b>Why required:</b> Enables autonomous application submissions directly on employer websites.<br>"
-                "• <b>🔒 Security Note:</b> Zero credentials or portal logins required. Fully standalone and operational out of the box."
+                "• <b>Security Note:</b> Zero credentials or portal logins required. Fully standalone and operational out of the box."
             )
         else:
             how_text = (
                 f"• <b>How it works:</b> Launches stealth automation to search {self.p_data['name']} jobs, match requirements against your profile, and execute Easy Apply.<br>"
                 "• <b>Why required:</b> Login authentication allows JobPilot to apply directly on your behalf and access personalized job feeds.<br>"
-                "• <b>🔒 Security Note:</b> Your password is encrypted and stored exclusively in your local OS Keyring. Zero credentials are ever transmitted to external servers."
+                "• <b>Security Note:</b> Your password is encrypted and stored exclusively in your local OS Keyring. Zero credentials are ever transmitted to external servers."
             )
 
         lbl_how = QLabel(how_text)
@@ -101,11 +106,15 @@ class RealPlatformCard(QFrame):
 
             self.txt_username = QLineEdit()
             self.txt_username.setPlaceholderText("Account Email (Optional, for session identification)")
+            if self.p_data.get("username"):
+                self.txt_username.setText(self.p_data["username"])
             self.txt_username.setStyleSheet(self._input_qss())
             grid.addWidget(self.txt_username, 1)
 
             self.txt_search_location = QLineEdit()
             self.txt_search_location.setPlaceholderText("Preferred Search Location (e.g. Remote / India)")
+            if self.p_data.get("location"):
+                self.txt_search_location.setText(self.p_data["location"])
             self.txt_search_location.setStyleSheet(self._input_qss())
             grid.addWidget(self.txt_search_location, 1)
 
@@ -119,12 +128,17 @@ class RealPlatformCard(QFrame):
 
             self.txt_username = QLineEdit()
             self.txt_username.setPlaceholderText("Username / Email")
+            if self.p_data.get("username"):
+                self.txt_username.setText(self.p_data["username"])
             self.txt_username.setStyleSheet(self._input_qss())
             grid.addWidget(self.txt_username, 1)
 
             self.txt_password = QLineEdit()
             self.txt_password.setEchoMode(QLineEdit.Password)
-            self.txt_password.setPlaceholderText("Password (OS Keyring)")
+            if self.p_data.get("has_credentials"):
+                self.txt_password.setPlaceholderText("Password Saved in Keyring (Leave empty to keep)")
+            else:
+                self.txt_password.setPlaceholderText("Password (OS Keyring)")
             self.txt_password.setStyleSheet(self._input_qss())
             grid.addWidget(self.txt_password, 1)
 
@@ -226,6 +240,7 @@ class StepPlatformsWidget(QWidget):
         root_layout.addWidget(scroll)
 
     def load_platforms(self):
+        existing_typed = self.get_platforms_payload()
         # Clear existing cards
         while self.cards_layout.count() > 0:
             item = self.cards_layout.takeAt(0)
@@ -240,8 +255,16 @@ class StepPlatformsWidget(QWidget):
             platforms_list = self.setup_service.get_supported_platforms()
 
         for p_data in platforms_list:
+            p_id = p_data["id"]
+            if p_id in existing_typed:
+                if "username" in existing_typed[p_id]:
+                    p_data["username"] = existing_typed[p_id]["username"]
+                if "location" in existing_typed[p_id]:
+                    p_data["location"] = existing_typed[p_id]["location"]
             card = RealPlatformCard(p_data)
-            self.cards[p_data["id"]] = card
+            if p_id in existing_typed and "password" in existing_typed[p_id] and card.txt_password:
+                card.txt_password.setText(existing_typed[p_id]["password"])
+            self.cards[p_id] = card
             self.cards_layout.addWidget(card)
 
     def get_platforms_payload(self) -> Dict[str, Any]:

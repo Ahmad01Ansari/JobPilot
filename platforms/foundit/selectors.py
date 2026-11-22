@@ -234,6 +234,11 @@ PRIMARY_APPLY_BUTTON_SELECTORS = [
 ]
 
 EXTERNAL_APPLY_INDICATORS = [
+    "redirecting you to apply on company site",
+    "redirecting to apply on company site",
+    "redirecting you to apply",
+    "redirecting you to",
+    "redirecting to company site",
     "apply on company site",
     "apply on company website",
     "company website",
@@ -248,6 +253,9 @@ EXTERNAL_APPLY_INDICATORS = [
 # Submission & Confirmation Selectors
 # ---------------------------------------------------------------------------
 SUBMISSION_SUCCESS_TEXTS = [
+    "redirecting you to apply on company site",
+    "redirecting to apply on company site",
+    "redirecting to apply",
     "you have applied successfully",
     "applied successfully",
     "application submitted",

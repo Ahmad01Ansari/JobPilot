@@ -44,6 +44,7 @@ class TestOutreachAPI(unittest.TestCase):
                 s.query(Communication).filter(Communication.application_id == app.id).delete(synchronize_session=False)
                 s.delete(app)
             s.query(Contact).filter(Contact.email.like("%@apitestlabs.org")).delete(synchronize_session=False)
+            s.query(Job).filter(Job.company_raw.like("API Test Labs%")).delete(synchronize_session=False)
             s.query(Company).filter(Company.name.like("API Test Labs%")).delete(synchronize_session=False)
             s.query(User).filter(User.email == "tester@jobpilot.local").delete(synchronize_session=False)
             s.commit()

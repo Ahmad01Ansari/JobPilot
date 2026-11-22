@@ -177,6 +177,19 @@ class DashboardKPICardsBar(QFrame):
         )
         layout.addWidget(self.card_rejected)
 
+        # 7. Closed
+        self.card_closed = KPICard(
+            title="Closed",
+            value="0",
+            color_hex=COLORS.get("text_muted", "#94A3B8"),
+            target_stage="CLOSED",
+            parent=self,
+        )
+        self.card_closed.clicked.connect(
+            lambda: self.navigation_requested.emit("applications", {"status": "CLOSED"})
+        )
+        layout.addWidget(self.card_closed)
+
     def update_metrics(
         self,
         total_jobs: int = 0,
@@ -185,6 +198,7 @@ class DashboardKPICardsBar(QFrame):
         interviewing: int = 0,
         offers: int = 0,
         rejected: int = 0,
+        closed: int = 0,
     ) -> None:
         """Binds updated counts to each metric card."""
         self.card_total_jobs.set_value(total_jobs)
@@ -193,3 +207,4 @@ class DashboardKPICardsBar(QFrame):
         self.card_interviewing.set_value(interviewing)
         self.card_offers.set_value(offers)
         self.card_rejected.set_value(rejected)
+        self.card_closed.set_value(closed)

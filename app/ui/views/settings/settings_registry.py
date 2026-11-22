@@ -78,6 +78,11 @@ SETTINGS_REGISTRY: Dict[str, Dict[str, Any]] = {
         "title": "Close external job tabs",
         "keywords": ["close", "tabs", "external", "redirects", "cleanup"],
     },
+    "auto_close_stale_applications": {
+        "section": "automation",
+        "title": "Auto-close stale applications",
+        "keywords": ["close", "stale", "archive", "expire", "inactivity", "ghost", "dormant", "threshold", "60 days"],
+    },
 
     # AI & Screening
     "ai_engine": {

@@ -4,9 +4,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta, timezone
 
+from PySide6.QtCore import QEventLoop
 from PySide6.QtWidgets import QApplication
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.models import Application, Communication, Company, Contact, FollowUp, Job, User
 from app.services.dto.outreach_enums import FollowUpStatus
@@ -26,7 +28,11 @@ class TestOutreachCadenceCoordinator(unittest.TestCase):
             cls.app = QApplication.instance()
 
     def setUp(self):
-        self.engine = create_engine("sqlite:///:memory:")
+        self.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         Base.metadata.create_all(self.engine)
         self.session_factory = sessionmaker(bind=self.engine)
 
@@ -127,9 +133,12 @@ class TestOutreachCadenceCoordinator(unittest.TestCase):
         coordinator._inbound_sync.sync_mailbox.return_value = {"new_messages": 0}
 
         emitted_due = []
-        coordinator.due_followups_detected.connect(lambda lst: emitted_due.extend(lst))
+        loop = QEventLoop()
+        coordinator.due_followups_detected.connect(lambda lst: (emitted_due.extend(lst), loop.quit()))
 
         coordinator.run_cadence_cycle()
+        loop.exec()
+
         self.assertEqual(len(emitted_due), 1)
         self.assertEqual(emitted_due[0]["company_name"], "Acme Robotics")
 

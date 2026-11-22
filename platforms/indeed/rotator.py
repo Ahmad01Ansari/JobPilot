@@ -27,6 +27,7 @@ class IndeedRotationConfig:
     easy_apply_only: bool = True
     max_pages_per_search: int = 3
     switch_number: int = 30
+    max_applications: Optional[int] = None
     daily_application_goal: int = 50
     auto_relax_date_filter: bool = True
     negative_title_words: List[str] = field(default_factory=list)
@@ -116,9 +117,9 @@ class IndeedRotator:
         self.browser = browser
         self.tracker = tracker or ApplicationTracker(user_id=user_id)
         self.config = config or IndeedRotationConfig.from_profile()
-        self.search = IndeedSearch(browser)
         self.automation_bridge = automation_bridge
         self.applier = applier or IndeedApplier(browser, self.tracker, automation_bridge=self.automation_bridge, bad_words=self.config.bad_words)
+        self.search = IndeedSearch(browser, captcha_handler=self.applier.captcha_handler, automation_bridge=self.automation_bridge)
         self.user_id = user_id
         self.stats = IndeedRotationStats()
 
@@ -145,6 +146,10 @@ class IndeedRotator:
                     print_lg("[IndeedRotator] Daily application goal reached! Halting rotation.")
                     break
 
+                if self.config.max_applications is not None and self.stats.jobs_applied >= self.config.max_applications:
+                    print_lg(f"[IndeedRotator] Global application cap ({self.config.max_applications}) reached. Halting rotation.")
+                    break
+
                 self.stats.terms_searched += 1
                 print_lg(f"\n{'='*70}\n[IndeedRotator] Starting Keyword: '{term}' (Goal: {self.config.switch_number} apps)\n{'='*70}")
                 term_applied = 0
@@ -160,6 +165,8 @@ class IndeedRotator:
                         break
 
                     if self.stats.jobs_applied >= self.config.daily_application_goal:
+                        break
+                    if self.config.max_applications is not None and self.stats.jobs_applied >= self.config.max_applications:
                         break
 
                     self.stats.pages_processed += 1
@@ -257,6 +264,9 @@ class IndeedRotator:
                         if term_applied >= self.config.switch_number:
                             break
                         if self.stats.jobs_applied >= self.config.daily_application_goal:
+                            break
+                        if self.config.max_applications is not None and self.stats.jobs_applied >= self.config.max_applications:
+                            print_lg(f"[IndeedRotator] Global application cap ({self.config.max_applications}) reached. Halting job loop.")
                             break
 
                         job_obj = job.to_job()
@@ -374,6 +384,9 @@ class IndeedRotator:
                                 f"Time: '{time.strftime('%Y-%m-%d %H:%M:%S')}'"
                             )
                             print_lg(f"[IndeedRotator] Total Applied Today: {self.stats.jobs_applied}/{self.config.daily_application_goal}")
+                            if self.config.max_applications is not None and self.stats.jobs_applied >= self.config.max_applications:
+                                print_lg(f"[IndeedRotator] Global application cap ({self.config.max_applications}) reached. Terminating rotation.")
+                                break
                         elif "external" in message.lower():
                             self.stats.jobs_external += 1
                             self.stats.jobs_skipped += 1

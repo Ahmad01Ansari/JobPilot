@@ -331,9 +331,13 @@ class AutomationView(QWidget):
         if not success:
             self.notification_bar.show_message(err or "Failed to start automation.", "danger")
         else:
-            self.notification_bar.show_message(f"Starting automation for {platform.capitalize()}...", "info")
-            if platform in ("linkedin", "naukri", "indeed", "foundit", "glassdoor"):
-                self.platform_strip.update_platform(platform, "RUNNING")
+            if platform == "all":
+                self.notification_bar.show_message("Starting Multi-Platform Round-Robin Batch Automation (Headless)...", "info")
+                self.platform_strip.update_platform("linkedin", "RUNNING")
+            else:
+                self.notification_bar.show_message(f"Starting automation for {platform.capitalize()}...", "info")
+                if platform in ("linkedin", "naukri", "indeed", "foundit", "glassdoor"):
+                    self.platform_strip.update_platform(platform, "RUNNING")
 
     def prepare_universal_run(self, job_or_url: object, job_title: str = "", company: str = "") -> None:
         """Pre-populates Universal Automation with a target portal job and switches view context."""
@@ -384,6 +388,16 @@ class AutomationView(QWidget):
             elif state_str == AutomationState.FAILED.value:
                 self.platform_strip.update_platform(plat, "ERROR")
 
+    def _sync_platform(self, platform_name: Optional[str]) -> None:
+        """Synchronizes selected platform selector and ui_state when events arrive."""
+        if not platform_name:
+            return
+        plat = str(platform_name).lower().strip()
+        if plat in ("linkedin", "naukri", "indeed", "foundit", "glassdoor", "universal", "all"):
+            if plat != self.ui_state.platform.lower():
+                self.ui_state.platform = plat
+                self.platform_selector.select_platform(plat)
+
     def _update_state_ui(self, state_str: str) -> None:
         """Updates header, hero, and control enablement based on state string."""
         self.header.update_state(state_str)
@@ -392,11 +406,13 @@ class AutomationView(QWidget):
 
     def _on_progress_updated(self, progress: AutomationProgressEvent) -> None:
         """Handles telemetry progress updates."""
+        self._sync_platform(progress.platform)
         self.ui_state.on_progress(progress)
         self._sync_all_widgets()
 
     def _on_job_discovered(self, event: JobDiscoveredEvent) -> None:
         """Handles job card discovery."""
+        self._sync_platform(event.platform)
         self.ui_state.on_job_discovered(event)
         self.current_job_card.update_from_state(self.ui_state)
         self.hero.update_from_state(self.ui_state)
@@ -405,6 +421,7 @@ class AutomationView(QWidget):
 
     def _on_job_evaluated(self, event: JobEvaluatedEvent) -> None:
         """Handles job qualification evaluation."""
+        self._sync_platform(event.platform)
         self.ui_state.on_job_evaluated(event)
         self.current_job_card.update_from_state(self.ui_state)
         self.hero.update_from_state(self.ui_state)
@@ -413,6 +430,7 @@ class AutomationView(QWidget):
 
     def _on_application_submitted(self, event: ApplicationSubmittedEvent) -> None:
         """Handles successful application submission."""
+        self._sync_platform(event.platform)
         self.ui_state.on_application_submitted(event)
         self.current_job_card.update_from_state(self.ui_state)
         self.hero.update_from_state(self.ui_state)
@@ -561,6 +579,7 @@ class AutomationView(QWidget):
 
     def _on_run_finished(self, result: AutomationRunResult) -> None:
         """Handles session completion or termination."""
+        self._sync_platform(result.platform)
         self.ui_state.on_finished(result)
         self._sync_all_widgets()
         self._refresh_recent_runs()

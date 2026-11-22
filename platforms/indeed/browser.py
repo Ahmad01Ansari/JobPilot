@@ -100,7 +100,8 @@ class IndeedBrowser:
 
         if disable_extensions:
             options.add_argument("--disable-extensions")
-        options.add_argument("--disable-gpu")
+        if self.headless:
+            options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1600,1000")
@@ -148,7 +149,17 @@ class IndeedBrowser:
             self.driver = uc.Chrome(**_get_launch_kwargs())
 
         print_lg("[IndeedBrowser] Chrome browser window active and configured.")
-        self.driver.maximize_window()
+        if not self.headless:
+            try:
+                self.driver.set_window_position(50, 50)
+                self.driver.set_window_size(1600, 1000)
+                self.driver.maximize_window()
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+        else:
+            self.driver.maximize_window()
+
         try:
             self.driver.set_page_load_timeout(35)
         except Exception:

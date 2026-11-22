@@ -62,7 +62,14 @@ class AutomationWorker(QThread):
         self.job_title = job_title
         self.company = company
         self.candidate_context = candidate_context or {}
-        self.headless = headless if headless is not None else False
+        if headless is None:
+            try:
+                from app.services.settings_service import SettingsService
+                self.headless = bool(SettingsService().get_setting("run_in_background", False))
+            except Exception:
+                self.headless = False
+        else:
+            self.headless = bool(headless)
         self.on_review_requested = on_review_requested
         self.orchestrator = orchestrator
         self._active_orchestrator: Optional[Any] = None
@@ -83,17 +90,52 @@ class AutomationWorker(QThread):
         self._is_paused = False
         self._active_router = None
         self._active_platform = None
+        self._discovered_keys = set()
         self.progress = AutomationProgressEvent(run_id=self.run_id, platform=self.platform)
         self.start_time = datetime.now(timezone.utc)
 
     def confirm_review(self, notes: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> None:
-        """Approves pending human review or OTP resolution for universal application."""
+        """Approves pending human review, OTP, or candidate question input."""
+        # Save learned answer if provided by candidate
+        val = (data and data.get("value")) or (notes and not any(notes.startswith(p) for p in ["I've Solved", "I have solved", "I am logged in"]))
+        if val:
+            ans_str = str((data.get("value") if data else None) or notes).strip()
+            if ans_str:
+                try:
+                    from modules.qna_engine import QnAEngine
+                    q_label = (data or {}).get("field_name") or (data or {}).get("prompt") or "Manual Screening Input"
+                    engine = QnAEngine(user_id=self.user_id)
+                    engine.save_learned_answer(q_label, ans_str, category="user_override", source="user")
+                    self.emit_activity(f"Saved candidate response for '{q_label}': '{ans_str}'")
+                except Exception as e:
+                    logger.debug("Notice saving learned answer: %s", e)
+
         if self._active_orchestrator:
             try:
                 self._active_orchestrator.confirm_submission(notes=notes, data=data)
             except TypeError:
                 self._active_orchestrator.confirm_submission(notes=notes)
             self.emit_activity("Intervention resolution confirmed by user.")
+        if self.bridge:
+            if val:
+                ans_str = str((data.get("value") if data else None) or notes).strip()
+                try:
+                    self.bridge.provide_input(ans_str, metadata=data)
+                except Exception as err:
+                    logger.debug("Notice providing input to bridge: %s", err)
+            try:
+                self.bridge.mark_captcha_resolved()
+            except Exception:
+                pass
+            try:
+                if hasattr(self.bridge, "resolve_intervention"):
+                    self.bridge.resolve_intervention(data or {"action": "RESUME", "notes": notes})
+            except Exception as err:
+                logger.debug("Notice resolving intervention on bridge: %s", err)
+            self.emit_activity("Intervention resolution confirmed by user.")
+
+        if self._is_paused:
+            self.resume()
 
     def takeover_manually(self, notes: Optional[str] = None) -> None:
         """Transfers control of current universal application to user."""
@@ -227,8 +269,10 @@ class AutomationWorker(QThread):
         return job_id
 
     def record_job_evaluated(self, event: JobEvaluatedEvent) -> None:
-        """Dispatches job qualification decision."""
+        """Dispatches job qualification decision, ensuring discovered count is always >= evaluated count."""
         self.progress.jobs_evaluated += 1
+        if self.progress.jobs_discovered < self.progress.jobs_evaluated:
+            self.progress.jobs_discovered = self.progress.jobs_evaluated
         if event.is_qualified:
             self.progress.jobs_qualified += 1
             self.emit_activity(f"Qualified: {event.title} @ {event.company}")
@@ -284,7 +328,10 @@ class AutomationWorker(QThread):
             skip_reason = getattr(record, "skip_reason", None)
             fail_reason = getattr(record, "failure_reason", None)
 
+            job_key = (str(platform).lower(), str(job_id).strip() or str(title))
+
             if status == "DISCOVERED":
+                self._discovered_keys.add(job_key)
                 event = JobDiscoveredEvent(
                     run_id=self.run_id,
                     platform=platform,
@@ -296,26 +343,29 @@ class AutomationWorker(QThread):
                 )
                 self.record_job_discovered(event)
 
-            elif status == "QUALIFIED":
-                event = JobEvaluatedEvent(
-                    run_id=self.run_id,
-                    platform=platform,
-                    title=title,
-                    company=company,
-                    is_qualified=True,
-                    external_job_id=job_id,
-                )
-                self.record_job_evaluated(event)
+            elif status in ("QUALIFIED", "SKIPPED"):
+                if job_key not in self._discovered_keys:
+                    self._discovered_keys.add(job_key)
+                    disc_event = JobDiscoveredEvent(
+                        run_id=self.run_id,
+                        platform=platform,
+                        title=title,
+                        company=company,
+                        external_job_id=job_id,
+                        location=location,
+                        url=source_url,
+                    )
+                    self.record_job_discovered(disc_event)
 
-            elif status == "SKIPPED":
+                is_qual = (status == "QUALIFIED")
                 event = JobEvaluatedEvent(
                     run_id=self.run_id,
                     platform=platform,
                     title=title,
                     company=company,
-                    is_qualified=False,
+                    is_qualified=is_qual,
                     external_job_id=job_id,
-                    reason=skip_reason,
+                    reason=skip_reason if not is_qual else None,
                 )
                 self.record_job_evaluated(event)
 
@@ -368,13 +418,33 @@ class AutomationWorker(QThread):
 
             elif status == "MANUAL_REQUIRED":
                 is_captcha = "captcha" in str(fail_reason or "").lower()
-                event = AutomationInterventionEvent(
-                    run_id=self.run_id,
-                    platform=platform,
-                    intervention_type=InterventionType.CAPTCHA_DETECTED if is_captcha else InterventionType.MANUAL_ACTION_REQUIRED,
-                    message=f"{'CAPTCHA challenge detected' if is_captcha else 'Manual review required'} for {title} @ {company}",
-                )
-                self.record_intervention(event)
+                if is_captcha:
+                    event = AutomationInterventionEvent(
+                        run_id=self.run_id,
+                        platform=platform,
+                        intervention_type=InterventionType.CAPTCHA_DETECTED,
+                        message=f"CAPTCHA challenge detected for {title} @ {company}",
+                    )
+                    self.record_intervention(event)
+                elif self.headless:
+                    # In unattended headless mode, Chrome has no visible window and the modal has been discarded.
+                    # Do not freeze the pipeline with an interactive modal; record and proceed.
+                    self.emit_activity(f"Notice: Job requires manual review ({title} @ {company}): {fail_reason or 'unanswered questions'}. Saved to Review List.")
+                else:
+                    event = AutomationInterventionEvent(
+                        run_id=self.run_id,
+                        platform=platform,
+                        intervention_type=InterventionType.MANUAL_ACTION_REQUIRED,
+                        message=f"Manual review required for {title} @ {company}",
+                        details={
+                            "title": title,
+                            "company": company,
+                            "failure_reason": fail_reason,
+                            "prompt": fail_reason,
+                            "field_name": fail_reason or "Screening Question",
+                        },
+                    )
+                    self.record_intervention(event)
 
         except Exception as e:
             logger.debug("Error in _on_tracker_record: %s", e)
@@ -386,12 +456,22 @@ class AutomationWorker(QThread):
 
         final_state = AutomationState.COMPLETED
         stop_reason = None
+        wakelock_acquired = False
 
         try:
             from modules.helpers import add_log_listener, remove_log_listener
             from modules.tracker import ApplicationTracker
             add_log_listener(self._on_platform_log)
             ApplicationTracker.add_listener(self._on_tracker_record)
+
+            try:
+                from app.services.settings_service import SettingsService
+                keep_awake = bool(SettingsService().get_setting("keep_screen_awake", True))
+                if keep_awake:
+                    from app.services.os.system_service import SystemService
+                    wakelock_acquired = SystemService.acquire_wakelock("JobPilot automation running")
+            except Exception as e:
+                logger.debug("Failed to acquire system wakelock: %s", e)
 
             if self.engine_runner:
                 # Pluggable runner (used for FakeAutomationEngine or custom injections)
@@ -413,6 +493,13 @@ class AutomationWorker(QThread):
             stop_reason = str(exc)
 
         finally:
+            if wakelock_acquired:
+                try:
+                    from app.services.os.system_service import SystemService
+                    SystemService.release_wakelock()
+                except Exception:
+                    pass
+
             try:
                 from modules.helpers import remove_log_listener
                 from modules.tracker import ApplicationTracker
@@ -440,30 +527,122 @@ class AutomationWorker(QThread):
             self.emit_activity(f"Automation finished with state: {final_state.value} ({stop_reason or 'None'})")
             self.finished_result.emit(result)
 
+    def _is_platform_enabled(self, platform_name: str) -> bool:
+        """Checks if a platform is currently enabled for automation."""
+        try:
+            from app.services.platform_service import PlatformService
+            plat_svc = PlatformService()
+            return plat_svc.is_platform_enabled(platform_name)
+        except Exception:
+            try:
+                import json
+                from pathlib import Path
+                profile_path = Path(__file__).resolve().parent.parent.parent / "config" / "profile.json"
+                if profile_path.exists():
+                    with open(profile_path, "r", encoding="utf-8") as f:
+                        p_data = json.load(f)
+                    return bool(p_data.get("platforms", {}).get(platform_name.lower(), {}).get("enabled", True))
+            except Exception:
+                pass
+            return True
+
     def _execute_real_automation(self) -> None:
         """Dispatches execution to actual LinkedIn/Naukri/Indeed Selenium engines sequentially."""
+        try:
+            from app.services.settings_service import SettingsService
+            settings_svc = SettingsService()
+            self.headless = bool(settings_svc.get_setting("run_in_background", False))
+        except Exception:
+            pass
+
         if self.platform == "all":
-            self._run_linkedin_engine()
-            if self.is_stop_requested():
+            from app.services.settings_service import SettingsService
+            settings_svc = SettingsService()
+            batch_slice = int(settings_svc.get_setting("batch_size_per_platform", 10))
+            daily_goal = int(settings_svc.get_setting("batch_daily_goal_per_platform", 25))
+
+            candidate_platforms = [
+                ("linkedin", "LinkedIn", self._run_linkedin_engine),
+                ("naukri", "Naukri.com", self._run_naukri_engine),
+                ("indeed", "Indeed", self._run_indeed_engine),
+                ("foundit", "Foundit", self._run_foundit_engine),
+                ("glassdoor", "Glassdoor", self._run_glassdoor_engine),
+            ]
+
+            enabled_platforms = [
+                (p_id, p_name, runner)
+                for p_id, p_name, runner in candidate_platforms
+                if self._is_platform_enabled(p_id)
+            ]
+
+            if not enabled_platforms:
+                self.emit_activity("============================================================")
+                self.emit_activity("BATCH AUTOMATION HALTED: No platforms are currently enabled.")
+                self.emit_activity("Please enable at least one platform in the Platforms view and retry.")
+                self.emit_activity("============================================================")
                 return
-            self.emit_activity("Pausing briefly before switching platform profiles...")
-            self.msleep(2000)
-            self._run_naukri_engine()
-            if self.is_stop_requested():
-                return
-            self.emit_activity("Pausing briefly before switching platform profiles...")
-            self.msleep(2000)
-            self._run_indeed_engine()
-            if self.is_stop_requested():
-                return
-            self.emit_activity("Pausing briefly before switching platform profiles...")
-            self.msleep(2000)
-            self._run_foundit_engine()
-            if self.is_stop_requested():
-                return
-            self.emit_activity("Pausing briefly before switching platform profiles...")
-            self.msleep(2000)
-            self._run_glassdoor_engine()
+
+            platform_applied = {p_id: 0 for p_id, _, _ in enabled_platforms}
+            total_active = len(enabled_platforms)
+            rotation_order = " -> ".join([f"[{idx+1}/{total_active}] {p_name}" for idx, (_, p_name, _) in enumerate(enabled_platforms)])
+
+            mode_desc = "Unattended Headless (running in background)" if self.headless else "Attended Foreground (Chrome visible in foreground)"
+            self.emit_activity("============================================================")
+            self.emit_activity("MULTI-PLATFORM ROUND-ROBIN BATCH PIPELINE")
+            self.emit_activity(f"Configuration: {batch_slice} apps/cycle per platform | Daily Goal: {daily_goal} apps/platform")
+            self.emit_activity(f"Active Queue ({total_active} platforms): {rotation_order}")
+            self.emit_activity(f"Mode: {mode_desc}")
+            self.emit_activity("============================================================")
+
+            cycle = 1
+            max_consecutive_zero_cycles = 2
+            consecutive_zero_cycles = 0
+
+            while not self.is_stop_requested():
+                pending = [p for p, count in platform_applied.items() if count < daily_goal]
+                if not pending:
+                    self.emit_activity(f"Batch Automation: Daily goal ({daily_goal}) reached across all active platforms. Batch completed!")
+                    break
+
+                self.emit_activity("============================================================")
+                self.emit_activity(f">>> STARTING ROUND-ROBIN CYCLE {cycle}")
+                self.emit_activity("============================================================")
+                cycle_total_applied = 0
+
+                for idx, (p_id, p_name, runner) in enumerate(enabled_platforms):
+                    if self.is_stop_requested():
+                        break
+
+                    if platform_applied[p_id] < daily_goal:
+                        rem = daily_goal - platform_applied[p_id]
+                        cur_slice = min(batch_slice, rem)
+                        self.emit_activity(
+                            f">>> [Cycle {cycle}] STAGE [{idx+1}/{total_active}]: "
+                            f"Launching {p_name} (Cap: {cur_slice} apps, Progress: {platform_applied[p_id]}/{daily_goal})..."
+                        )
+                        applied = runner(max_applications=cur_slice)
+                        platform_applied[p_id] += applied
+                        cycle_total_applied += applied
+
+                        if self.is_stop_requested():
+                            self.emit_activity(f"Batch Automation: Stopped during {p_name} stage.")
+                            return
+
+                        self.msleep(3000)
+
+                if cycle_total_applied == 0:
+                    consecutive_zero_cycles += 1
+                    if consecutive_zero_cycles >= max_consecutive_zero_cycles:
+                        self.emit_activity("Batch Automation: No more eligible applications available across active platforms. Ending run gracefully.")
+                        break
+                else:
+                    consecutive_zero_cycles = 0
+
+                cycle += 1
+
+            self.emit_activity("============================================================")
+            self.emit_activity(">>> BATCH AUTOMATION: Multi-platform cycles completed.")
+            self.emit_activity("============================================================")
         elif self.platform == "naukri":
             self._run_naukri_engine()
         elif self.platform == "indeed":
@@ -477,37 +656,58 @@ class AutomationWorker(QThread):
         else:
             self._run_linkedin_engine()
 
-    def _run_linkedin_engine(self) -> None:
+    def _run_linkedin_engine(self, max_applications: Optional[int] = None) -> int:
         """Executes LinkedIn automation loop."""
         self.emit_activity("Agent Action: Preparing LinkedIn browser profile and launching stealth engine...")
+        applied_count = 0
         try:
             from platforms.router import PlatformRouter
             router = PlatformRouter()
+            if hasattr(router, "linkedin_platform") and router.linkedin_platform:
+                router.linkedin_platform.platform_config = router.linkedin_platform.platform_config or {}
+                router.linkedin_platform.platform_config["run_in_background"] = self.headless
+                if max_applications is not None:
+                    router.linkedin_platform.platform_config["max_applications"] = max_applications
+                    router.linkedin_platform.platform_config["switch_number"] = max_applications
             self._active_router = router
             self.emit_activity("Portal Navigation: Connecting to LinkedIn jobs search...")
             res = router.run_linkedin(
                 stop_check=self.is_stop_requested,
                 log_callback=self.emit_activity,
             )
-            self.emit_activity(f"LinkedIn session ended: {res.get('status', 'finished')}")
+            applied_count = int(res.get("jobs_applied", 0))
+            self.emit_activity(f"LinkedIn session ended: {res.get('status', 'finished')} (Applied: {applied_count})")
         except Exception as e:
             if not self.is_stop_requested():
                 self.record_error(f"LinkedIn engine error: {e}")
         finally:
             self._active_router = None
+        return applied_count
 
-    def _run_naukri_engine(self) -> None:
+    def _run_naukri_engine(self, max_applications: Optional[int] = None) -> int:
         """Executes Naukri automation loop with browser isolation."""
         self.emit_activity("Agent Action: Preparing persistent Naukri profile and clearing locks...")
+        applied_count = 0
         try:
             from platforms.router import NaukriPlatform
-            platform = NaukriPlatform()
+            platform = NaukriPlatform(automation_bridge=self.bridge)
+            platform.platform_config = platform.platform_config or {}
+            try:
+                from app.services.platform_service import PlatformService
+                p_cfg = PlatformService().get_platform_config("naukri") or {}
+                platform.platform_config.update(p_cfg)
+            except Exception:
+                pass
+            platform.platform_config["run_in_background"] = self.headless
+            if max_applications is not None:
+                platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
                 self.emit_activity("Agent Action: Launching isolated stealth Chrome browser for Naukri...")
                 platform.initialize()
                 if self.is_stop_requested():
-                    return
+                    return 0
                 self.emit_activity("Session State: Navigating to Naukri portal and verifying session...")
                 if not platform.login():
                     self.record_intervention(
@@ -518,12 +718,13 @@ class AutomationWorker(QThread):
                             message="Naukri login/OTP authentication required in browser.",
                         )
                     )
-                    return
+                    return 0
                 if self.is_stop_requested():
-                    return
+                    return 0
                 self.emit_activity("Portal Navigation: Active session confirmed. Beginning multi-query job search...")
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested)
-                self.emit_activity(f"Naukri session completed. Applied: {stats.get('jobs_applied', 0)}")
+                applied_count = int(stats.get("jobs_applied", 0))
+                self.emit_activity(f"Naukri session completed. Applied: {applied_count}")
             finally:
                 platform.close()
         except Exception as e:
@@ -531,20 +732,33 @@ class AutomationWorker(QThread):
                 self.record_error(f"Naukri engine error: {e}")
         finally:
             self._active_platform = None
+        return applied_count
 
-    def _run_indeed_engine(self) -> None:
+    def _run_indeed_engine(self, max_applications: Optional[int] = None) -> int:
         """Executes Indeed automation loop with browser isolation."""
         self.emit_activity("Agent Action: Preparing persistent Indeed profile and clearing locks...")
+        applied_count = 0
         try:
             from platforms.router import IndeedPlatform
             user_id = getattr(self, "user_id", 1)
             platform = IndeedPlatform(user_id=user_id, automation_bridge=self.bridge)
+            platform.platform_config = platform.platform_config or {}
+            try:
+                from app.services.platform_service import PlatformService
+                p_cfg = PlatformService().get_platform_config("indeed") or {}
+                platform.platform_config.update(p_cfg)
+            except Exception:
+                pass
+            platform.platform_config["run_in_background"] = self.headless
+            if max_applications is not None:
+                platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
                 self.emit_activity("Agent Action: Launching isolated stealth Chrome browser for Indeed...")
                 platform.initialize()
                 if self.is_stop_requested():
-                    return
+                    return 0
                 self.emit_activity("Session State: Navigating to Indeed portal and checking session...")
                 if not platform.login():
                     self.record_intervention(
@@ -555,12 +769,13 @@ class AutomationWorker(QThread):
                             message="Indeed login/OTP authentication required in browser.",
                         )
                     )
-                    return
+                    return 0
                 if self.is_stop_requested():
-                    return
+                    return 0
                 self.emit_activity("Portal Navigation: Active session confirmed. Beginning multi-query rotation search...")
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested)
-                self.emit_activity(f"Indeed session completed. Applied: {stats.get('jobs_applied', 0)}")
+                applied_count = int(stats.get("jobs_applied", 0))
+                self.emit_activity(f"Indeed session completed. Applied: {applied_count}")
             finally:
                 platform.close()
         except Exception as e:
@@ -568,19 +783,32 @@ class AutomationWorker(QThread):
                 self.record_error(f"Indeed engine error: {e}")
         finally:
             self._active_platform = None
+        return applied_count
 
-    def _run_foundit_engine(self) -> None:
+    def _run_foundit_engine(self, max_applications: Optional[int] = None) -> int:
         """Executes Foundit automation loop with browser isolation."""
         self.emit_activity("Initializing Foundit automation engine...")
+        applied_count = 0
         try:
             from platforms.router import FounditPlatform
             user_id = getattr(self, "user_id", 1)
             platform = FounditPlatform(user_id=user_id, automation_bridge=self.bridge)
+            platform.platform_config = platform.platform_config or {}
+            try:
+                from app.services.platform_service import PlatformService
+                p_cfg = PlatformService().get_platform_config("foundit") or {}
+                platform.platform_config.update(p_cfg)
+            except Exception:
+                pass
+            platform.platform_config["run_in_background"] = self.headless
+            if max_applications is not None:
+                platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
                 platform.initialize()
                 if self.is_stop_requested():
-                    return
+                    return 0
                 if not platform.login():
                     self.record_intervention(
                         AutomationInterventionEvent(
@@ -590,11 +818,12 @@ class AutomationWorker(QThread):
                             message="Foundit login/OTP authentication required in browser.",
                         )
                     )
-                    return
+                    return 0
                 if self.is_stop_requested():
-                    return
+                    return 0
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested, log_callback=self.emit_activity)
-                self.emit_activity(f"Foundit session completed. Applied: {stats.get('jobs_applied', 0)}")
+                applied_count = int(stats.get("jobs_applied", 0))
+                self.emit_activity(f"Foundit session completed. Applied: {applied_count}")
             finally:
                 platform.close()
         except Exception as e:
@@ -602,19 +831,32 @@ class AutomationWorker(QThread):
                 self.record_error(f"Foundit engine error: {e}")
         finally:
             self._active_platform = None
+        return applied_count
 
-    def _run_glassdoor_engine(self) -> None:
+    def _run_glassdoor_engine(self, max_applications: Optional[int] = None) -> int:
         """Executes Glassdoor automation loop with browser isolation."""
         self.emit_activity("Initializing Glassdoor automation engine...")
+        applied_count = 0
         try:
             from platforms.router import GlassdoorPlatform
             user_id = getattr(self, "user_id", 1)
             platform = GlassdoorPlatform(user_id=user_id, automation_bridge=self.bridge)
+            platform.platform_config = platform.platform_config or {}
+            try:
+                from app.services.platform_service import PlatformService
+                p_cfg = PlatformService().get_platform_config("glassdoor") or {}
+                platform.platform_config.update(p_cfg)
+            except Exception:
+                pass
+            platform.platform_config["run_in_background"] = self.headless
+            if max_applications is not None:
+                platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
                 platform.initialize()
                 if self.is_stop_requested():
-                    return
+                    return 0
                 if not platform.login():
                     self.record_intervention(
                         AutomationInterventionEvent(
@@ -624,11 +866,12 @@ class AutomationWorker(QThread):
                             message="Glassdoor login/OTP authentication required in browser.",
                         )
                     )
-                    return
+                    return 0
                 if self.is_stop_requested():
-                    return
+                    return 0
                 stats = platform.search_and_apply(stop_check=self.is_stop_requested, log_callback=self.emit_activity)
-                self.emit_activity(f"Glassdoor session completed. Applied: {stats.get('jobs_applied', 0)}")
+                applied_count = int(stats.get("jobs_applied", 0))
+                self.emit_activity(f"Glassdoor session completed. Applied: {applied_count}")
             finally:
                 platform.close()
         except Exception as e:
@@ -636,6 +879,7 @@ class AutomationWorker(QThread):
                 self.record_error(f"Glassdoor engine error: {e}")
         finally:
             self._active_platform = None
+        return applied_count
 
     def _run_universal_engine(self) -> None:
         """Executes the universal AI application orchestrator in an isolated asyncio event loop."""

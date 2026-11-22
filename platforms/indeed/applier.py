@@ -674,6 +674,14 @@ class IndeedApplier:
 
                 self.driver.close()
                 self.driver.switch_to.window(orig_handle)
+                if self.captcha_handler and self.captcha_handler.is_captcha_present(self.driver):
+                    self.captcha_handler.handle_captcha(
+                        self.driver,
+                        job_title="Search Tab Verification",
+                        company="Indeed",
+                        timeout=300,
+                        automation_bridge=self.automation_bridge,
+                    )
         except Exception as e:
             print_lg(f"[IndeedApplier] Level 2 standalone viewjob extraction notice: {e}")
             try:
@@ -1148,6 +1156,7 @@ class IndeedApplier:
                     print_lg("[IndeedApplier] Stop/pause check active. Halting form step.")
                     return (False, "Operation paused or stopped by user.")
 
+                self.form.dismiss_exit_modal()
                 step_type = self.form.detect_step_type()
 
                 # If detected step is identical to previous step and URL hasn't changed,
@@ -1286,5 +1295,16 @@ class IndeedApplier:
 
             try:
                 self.driver.switch_to.window(main_window)
+                time.sleep(0.5)
+                if self.captcha_handler and self.captcha_handler.is_captcha_present(self.driver):
+                    print_lg("[IndeedApplier] CAPTCHA / Cloudflare detected on main window after returning. Invoking resolver...")
+                    self.captcha_handler.handle_captcha(
+                        self.driver,
+                        job_title=job.title,
+                        company=job.company,
+                        timeout=300,
+                        stop_check=stop_check,
+                        automation_bridge=self.automation_bridge,
+                    )
             except Exception:
                 pass

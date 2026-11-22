@@ -132,6 +132,8 @@ class AutomationUIState:
         self.current_job_url = event.url
         self.active_processing_count = 1
         self.current_step_desc = f"Evaluating job: {event.title} at {event.company}"
+        if event.platform:
+            self.platform = event.platform.lower()
 
     def on_job_evaluated(self, event: JobEvaluatedEvent) -> None:
         """Updates active job state on evaluation."""
@@ -143,6 +145,8 @@ class AutomationUIState:
             reason = f" ({event.reason})" if event.reason else ""
             self.current_step_desc = f"Skipped: {event.title}{reason}"
             self.active_processing_count = 0
+        if event.platform:
+            self.platform = event.platform.lower()
 
     def on_application_submitted(self, event: ApplicationSubmittedEvent) -> None:
         """Updates active job state on submission."""
@@ -152,6 +156,8 @@ class AutomationUIState:
             self.current_job_url = event.source_url
         self.current_step_desc = f"Submitted application: {event.title} at {event.company}"
         self.active_processing_count = 0
+        if event.platform:
+            self.platform = event.platform.lower()
 
     def on_intervention(self, event: AutomationInterventionEvent) -> None:
         """Stores active intervention event."""
@@ -163,4 +169,12 @@ class AutomationUIState:
         self.finish_monotonic = time.monotonic()
         self.last_run_result = result
         self.active_processing_count = 0
+        if result.platform:
+            self.platform = result.platform.lower()
+        self.jobs_discovered = max(self.jobs_discovered, result.jobs_discovered)
+        self.jobs_evaluated = max(self.jobs_evaluated, result.jobs_evaluated)
+        self.jobs_qualified = max(self.jobs_qualified, result.jobs_qualified)
+        self.jobs_skipped = max(self.jobs_skipped, result.jobs_skipped)
+        self.applications_submitted = max(self.applications_submitted, result.applications_submitted)
+        self.errors_count = max(self.errors_count, result.errors_count)
         self.current_step_desc = f"Run {result.status.value.lower()}: {result.stop_reason or 'None'}"

@@ -72,6 +72,15 @@ class FounditAuth:
         # Resolve credentials if not explicitly passed
         if not username or not password:
             try:
+                from app.services.secrets_service import SecretsService
+                sec_user, sec_pwd = SecretsService().get_platform_credentials("foundit")
+                username = username or sec_user
+                password = password or sec_pwd
+            except Exception:
+                pass
+
+        if not username or not password:
+            try:
                 from config.secrets import foundit_username, foundit_password
                 username = username or foundit_username
                 password = password or foundit_password

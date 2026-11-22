@@ -162,6 +162,10 @@ class FounditRotator:
                 rot_stats.daily_goal_reached = True
                 break
 
+            if self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications:
+                print_lg(f"[FounditRotator] Global application cap ({self.config.max_applications}) reached. Stopping.")
+                break
+
             term_stats = TermStats(term=term)
             consecutive_skips = 0
             print_lg(f"\n[FounditRotator] === Term {term_idx}/{len(terms)}: '{term}' ===")
@@ -179,6 +183,9 @@ class FounditRotator:
                 )
                 if daily_count >= self.config.daily_application_goal:
                     rot_stats.daily_goal_reached = True
+                    break
+
+                if self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications:
                     break
 
                 # Max evaluations per term check
@@ -234,31 +241,15 @@ class FounditRotator:
 
                         job = self.parser.parse_card(card_elem)
 
-                        # If title is missing, enrich from active details pane
+                        # If title is missing, enrich from card title text directly without clicking anchor links
                         if not job.title or job.title == "Unknown Role":
                             try:
-                                title_targets = card_elem.find_elements(By.CSS_SELECTOR, "div.jobTitle, div#jobCardTitle, a[href*='/job/']")
-                                if title_targets:
-                                    title_targets[0].click()
-                                    time.sleep(0.4)
-                                    pane_data = self.parser.parse_active_details_pane()
-                                    if pane_data.get("title") and (not job.title or job.title == "Unknown Role"):
-                                        job.title = pane_data["title"]
-                                    if pane_data.get("company") and (not job.company or job.company == "Unknown Company"):
-                                        job.company = pane_data["company"]
-                                    if pane_data.get("description"):
-                                        job.description = pane_data["description"]
-                                    if pane_data.get("salary_text"):
-                                        job.raw_metadata["salary_text"] = pane_data["salary_text"]
-                                    if pane_data.get("salary_min"):
-                                        job.salary_min = pane_data["salary_min"]
-                                        job.salary_max = pane_data.get("salary_max")
-                                    if pane_data.get("experience_text"):
-                                        job.raw_metadata["experience_text"] = pane_data["experience_text"]
-                                        job.required_experience_min = pane_data.get("required_experience_min")
-                                        job.required_experience_max = pane_data.get("required_experience_max")
-                                    if pane_data.get("location") and (not job.location or job.location == "India"):
-                                        job.location = pane_data["location"]
+                                title_targets = card_elem.find_elements(By.CSS_SELECTOR, "div.jobTitle, div#jobCardTitle, a[href*='/job/'], h2, h3")
+                                for tt in title_targets:
+                                    t = (tt.text or tt.get_attribute("innerText") or "").strip()
+                                    if t and len(t) > 2 and not any(ign in t.lower() for ign in ["apply", "posted", "save", "results"]):
+                                        job.title = t
+                                        break
                             except Exception:
                                 pass
                     except Exception as e:
@@ -297,17 +288,6 @@ class FounditRotator:
                             ))
                         except Exception:
                             pass
-
-                    # Check easy_apply_only constraint before opening tab or deep processing
-                    if self.config.easy_apply_only and job.application_method != "EASY_APPLY":
-                        print_lg(f"[FounditRotator] SKIP Non-Easy-Apply: {job.title} | {job.company} (Easy Apply Only mode active)")
-                        if hasattr(self.tracker, "record_skipped"):
-                            self.tracker.record_skipped(job, reason="NOT_EASY_APPLY")
-                        elif hasattr(self.tracker, "record_state"):
-                            self.tracker.record_state(job, "SKIPPED", skip_reason="NOT_EASY_APPLY")
-                        term_stats.jobs_skipped += 1
-                        rot_stats.jobs_skipped += 1
-                        continue
 
                     # Pre-filter: Keyword Relevance Guard
                     neg_title_words = getattr(self.qualification_engine, "negative_title_words", None)
@@ -361,50 +341,43 @@ class FounditRotator:
                     pane_data = {}
                     try:
                         self.browser.driver.execute_script("arguments[0].scrollIntoView({block: 'center'}); arguments[0].click();", card_elem)
-                        time.sleep(random.uniform(0.6, 1.0))
-                        pane_data = self.parser.parse_active_details_pane()
+                        time.sleep(random.uniform(0.8, 1.2))
+                        start_pane_wait = time.time()
+                        while time.time() - start_pane_wait < 2.5:
+                            pane_data = self.parser.parse_active_details_pane()
+                            if pane_data.get("description") or pane_data.get("title"):
+                                break
+                            time.sleep(0.4)
                     except Exception:
                         pass
 
-                    new_windows = []
-                    if not pane_data.get("description"):
-                        job_href = ""
+                    # If pane did not populate from card click, try clicking the title element within card
+                    if not pane_data.get("description") and not pane_data.get("title"):
                         try:
-                            for a in card_elem.find_elements(By.TAG_NAME, "a"):
-                                href = a.get_attribute("href") or ""
-                                if "/job/" in href:
-                                    job_href = href
-                                    break
+                            title_targets = card_elem.find_elements(By.CSS_SELECTOR, "div.jobTitle, div#jobCardTitle, h2, h3, a.title")
+                            if title_targets:
+                                self.browser.driver.execute_script("arguments[0].click();", title_targets[0])
+                                time.sleep(1.0)
+                                pane_data = self.parser.parse_active_details_pane()
                         except Exception:
                             pass
-                        if not job_href and job.source_url and "/job/" in job.source_url:
-                            job_href = job.source_url
 
-                        opened_tab = False
-                        if job_href:
-                            try:
-                                self.browser.driver.execute_script("window.open(arguments[0], '_blank');", job_href)
-                                opened_tab = True
-                            except Exception:
-                                pass
-
-                        if not opened_tab:
-                            try:
-                                title_targets = card_elem.find_elements(By.CSS_SELECTOR, "a[href*='/job/'], div.jobTitle, div#jobCardTitle, h2, h3")
-                                if title_targets:
-                                    self.browser.driver.execute_script("arguments[0].click();", title_targets[0])
-                                    opened_tab = True
-                            except Exception:
-                                pass
-
-                        time.sleep(1.2)
-                        new_windows = [w for w in self.browser.driver.window_handles if w not in initial_windows]
-
+                    new_windows = [w for w in self.browser.driver.window_handles if w not in initial_windows]
                     if new_windows:
                         new_tab = new_windows[-1]
                         self.browser.driver.switch_to.window(new_tab)
-                        time.sleep(1.5)
-                        page_data = self.parser.parse_full_job_page()
+                        time.sleep(1.0)
+                        if self.search.is_access_denied():
+                            print_lg("[FounditRotator] Access Denied detected on opened tab. Closing tab and returning to search view.")
+                            try:
+                                self.browser.driver.close()
+                            except Exception:
+                                pass
+                            self.browser.driver.switch_to.window(main_window)
+                            new_windows = []
+                            page_data = pane_data
+                        else:
+                            page_data = self.parser.parse_full_job_page()
                     else:
                         page_data = pane_data
 
@@ -492,6 +465,43 @@ class FounditRotator:
                             continue
 
                         # 2.2 Deep Stage 2 Qualification on full JD
+                        # Defensive experience extraction from experience_text or description
+                        if job.experience_text:
+                            from platforms.foundit.parser import parse_experience_string
+                            min_e, max_e = parse_experience_string(job.experience_text)
+                            if min_e is not None and (job.required_experience_min is None or job.required_experience_min == 0 or min_e > job.required_experience_min):
+                                job.required_experience_min = min_e
+                                job.required_experience_max = max_e
+
+                        # Strict Candidate Experience Guard
+                        candidate_exp = getattr(self.qualification_engine, "candidate_experience", -1)
+                        if candidate_exp > -1 and job.required_experience_min is not None and job.required_experience_min > candidate_exp:
+                            exp_skip_reason = f"Required experience ({job.required_experience_min} yrs) exceeds candidate qualifications ({candidate_exp} yrs)"
+                            print_lg(f"[FounditRotator] SKIP Stage 2 Experience: {job.title} | {job.company} -> {exp_skip_reason}")
+                            if hasattr(self.tracker, "record_skipped"):
+                                self.tracker.record_skipped(job, reason=exp_skip_reason)
+                            elif hasattr(self.tracker, "record_state"):
+                                self.tracker.record_state(job, "SKIPPED", skip_reason=exp_skip_reason)
+                            if new_windows:
+                                try:
+                                    self.browser.driver.close()
+                                except Exception:
+                                    pass
+                            self.browser.driver.switch_to.window(main_window)
+                            term_stats.jobs_skipped += 1
+                            rot_stats.jobs_skipped += 1
+                            consecutive_skips += 1
+                            if consecutive_skips >= self.config.consecutive_skips_limit:
+                                if page < self.config.max_pages_per_search:
+                                    print_lg(f"[FounditRotator] Consecutive skips limit reached on page {page} for '{term}'. Advancing to page {page + 1}.")
+                                    consecutive_skips = 0
+                                    break
+                                else:
+                                    print_lg(f"[FounditRotator] Consecutive skips limit reached on final page {page} for '{term}'. Advancing to next keyword.")
+                                    term_stats.skip_limit_triggered = True
+                                    break
+                            continue
+
                         qual_res_2 = self.qualification_engine.qualify(job)
                         if not qual_res_2:
                             print_lg(f"[FounditRotator] SKIP Stage 2: {job.title} | {job.company} -> {qual_res_2.reason}")
@@ -526,6 +536,11 @@ class FounditRotator:
                             print_lg(f"[FounditRotator] QUALIFIED Stage 2: {job.title} | {job.company}. Applying via in-page details...")
                         term_stats.jobs_qualified += 1
                         rot_stats.jobs_qualified += 1
+                        if hasattr(self.tracker, "record_qualified"):
+                            try:
+                                self.tracker.record_qualified(job)
+                            except Exception:
+                                pass
                         if self.automation_bridge:
                             try:
                                 from app.services.automation_events import JobQualifiedEvent
@@ -555,10 +570,17 @@ class FounditRotator:
                                         stop_check=stop_check,
                                     )
                                 status = apply_res.get("status")
-                                if status in ["SUBMITTED", "EXTERNAL"]:
+                                if status == "SUBMITTED":
                                     consecutive_skips = 0
                                     term_stats.jobs_applied += 1
                                     rot_stats.jobs_applied += 1
+                                    if self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications:
+                                        print_lg(f"[FounditRotator] Global application cap ({self.config.max_applications}) reached. Halting job loop.")
+                                        break
+                                elif status == "EXTERNAL":
+                                    consecutive_skips = 0
+                                    term_stats.jobs_skipped += 1
+                                    rot_stats.jobs_skipped += 1
                                 elif status in ["SKIPPED", "ALREADY_APPLIED"]:
                                     term_stats.jobs_skipped += 1
                                     rot_stats.jobs_skipped += 1
@@ -604,6 +626,9 @@ class FounditRotator:
                                     rot_stats.jobs_qualified += 1
                                     term_stats.jobs_applied += 1
                                     rot_stats.jobs_applied += 1
+                                    if self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications:
+                                        print_lg(f"[FounditRotator] Global application cap ({self.config.max_applications}) reached. Halting job loop.")
+                                        break
                                 elif status == "SKIPPED":
                                     term_stats.jobs_skipped += 1
                                     rot_stats.jobs_skipped += 1
@@ -642,11 +667,11 @@ class FounditRotator:
                         except Exception:
                             pass
 
-                if term_stats.skip_limit_triggered or (stop_check and stop_check()) or rot_stats.daily_goal_reached:
+                if term_stats.skip_limit_triggered or (stop_check and stop_check()) or rot_stats.daily_goal_reached or (self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications):
                     break
 
             rot_stats.terms_searched += 1
-            if rot_stats.daily_goal_reached or (stop_check and stop_check()):
+            if rot_stats.daily_goal_reached or (stop_check and stop_check()) or (self.config.max_applications is not None and rot_stats.jobs_applied >= self.config.max_applications):
                 break
 
         print_lg("\n======================================================================")

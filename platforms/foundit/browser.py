@@ -127,6 +127,7 @@ class FounditBrowser:
             kw = {
                 "user_data_dir": self.profile_dir,
                 "options": self._build_options(),
+                "headless": self.headless,
             }
             if chrome_path:
                 kw["browser_executable_path"] = chrome_path
@@ -180,13 +181,27 @@ class FounditBrowser:
         try:
             curr = (self.driver.current_url or "").strip()
             if "foundit.in" in curr and ("search" in curr or "srp" in curr):
-                if curr.startswith("http://"):
+                if "/search" in curr:
+                    from urllib.parse import urlparse, parse_qs, quote
+                    import re
+                    parsed = urlparse(curr)
+                    qs = parse_qs(parsed.query)
+                    q = qs.get("query", [""])[0]
+                    if not q and "/search" in curr:
+                        m = re.search(r'/search/([a-zA-Z0-9_-]+?)(?:-jobs|\?|$)', curr)
+                        if m:
+                            q = m.group(1).replace("-", " ")
+                    if q:
+                        secure_curr = f"https://www.foundit.in/srp/results?query={quote(q)}&locations=India"
+                    else:
+                        secure_curr = "https://www.foundit.in/srp/results?query=jobs&locations=India"
+                elif curr.startswith("http://"):
                     secure_curr = curr.replace("http://", "https://", 1)
                 elif not curr.startswith("https://"):
                     secure_curr = "https://" + curr.lstrip("/")
                 else:
                     secure_curr = curr
-                print_lg(f"[FounditBrowser] Reloading search over HTTPS: {secure_curr}")
+                print_lg(f"[FounditBrowser] Converting search to verified HTTPS SRP: {secure_curr}")
                 self.driver.get(secure_curr)
                 time.sleep(2)
                 if not self.is_access_denied():

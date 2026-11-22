@@ -67,6 +67,20 @@ class FounditSubmitter:
                 if solved:
                     print_lg("[FounditSubmitter] Challenge resolved! Continuing confirmation check...")
 
+            # Check for external redirection toast banner (green confirmation toast on modern Foundit)
+            redirect_banners = [
+                "//*[contains(normalize-space(), 'Redirecting you to apply on company site') or contains(normalize-space(), 'Redirecting to apply')]",
+                "//div[contains(@class, 'toast') or contains(@class, 'banner') or contains(@class, 'alert') or contains(@class, 'notification')][contains(., 'Redirecting') or contains(., 'company site')]",
+            ]
+            for rx in redirect_banners:
+                try:
+                    for el in self.driver.find_elements(By.XPATH, rx):
+                        if el.is_displayed():
+                            print_lg("[FounditSubmitter] Confirmed submission via green redirect banner: 'Redirecting you to apply on company site.'")
+                            return True
+                except Exception:
+                    continue
+
             # 1. Check for top success notification banner / toast element (e.g. 'You have applied successfully')
             banner_xpaths = [
                 "//*[contains(normalize-space(), 'applied successfully') or contains(normalize-space(), 'You have applied successfully')]",

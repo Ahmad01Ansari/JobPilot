@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import logging
 from typing import Any, Dict, List, Optional
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
 from app.db.session import SessionLocal
 from app.services.followup_scheduler import FollowUpScheduler
@@ -11,6 +11,39 @@ from app.services.inbound_sync_service import InboundSyncService
 from app.ui.state import AppState
 
 logger = logging.getLogger(__name__)
+
+
+class _CadenceCycleWorker(QThread):
+    """Background worker for non-blocking inbound sync and due cadence evaluation."""
+
+    cycle_finished = Signal(list, dict)  # (due_list, sync_res)
+
+    def __init__(
+        self,
+        scheduler: FollowUpScheduler,
+        inbound_sync: InboundSyncService,
+        parent: Optional[QObject] = None,
+    ):
+        super().__init__(parent)
+        self._scheduler = scheduler
+        self._inbound_sync = inbound_sync
+
+    def run(self) -> None:
+        sync_res = {}
+        try:
+            sync_res = self._inbound_sync.sync_mailbox()
+        except Exception as e:
+            logger.debug("Cadence inbound sync skipped/failed: %s", e)
+            sync_res = {"error": str(e), "new_messages": 0}
+
+        due_list = []
+        try:
+            due_list = self._scheduler.get_due_followups_for_user()
+        except Exception as e:
+            logger.debug("Cadence due evaluation failed: %s", e)
+            due_list = []
+
+        self.cycle_finished.emit(due_list, sync_res)
 
 
 class OutreachCadenceCoordinator(QObject):
@@ -35,6 +68,7 @@ class OutreachCadenceCoordinator(QObject):
         self._inbound_sync = InboundSyncService(session_factory=SessionLocal)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.run_cadence_cycle)
+        self._worker: Optional[_CadenceCycleWorker] = None
         self._is_running = False
 
     def start(self, interval_ms: int = 900000):  # Default 15 minutes
@@ -42,22 +76,29 @@ class OutreachCadenceCoordinator(QObject):
         if not self._is_running:
             self._is_running = True
             self._timer.start(interval_ms)
-            # Run initial check shortly after startup (3 seconds)
-            QTimer.singleShot(3000, self.run_cadence_cycle)
+            # Run initial check after 8 seconds in background without blocking UI
+            QTimer.singleShot(8000, self.run_cadence_cycle)
             logger.info("OutreachCadenceCoordinator started (cadence interval: %d ms)", interval_ms)
 
     def stop(self):
-        """Stops the periodic evaluation timer."""
+        """Stops the periodic evaluation timer and gracefully waits for any active worker."""
         if self._is_running:
             self._timer.stop()
             self._is_running = False
             logger.info("OutreachCadenceCoordinator stopped.")
+        if self._worker and self._worker.isRunning():
+            self._worker.wait(1000)
 
     def run_cadence_cycle(self):
-        """Executes a single check: synchronizes inbound mail and evaluates due cadences."""
+        """Dispatches cadence evaluation to a non-blocking background thread."""
+        if self._worker and self._worker.isRunning():
+            return
+        self._worker = _CadenceCycleWorker(self._scheduler, self._inbound_sync, parent=self)
+        self._worker.cycle_finished.connect(self._on_cycle_finished)
+        self._worker.start()
+
+    def _on_cycle_finished(self, due_list: list, sync_res: dict):
         try:
-            # 1. Background inbound mail sync to auto-pause cadences if recruiter replied
-            sync_res = self._inbound_sync.sync_mailbox()
             if sync_res.get("new_messages", 0) > 0:
                 self.mailbox_synced.emit(sync_res)
                 try:
@@ -65,8 +106,6 @@ class OutreachCadenceCoordinator(QObject):
                 except Exception:
                     pass
 
-            # 2. Evaluate due follow-ups
-            due_list = self._scheduler.get_due_followups_for_user()
             if due_list:
                 self.due_followups_detected.emit(due_list)
                 try:
@@ -78,7 +117,7 @@ class OutreachCadenceCoordinator(QObject):
                     pass
                 logger.info("OutreachCadenceCoordinator: %d due follow-ups require user review.", len(due_list))
         except Exception as e:
-            logger.error("OutreachCadenceCoordinator error during cadence cycle: %s", e)
+            logger.error("OutreachCadenceCoordinator error processing cycle results: %s", e)
 
     def execute_approved_followup(
         self,

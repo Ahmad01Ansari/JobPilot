@@ -194,6 +194,74 @@ class TestSettingsRedesign(unittest.TestCase):
         self.assertIn("us***@test.com", self.view.credentials_section.card_linkedin.lbl_account.text())
         self.assertEqual(self.view.credentials_section.card_linkedin.lbl_pwd_status.text(), "Password: ✓ Stored securely")
 
+    def test_credentials_card_auto_refresh_on_switch(self):
+        """Verifies switching to credentials section automatically refreshes platform cards."""
+        self.secrets_service.set_secret("linkedin_username", "rjaahmad60@gmail.com")
+        self.secrets_service.set_secret("linkedin_password", "Secret123!")
+        self.secrets_service.set_secret("indeed_username", "indeed_user@test.com")
+        self.secrets_service.set_secret("foundit_username", "foundit_user@test.com")
+        self.secrets_service.set_secret("foundit_password", "FounditPass123!")
+        self.secrets_service.set_secret("glassdoor_username", "glassdoor_user@test.com")
+        self.secrets_service.set_secret("glassdoor_password", "GlassdoorPass123!")
+
+        # Simulate user switching from general to credentials
+        self.view._switch_section_safe("credentials")
+
+        # LinkedIn card
+        card_li = self.view.credentials_section.card_linkedin
+        self.assertEqual(card_li.lbl_status.text(), "● Configured")
+        self.assertIn("rj***@gmail.com", card_li.lbl_account.text())
+        self.assertEqual(card_li.lbl_pwd_status.text(), "Password: ✓ Stored securely")
+
+        # Indeed card (email OTP)
+        card_ind = self.view.credentials_section.card_indeed
+        self.assertEqual(card_ind.lbl_status.text(), "◐ Username set")
+        self.assertIn("in***@test.com", card_ind.lbl_account.text())
+
+        # Foundit card
+        card_fd = self.view.credentials_section.card_foundit
+        self.assertEqual(card_fd.lbl_status.text(), "● Configured")
+        self.assertIn("fo***@test.com", card_fd.lbl_account.text())
+        self.assertEqual(card_fd.lbl_pwd_status.text(), "Password: ✓ Stored securely")
+
+        # Glassdoor card
+        card_gd = self.view.credentials_section.card_glassdoor
+        self.assertEqual(card_gd.lbl_status.text(), "● Configured")
+        self.assertIn("gl***@test.com", card_gd.lbl_account.text())
+        self.assertEqual(card_gd.lbl_pwd_status.text(), "Password: ✓ Stored securely")
+
+    def test_browser_profiles_listing_and_refresh(self):
+        """Verifies all 6 platform browser profiles are monitored and refresh cleanly."""
+        profiles_box = self.view.browser_section
+        expected_platforms = {"linkedin", "naukri", "indeed", "foundit", "glassdoor", "universal"}
+        self.assertEqual(set(profiles_box._profile_labels.keys()), expected_platforms)
+        self.assertEqual(set(profiles_box._profile_paths.keys()), expected_platforms)
+
+        # Trigger refresh and ensure no exceptions
+        profiles_box.refresh_profiles()
+        for plat in expected_platforms:
+            lbl = profiles_box._profile_labels[plat]
+            self.assertTrue(len(lbl.text()) > 0)
+            self.assertTrue("Ready" in lbl.text() or "Initialized" in lbl.text())
+
+    def test_browser_settings_resolution_in_router(self):
+        """Verifies _resolve_browser_settings pulls run_in_background from SettingsService."""
+        from platforms.router import _resolve_browser_settings
+        self.settings_service.save_setting("run_in_background", True)
+        resolved = _resolve_browser_settings(session_factory=self.Session)
+        self.assertTrue(resolved["run_in_background"])
+
+        # Override takes precedence if explicitly passed
+        override = _resolve_browser_settings({"run_in_background": False}, session_factory=self.Session)
+        self.assertFalse(override["run_in_background"])
+
+    def test_system_wakelock_acquire_and_release(self):
+        """Verifies cross-platform wakelock acquire and release execute safely."""
+        from app.services.os.system_service import SystemService
+        res = SystemService.acquire_wakelock("Unit test wakelock")
+        self.assertIsInstance(res, bool)
+        SystemService.release_wakelock()
+
     # =========================================================================
     # 5. PREDICTABLE SEARCH NAVIGATION
     # =========================================================================

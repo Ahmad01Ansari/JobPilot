@@ -11,8 +11,104 @@ from typing import Any, Dict, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+class SystemWakelock:
+    """Manages cross-platform system display and sleep inhibitor lock."""
+    _active_lock_proc: Optional[subprocess.Popen] = None
+    _windows_lock_active: bool = False
+
+    @classmethod
+    def acquire(cls, reason: str = "JobPilot automation running") -> bool:
+        """Prevents system sleep and display blanking while automation runs."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ES_CONTINUOUS = 0x80000000
+                ES_SYSTEM_REQUIRED = 0x00000001
+                ES_DISPLAY_REQUIRED = 0x00000002
+                ctypes.windll.kernel32.SetThreadExecutionState(
+                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+                )
+                cls._windows_lock_active = True
+                logger.info("[SystemWakelock] Windows system display/sleep wakelock acquired.")
+                return True
+            except Exception as e:
+                logger.warning("[SystemWakelock] Failed to acquire Windows sleep lock: %s", e)
+                return False
+        elif sys.platform.startswith("linux"):
+            try:
+                import shutil
+                if shutil.which("systemd-inhibit"):
+                    cls._active_lock_proc = subprocess.Popen(
+                        [
+                            "systemd-inhibit",
+                            "--what=idle:sleep",
+                            "--who=JobPilot",
+                            f"--why={reason}",
+                            "sleep",
+                            "86400",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    logger.info("[SystemWakelock] Linux systemd-inhibit wakelock acquired.")
+                    return True
+            except Exception as e:
+                logger.warning("[SystemWakelock] Linux sleep inhibitor fallback: %s", e)
+            return False
+        elif sys.platform == "darwin":
+            try:
+                import shutil
+                if shutil.which("caffeinate"):
+                    cls._active_lock_proc = subprocess.Popen(
+                        ["caffeinate", "-d", "-i", "-m", "-u"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    logger.info("[SystemWakelock] macOS caffeinate wakelock acquired.")
+                    return True
+            except Exception as e:
+                logger.warning("[SystemWakelock] macOS caffeinate fallback: %s", e)
+            return False
+        return False
+
+    @classmethod
+    def release(cls) -> None:
+        """Releases acquired system sleep lock."""
+        if sys.platform == "win32" and cls._windows_lock_active:
+            try:
+                import ctypes
+                ES_CONTINUOUS = 0x80000000
+                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+                cls._windows_lock_active = False
+                logger.info("[SystemWakelock] Windows system display/sleep wakelock released.")
+            except Exception as e:
+                logger.warning("[SystemWakelock] Failed to release Windows sleep lock: %s", e)
+        if cls._active_lock_proc:
+            try:
+                cls._active_lock_proc.terminate()
+                cls._active_lock_proc.wait(timeout=2)
+            except Exception:
+                try:
+                    cls._active_lock_proc.kill()
+                except Exception:
+                    pass
+            finally:
+                cls._active_lock_proc = None
+                logger.info("[SystemWakelock] Subprocess sleep inhibitor released.")
+
+
 class SystemService:
     """Provides high-level operating system actions and environment diagnostics."""
+
+    @classmethod
+    def acquire_wakelock(cls, reason: str = "JobPilot automation running") -> bool:
+        """Acquires a cross-platform system display and sleep inhibitor lock."""
+        return SystemWakelock.acquire(reason)
+
+    @classmethod
+    def release_wakelock(cls) -> None:
+        """Releases any active system sleep inhibitor lock."""
+        SystemWakelock.release()
 
     @classmethod
     def open_file_or_dir(cls, target_path: Path | str) -> Tuple[bool, Optional[str]]:

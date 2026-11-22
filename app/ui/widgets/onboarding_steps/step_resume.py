@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QFileDialog, QScrollArea
 )
 from app.ui.theme import COLORS
+from app.ui.sidebar_icons import render_vector_pixmap
 
 
 class StepResumeWidget(QWidget):
@@ -79,8 +80,9 @@ class StepResumeWidget(QWidget):
         d_layout.setAlignment(Qt.AlignCenter)
         d_layout.setSpacing(8)
 
-        self.lbl_icon = QLabel("📄")
-        self.lbl_icon.setStyleSheet("font-size: 32px;")
+        self.lbl_icon = QLabel()
+        self.lbl_icon.setPixmap(render_vector_pixmap("file_text", COLORS['primary'], 36))
+        self.lbl_icon.setAlignment(Qt.AlignCenter)
         d_layout.addWidget(self.lbl_icon, alignment=Qt.AlignCenter)
 
         self.lbl_prompt = QLabel("Drag & drop your resume here, or click Browse")
@@ -127,8 +129,8 @@ class StepResumeWidget(QWidget):
         c_layout = QHBoxLayout(self.details_card)
         c_layout.setSpacing(12)
 
-        icon_lbl = QLabel("📄")
-        icon_lbl.setStyleSheet("font-size: 24px;")
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(render_vector_pixmap("file_text", COLORS['primary'], 24))
         c_layout.addWidget(icon_lbl)
 
         info_layout = QVBoxLayout()
@@ -221,14 +223,14 @@ class StepResumeWidget(QWidget):
         if not path.exists():
             return
         if path.suffix.lower() not in {".pdf", ".docx", ".doc"}:
-            self.lbl_status.setText(f"❌ Unsupported format: {path.suffix}. Please upload PDF or Word DOCX.")
+            self.lbl_status.setText(f"Unsupported format: {path.suffix}. Please upload a PDF or DOCX file.")
             self.lbl_status.setStyleSheet(f"color: {COLORS['danger']};")
             return
 
         # Register in ResumeService
         ok, err, record = self.setup_service.save_resume_upload(file_path)
         if not ok:
-            self.lbl_status.setText(f"❌ Upload failed: {err}")
+            self.lbl_status.setText(f"Upload failed: {err}")
             self.lbl_status.setStyleSheet(f"color: {COLORS['danger']};")
             return
 
@@ -236,10 +238,10 @@ class StepResumeWidget(QWidget):
         size_kb = round(path.stat().st_size / 1024, 1)
 
         self.lbl_file_name.setText(path.name)
-        self.lbl_file_meta.setText(f"{size_kb} KB · Ingested & Ready for AI Extraction ✓")
+        self.lbl_file_meta.setText(f"{size_kb} KB · Ingested and ready for extraction")
         self.details_card.setVisible(True)
         self.drop_frame.setVisible(False)
-        self.lbl_status.setText("✓ Resume saved to managed library. Click Continue to start extraction.")
+        self.lbl_status.setText("Resume saved to managed library. Select Continue to start extraction.")
         self.lbl_status.setStyleSheet(f"color: {COLORS['success']};")
 
         self.resume_selected.emit(file_path)
