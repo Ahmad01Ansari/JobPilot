@@ -93,7 +93,13 @@ class LinkedInPlatform(BasePlatformApplier):
             on_site = ln_cfg.get("on_site")
             max_pages = ln_cfg.get("max_pages_per_search", 5)
             consecutive_skips = ln_cfg.get("consecutive_skips_limit", 25)
-            max_applications = ln_cfg.get("max_applications") or ln_cfg.get("switch_number") or ln_cfg.get("batch_slice")
+            batch_slice = ln_cfg.get("batch_slice")
+            if batch_slice is not None:
+                max_applications = int(batch_slice)
+            elif ln_cfg.get("is_batch_run") and ln_cfg.get("max_applications"):
+                max_applications = int(ln_cfg["max_applications"])
+            else:
+                max_applications = None
 
             if not search_terms:
                 try:
@@ -557,10 +563,12 @@ class NaukriPlatform(BasePlatformApplier):
         config: Optional[Any] = None,
         ai_client: Optional[Any] = None,
         automation_bridge: Optional[Any] = None,
+        user_id: int = 1,
     ):
-        super().__init__("naukri", ai_client=ai_client)
+        super().__init__("naukri", ai_client=ai_client, user_id=user_id)
         self.browser = browser
-        self.tracker = tracker or ApplicationTracker()
+        self.user_id = user_id
+        self.tracker = tracker or ApplicationTracker(user_id=user_id)
         self.config = config
         self.automation_bridge = automation_bridge
         if self.automation_bridge is None:
@@ -581,16 +589,29 @@ class NaukriPlatform(BasePlatformApplier):
             self.config = SearchRotationConfig.from_profile()
 
         if self.platform_config and self.config:
-            max_apps = (
-                self.platform_config.get("max_applications")
-                or self.platform_config.get("switch_number")
-                or self.platform_config.get("batch_slice")
-            )
-            if max_apps is not None:
-                self.config.max_applications = int(max_apps)
-                self.config.switch_number = int(max_apps)
+            batch_slice = self.platform_config.get("batch_slice")
+            if batch_slice is not None:
+                self.config.max_applications = int(batch_slice)
+            elif self.platform_config.get("is_batch_run") and self.platform_config.get("max_applications"):
+                self.config.max_applications = int(self.platform_config["max_applications"])
+            else:
+                self.config.max_applications = None
+
+            # Pacing & Rotation Conditions from modal/account settings
             if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
                 self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "max_pages_per_search" in self.platform_config and self.platform_config["max_pages_per_search"] is not None:
+                self.config.max_pages_per_search = int(self.platform_config["max_pages_per_search"])
+            if "consecutive_skips_limit" in self.platform_config and self.platform_config["consecutive_skips_limit"] is not None:
+                self.config.consecutive_skips_limit = int(self.platform_config["consecutive_skips_limit"])
+            max_evals = self.platform_config.get("max_jobs_evaluated_per_search") or self.platform_config.get("max_applications")
+            if max_evals is not None:
+                self.config.max_jobs_evaluated_per_search = int(max_evals)
+            if "sleep_duration_minutes" in self.platform_config and self.platform_config["sleep_duration_minutes"] is not None:
+                self.config.sleep_duration_minutes = int(self.platform_config["sleep_duration_minutes"])
+            if "sleep_mode_enabled" in self.platform_config and self.platform_config["sleep_mode_enabled"] is not None:
+                self.config.sleep_mode_enabled = bool(self.platform_config["sleep_mode_enabled"])
+
             if "search_location" in self.platform_config and self.platform_config["search_location"]:
                 self.config.location = self.platform_config["search_location"]
             elif "default_location" in self.platform_config and self.platform_config["default_location"]:
@@ -630,9 +651,10 @@ class NaukriPlatform(BasePlatformApplier):
         if not self.browser:
             self.initialize()
 
-        from platforms.naukri.selectors import HOME_URL
-        self.browser.navigate(HOME_URL)
-        time.sleep(2)
+        from platforms.naukri.selectors import LOGGED_IN_HOMEPAGE_URL, HOME_URL
+        # Navigate directly to mnjuser/homepage first to verify active session without landing page ambiguity
+        self.browser.navigate(LOGGED_IN_HOMEPAGE_URL)
+        time.sleep(3)
 
         if self.browser.is_logged_in():
             print_lg("[NaukriPlatform] Active authenticated session confirmed.")
@@ -681,7 +703,8 @@ class NaukriPlatform(BasePlatformApplier):
 
         # Fallback to manual authentication gate
         print_lg("[NaukriPlatform] Awaiting manual login/OTP in the open Chrome browser window...")
-        intervention_id = f"naukri_login_{self.user_id}"
+        user_id = getattr(self, "user_id", 1)
+        intervention_id = f"naukri_login_{user_id}"
         if self.automation_bridge and hasattr(self.automation_bridge, "on_intervention") and self.automation_bridge.on_intervention:
             try:
                 from app.services.automation_events import AutomationInterventionEvent, InterventionType
@@ -813,16 +836,30 @@ class IndeedPlatform(BasePlatformApplier):
             self.config = IndeedRotationConfig.from_profile()
 
         if self.platform_config and self.config:
-            max_apps = (
-                self.platform_config.get("max_applications")
-                or self.platform_config.get("switch_number")
-                or self.platform_config.get("batch_slice")
-            )
-            if max_apps is not None:
-                self.config.max_applications = int(max_apps)
-                self.config.switch_number = int(max_apps)
+            batch_slice = self.platform_config.get("batch_slice")
+            if batch_slice is not None:
+                self.config.max_applications = int(batch_slice)
+            elif self.platform_config.get("is_batch_run") and self.platform_config.get("max_applications"):
+                self.config.max_applications = int(self.platform_config["max_applications"])
+            else:
+                self.config.max_applications = None
+
+            # Pacing & Rotation Conditions from modal/account settings
             if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
                 self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "max_pages_per_search" in self.platform_config and self.platform_config["max_pages_per_search"] is not None:
+                self.config.max_pages_per_search = int(self.platform_config["max_pages_per_search"])
+            if "consecutive_skips_limit" in self.platform_config and self.platform_config["consecutive_skips_limit"] is not None:
+                self.config.consecutive_skips_limit = int(self.platform_config["consecutive_skips_limit"])
+                self.config.switch_number = int(self.platform_config["consecutive_skips_limit"])
+            max_evals = self.platform_config.get("max_jobs_evaluated_per_search") or self.platform_config.get("max_applications")
+            if max_evals is not None and hasattr(self.config, "max_jobs_evaluated_per_search"):
+                self.config.max_jobs_evaluated_per_search = int(max_evals)
+            if "sleep_duration_minutes" in self.platform_config and self.platform_config["sleep_duration_minutes"] is not None:
+                self.config.sleep_duration_minutes = int(self.platform_config["sleep_duration_minutes"])
+            if "sleep_mode_enabled" in self.platform_config and self.platform_config["sleep_mode_enabled"] is not None:
+                self.config.sleep_mode_enabled = bool(self.platform_config["sleep_mode_enabled"])
+
             if "search_location" in self.platform_config and self.platform_config["search_location"]:
                 self.config.search_location = self.platform_config["search_location"]
             elif "default_location" in self.platform_config and self.platform_config["default_location"]:
@@ -1044,16 +1081,30 @@ class FounditPlatform(BasePlatformApplier):
             self.config = FounditRotationConfig.from_profile()
 
         if self.platform_config and self.config:
-            max_apps = (
-                self.platform_config.get("max_applications")
-                or self.platform_config.get("switch_number")
-                or self.platform_config.get("batch_slice")
-            )
-            if max_apps is not None:
-                self.config.max_applications = int(max_apps)
-                self.config.switch_number = int(max_apps)
+            batch_slice = self.platform_config.get("batch_slice")
+            if batch_slice is not None:
+                self.config.max_applications = int(batch_slice)
+            elif self.platform_config.get("is_batch_run") and self.platform_config.get("max_applications"):
+                self.config.max_applications = int(self.platform_config["max_applications"])
+            else:
+                self.config.max_applications = None
+
+            # Pacing & Rotation Conditions from modal/account settings
             if "daily_application_goal" in self.platform_config and self.platform_config["daily_application_goal"] is not None:
                 self.config.daily_application_goal = int(self.platform_config["daily_application_goal"])
+            if "max_pages_per_search" in self.platform_config and self.platform_config["max_pages_per_search"] is not None:
+                self.config.max_pages_per_search = int(self.platform_config["max_pages_per_search"])
+            if "consecutive_skips_limit" in self.platform_config and self.platform_config["consecutive_skips_limit"] is not None:
+                self.config.consecutive_skips_limit = int(self.platform_config["consecutive_skips_limit"])
+                self.config.switch_number = int(self.platform_config["consecutive_skips_limit"])
+            max_evals = self.platform_config.get("max_jobs_evaluated_per_search") or self.platform_config.get("max_applications")
+            if max_evals is not None and hasattr(self.config, "max_jobs_evaluated_per_search"):
+                self.config.max_jobs_evaluated_per_search = int(max_evals)
+            if "sleep_duration_minutes" in self.platform_config and self.platform_config["sleep_duration_minutes"] is not None:
+                self.config.sleep_duration_minutes = int(self.platform_config["sleep_duration_minutes"])
+            if "sleep_mode_enabled" in self.platform_config and self.platform_config["sleep_mode_enabled"] is not None:
+                self.config.sleep_mode_enabled = bool(self.platform_config["sleep_mode_enabled"])
+
             if "search_location" in self.platform_config and self.platform_config["search_location"]:
                 self.config.search_location = self.platform_config["search_location"]
             elif "default_location" in self.platform_config and self.platform_config["default_location"]:
@@ -1559,7 +1610,7 @@ class PlatformRouter:
         self.tracker = tracker
         self.user_id = user_id
         self.linkedin_platform = linkedin_platform or LinkedInPlatform(ai_client=ai_client, tracker=tracker, user_id=user_id)
-        self.naukri_platform = naukri_platform or NaukriPlatform(ai_client=ai_client, tracker=tracker)
+        self.naukri_platform = naukri_platform or NaukriPlatform(ai_client=ai_client, tracker=tracker, user_id=user_id)
         self.indeed_platform = indeed_platform or IndeedPlatform(ai_client=ai_client, tracker=tracker, user_id=user_id)
         self.foundit_platform = foundit_platform or FounditPlatform(ai_client=ai_client, tracker=tracker, user_id=user_id)
         self.glassdoor_platform = glassdoor_platform or GlassdoorPlatform(ai_client=ai_client, tracker=tracker, user_id=user_id)
@@ -1623,6 +1674,8 @@ class PlatformRouter:
         print_lg("LAUNCHING PLATFORM: NAUKRI.COM")
         print_lg("======================================================================\n")
         try:
+            if not hasattr(self, "naukri_platform") or not self.naukri_platform:
+                self.naukri_platform = NaukriPlatform(ai_client=self.ai_client, tracker=self.tracker, user_id=self.user_id)
             self.naukri_platform.initialize()
             if self.naukri_platform.login():
                 try:

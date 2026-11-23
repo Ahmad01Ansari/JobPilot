@@ -668,6 +668,8 @@ class AutomationWorker(QThread):
                 router.linkedin_platform.platform_config["run_in_background"] = self.headless
                 if max_applications is not None:
                     router.linkedin_platform.platform_config["max_applications"] = max_applications
+                    router.linkedin_platform.platform_config["batch_slice"] = max_applications
+                    router.linkedin_platform.platform_config["is_batch_run"] = True
                     router.linkedin_platform.platform_config["switch_number"] = max_applications
             self._active_router = router
             self.emit_activity("Portal Navigation: Connecting to LinkedIn jobs search...")
@@ -690,7 +692,8 @@ class AutomationWorker(QThread):
         applied_count = 0
         try:
             from platforms.router import NaukriPlatform
-            platform = NaukriPlatform(automation_bridge=self.bridge)
+            user_id = getattr(self, "user_id", 1)
+            platform = NaukriPlatform(user_id=user_id, automation_bridge=self.bridge)
             platform.platform_config = platform.platform_config or {}
             try:
                 from app.services.platform_service import PlatformService
@@ -701,6 +704,8 @@ class AutomationWorker(QThread):
             platform.platform_config["run_in_background"] = self.headless
             if max_applications is not None:
                 platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["batch_slice"] = max_applications
+                platform.platform_config["is_batch_run"] = True
                 platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
@@ -752,6 +757,8 @@ class AutomationWorker(QThread):
             platform.platform_config["run_in_background"] = self.headless
             if max_applications is not None:
                 platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["batch_slice"] = max_applications
+                platform.platform_config["is_batch_run"] = True
                 platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
@@ -803,6 +810,8 @@ class AutomationWorker(QThread):
             platform.platform_config["run_in_background"] = self.headless
             if max_applications is not None:
                 platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["batch_slice"] = max_applications
+                platform.platform_config["is_batch_run"] = True
                 platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:
@@ -851,6 +860,8 @@ class AutomationWorker(QThread):
             platform.platform_config["run_in_background"] = self.headless
             if max_applications is not None:
                 platform.platform_config["max_applications"] = max_applications
+                platform.platform_config["batch_slice"] = max_applications
+                platform.platform_config["is_batch_run"] = True
                 platform.platform_config["switch_number"] = max_applications
             self._active_platform = platform
             try:

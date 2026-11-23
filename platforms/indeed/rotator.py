@@ -27,6 +27,8 @@ class IndeedRotationConfig:
     easy_apply_only: bool = True
     max_pages_per_search: int = 3
     switch_number: int = 30
+    consecutive_skips_limit: int = 30
+    max_jobs_evaluated_per_search: int = 100
     max_applications: Optional[int] = None
     daily_application_goal: int = 50
     auto_relax_date_filter: bool = True
@@ -75,9 +77,11 @@ class IndeedRotationConfig:
             location=cfg.get("search_location", "India"),
             freshness_days=freshness_days,
             easy_apply_only=cfg.get("easy_apply_only", True),
-            max_pages_per_search=cfg.get("max_pages_per_search", 3),
-            switch_number=cfg.get("switch_number", 30),
-            daily_application_goal=cfg.get("daily_application_goal", 50),
+            max_pages_per_search=int(cfg.get("max_pages_per_search", 3)),
+            switch_number=int(cfg.get("consecutive_skips_limit", cfg.get("switch_number", 30))),
+            consecutive_skips_limit=int(cfg.get("consecutive_skips_limit", 30)),
+            max_jobs_evaluated_per_search=int(cfg.get("max_jobs_evaluated_per_search", cfg.get("max_applications", 100))),
+            daily_application_goal=int(cfg.get("daily_application_goal", 50)),
             auto_relax_date_filter=cfg.get("auto_relax_date_filter", True),
             negative_title_words=list(neg_words or []),
             bad_words=list(bad_words or []),
@@ -151,8 +155,10 @@ class IndeedRotator:
                     break
 
                 self.stats.terms_searched += 1
-                print_lg(f"\n{'='*70}\n[IndeedRotator] Starting Keyword: '{term}' (Goal: {self.config.switch_number} apps)\n{'='*70}")
+                print_lg(f"\n{'='*70}\n[IndeedRotator] Starting Keyword: '{term}' (Goal: {self.config.daily_application_goal} apps)\n{'='*70}")
                 term_applied = 0
+                term_evaluated_count = 0
+                consecutive_skips = 0
                 active_freshness = self.config.freshness_days
 
                 for page in range(1, self.config.max_pages_per_search + 1):
@@ -160,8 +166,13 @@ class IndeedRotator:
                         print_lg("[IndeedRotator] Stop check triggered or browser disconnected. Stopping pagination.")
                         break
 
-                    if term_applied >= self.config.switch_number:
-                        print_lg(f"[IndeedRotator] Reached switch_number ({self.config.switch_number}) for '{term}'.")
+                    if consecutive_skips >= self.config.consecutive_skips_limit:
+                        print_lg(f"[IndeedRotator] Relevance decay threshold reached ({consecutive_skips}/{self.config.consecutive_skips_limit} consecutive skips) for '{term}'.")
+                        self.stats.consecutive_skips_triggered += 1
+                        break
+
+                    if term_evaluated_count >= self.config.max_jobs_evaluated_per_search:
+                        print_lg(f"[IndeedRotator] Max jobs evaluated ({term_evaluated_count}/{self.config.max_jobs_evaluated_per_search}) reached for '{term}'.")
                         break
 
                     if self.stats.jobs_applied >= self.config.daily_application_goal:
@@ -261,8 +272,15 @@ class IndeedRotator:
                             print_lg("[IndeedRotator] Stop check triggered or browser disconnected. Halting job applications.")
                             break
 
-                        if term_applied >= self.config.switch_number:
+                        if consecutive_skips >= self.config.consecutive_skips_limit:
+                            print_lg(f"[IndeedRotator] Relevance decay threshold reached ({consecutive_skips}/{self.config.consecutive_skips_limit} consecutive skips) for '{term}'. Halting keyword loop.")
+                            self.stats.consecutive_skips_triggered += 1
                             break
+
+                        if term_evaluated_count >= self.config.max_jobs_evaluated_per_search:
+                            print_lg(f"[IndeedRotator] Max jobs evaluated ({term_evaluated_count}/{self.config.max_jobs_evaluated_per_search}) reached for '{term}'. Halting keyword loop.")
+                            break
+
                         if self.stats.jobs_applied >= self.config.daily_application_goal:
                             break
                         if self.config.max_applications is not None and self.stats.jobs_applied >= self.config.max_applications:
@@ -271,17 +289,9 @@ class IndeedRotator:
 
                         job_obj = job.to_job()
                         self.stats.jobs_evaluated += 1
+                        term_evaluated_count += 1
 
-                        # Pre-filter 1: Keyword Relevance Guard (rejects unrelated recommendations like 'Similar to jobs you explored')
-                        if not is_job_relevant(job.title, term, negative_words=self.config.negative_title_words):
-                            skip_msg = f"Title '{job.title}' does not match keyword '{term}'"
-                            print_lg(f"[IndeedRotator] Relevance check SKIP for '{job.title}': {skip_msg}")
-                            self.stats.jobs_skipped += 1
-                            if self.tracker:
-                                self.tracker.record_evaluation(job_obj, "SKIPPED", skip_reason=skip_msg)
-                            continue
-
-                        # Pre-filter 1b: Negative Keywords Guard (e.g. skips roles with words in negative_title_words)
+                        # Pre-filter 1: Negative Keywords Guard (e.g. skips roles with words in negative_title_words)
                         if self.config.negative_title_words:
                             title_lower = job.title.lower()
                             matched_neg = None
@@ -294,15 +304,27 @@ class IndeedRotator:
                                 skip_msg = f"Title contains negative keyword '{matched_neg}'"
                                 print_lg(f"[IndeedRotator] Negative keyword SKIP for '{job.title}': {skip_msg}")
                                 self.stats.jobs_skipped += 1
+                                consecutive_skips += 1
                                 if self.tracker:
                                     self.tracker.record_evaluation(job_obj, "SKIPPED", skip_reason=skip_msg)
                                 continue
+
+                        # Pre-filter 1b: Keyword Relevance Guard (rejects unrelated recommendations)
+                        if not is_job_relevant(job.title, term, negative_words=self.config.negative_title_words):
+                            skip_msg = f"Title '{job.title}' does not match keyword '{term}'"
+                            print_lg(f"[IndeedRotator] Relevance check SKIP for '{job.title}': {skip_msg}")
+                            self.stats.jobs_skipped += 1
+                            consecutive_skips += 1
+                            if self.tracker:
+                                self.tracker.record_evaluation(job_obj, "SKIPPED", skip_reason=skip_msg)
+                            continue
 
                         # Pre-filter 2: Easy Apply Only Mode Guard
                         if self.config.easy_apply_only and not job.is_easy_apply:
                             skip_msg = "External portal application in Easy Apply only mode"
                             print_lg(f"[IndeedRotator] Pre-filter SKIP for '{job.title} | {job.company}': {skip_msg}")
                             self.stats.jobs_skipped += 1
+                            consecutive_skips += 1
                             if self.tracker:
                                 self.tracker.record_evaluation(job_obj, "SKIPPED", skip_reason=skip_msg)
                             continue
@@ -345,11 +367,13 @@ class IndeedRotator:
                             skip_msg = handled_reason or "Already handled in tracker"
                             print_lg(f"[IndeedRotator] Pre-filter skipped '{job.title} | {job.company}': {skip_msg}")
                             self.stats.jobs_skipped += 1
+                            # Note: Already handled jobs do NOT increment consecutive_skips to avoid false decay
                             if self.tracker:
                                 self.tracker.record_evaluation(job_obj, "SKIPPED", skip_reason=skip_msg)
                             continue
 
-                        # Mark Qualified
+                        # Mark Qualified: reset consecutive skips counter
+                        consecutive_skips = 0
                         self.stats.jobs_qualified += 1
                         if self.tracker:
                             self.tracker.record_state(job_obj, "QUALIFIED")

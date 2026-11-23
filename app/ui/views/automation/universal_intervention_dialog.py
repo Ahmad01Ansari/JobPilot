@@ -287,6 +287,32 @@ class UniversalInterventionDialog(QDialog):
             inst_lbl.setStyleSheet(f"color: {muted_color}; font-size: 12px;")
             input_box.addWidget(inst_lbl)
             layout.addLayout(input_box)
+        elif type_str in ["LOGIN_REQUIRED", "CAPTCHA_DETECTED"]:
+            action_box = QFrame()
+            action_box.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {COLORS.get('surface_alt', '#0D1117')};
+                    border: 1px dashed {warning_color};
+                    border-radius: 6px;
+                }}
+            """)
+            action_layout = QVBoxLayout(action_box)
+            action_layout.setContentsMargins(14, 12, 14, 12)
+            action_layout.setSpacing(6)
+
+            step_title = QLabel("Browser Action Required")
+            step_title.setStyleSheet(f"color: {text_color}; font-size: 13px; font-weight: 700;")
+            action_layout.addWidget(step_title)
+
+            step_desc = QLabel(
+                "Please switch to the open Chrome browser window and complete the login or OTP verification. "
+                "JobPilot continuously monitors the browser and will automatically resume once authentication succeeds. "
+                "You can also click <b>'I've Solved It / Continue'</b> below after completing the verification."
+            )
+            step_desc.setWordWrap(True)
+            step_desc.setStyleSheet(f"color: {muted_color}; font-size: 12px;")
+            action_layout.addWidget(step_desc)
+            layout.addWidget(action_box)
         else:
             input_box = QVBoxLayout()
             input_box.setSpacing(6)

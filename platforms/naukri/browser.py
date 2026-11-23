@@ -100,6 +100,9 @@ class NaukriBrowser:
             options.add_argument("--disable-extensions")
         if self.headless:
             options.add_argument("--disable-gpu")
+            major = self._get_chrome_major_version() or 133
+            clean_ua = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+            options.add_argument(f"--user-agent={clean_ua}")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1600,1000")
@@ -164,6 +167,15 @@ class NaukriBrowser:
         self.wait = WebDriverWait(self.driver, 10)
         self.actions = ActionChains(self.driver)
         apply_stealth_to_driver(self.driver)
+
+        if self.headless and self.driver:
+            try:
+                major = self._get_chrome_major_version() or 133
+                clean_ua = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+                self.driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": clean_ua})
+            except Exception:
+                pass
+
         print_lg(f"[NaukriBrowser] Started Chrome with profile: {self.profile_dir}")
 
     def navigate(self, url: str, timeout: int = 30) -> bool:
@@ -321,7 +333,7 @@ class NaukriBrowser:
             return (False, f"Challenge encountered ({state}). Manual intervention required.")
 
         try:
-            # Locate username input with fallbacks
+            # Locate username input with dynamic retry wait and fallbacks
             user_elem = None
             username_selectors = [
                 LOGIN_USERNAME_INPUT,
@@ -332,17 +344,22 @@ class NaukriBrowser:
                 "input[name='email']",
                 "input[name='username']",
             ]
-            for u_sel in username_selectors:
-                try:
-                    elems = self.driver.find_elements(By.CSS_SELECTOR, u_sel)
-                    for e in elems:
-                        if e.is_displayed():
-                            user_elem = e
+            start_wait = time.time()
+            while time.time() - start_wait < 10.0:
+                for u_sel in username_selectors:
+                    try:
+                        elems = self.driver.find_elements(By.CSS_SELECTOR, u_sel)
+                        for e in elems:
+                            if e.is_displayed():
+                                user_elem = e
+                                break
+                        if user_elem:
                             break
-                    if user_elem:
-                        break
-                except Exception:
-                    continue
+                    except Exception:
+                        continue
+                if user_elem:
+                    break
+                time.sleep(0.5)
 
             if not user_elem:
                 return (False, "Username input field not found on login page.")
@@ -350,7 +367,7 @@ class NaukriBrowser:
             human_type(user_elem, username, clear_first=True, driver=self.driver)
             human_delay(0.4, 0.8, action="click")
 
-            # Locate password input with fallbacks
+            # Locate password input with dynamic retry wait and fallbacks
             pwd_elem = None
             password_selectors = [
                 LOGIN_PASSWORD_INPUT,
@@ -359,17 +376,22 @@ class NaukriBrowser:
                 "input[type='password']",
                 "input[name='password']",
             ]
-            for p_sel in password_selectors:
-                try:
-                    elems = self.driver.find_elements(By.CSS_SELECTOR, p_sel)
-                    for e in elems:
-                        if e.is_displayed():
-                            pwd_elem = e
+            start_pwd_wait = time.time()
+            while time.time() - start_pwd_wait < 5.0:
+                for p_sel in password_selectors:
+                    try:
+                        elems = self.driver.find_elements(By.CSS_SELECTOR, p_sel)
+                        for e in elems:
+                            if e.is_displayed():
+                                pwd_elem = e
+                                break
+                        if pwd_elem:
                             break
-                    if pwd_elem:
-                        break
-                except Exception:
-                    continue
+                    except Exception:
+                        continue
+                if pwd_elem:
+                    break
+                time.sleep(0.3)
 
             if not pwd_elem:
                 return (False, "Password input field not found on login page.")

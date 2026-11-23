@@ -9,8 +9,9 @@ from modules.config_loader import get_personal, get_professional, get_resume, ge
 from modules.qna_engine import QnAEngine
 
 class BasePlatformApplier(ABC):
-    def __init__(self, platform_name: str, ai_client: Optional[Any] = None):
+    def __init__(self, platform_name: str, ai_client: Optional[Any] = None, user_id: int = 1):
         self.platform_name = platform_name.lower()
+        self.user_id = user_id
         self.platform_config = get_platform(self.platform_name)
         self.personal_info = get_personal()
         self.prof_info = get_professional()

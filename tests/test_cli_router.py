@@ -279,6 +279,36 @@ class TestPlatformRouterAndCLI(unittest.TestCase):
             nk_plat.close()
             mock_browser.close.assert_called_once()
 
+    def test_naukri_platform_user_id_and_intervention_fallback(self):
+        mock_browser = MagicMock()
+        mock_browser.is_logged_in.return_value = False
+        mock_browser.login.return_value = (False, "Username input field not found on login page.")
+        mock_browser.ensure_authenticated.return_value = True
+
+        mock_tracker = MagicMock()
+        mock_config = MagicMock()
+        mock_bridge = MagicMock()
+
+        nk_plat = NaukriPlatform(
+            browser=mock_browser,
+            tracker=mock_tracker,
+            config=mock_config,
+            automation_bridge=mock_bridge,
+            user_id=42,
+        )
+        self.assertEqual(nk_plat.user_id, 42)
+
+        with patch("config.secrets.naukri_username", "test_user@example.com", create=True), \
+             patch("config.secrets.naukri_password", "test_pwd", create=True):
+            logged_in = nk_plat.login()
+            self.assertTrue(logged_in)
+            mock_bridge.on_intervention.assert_called_once()
+            intervention_call = mock_bridge.on_intervention.call_args[0][0]
+            self.assertEqual(intervention_call.run_id, "naukri_login_42")
+
+        router = PlatformRouter(user_id=7)
+        self.assertEqual(router.naukri_platform.user_id, 7)
+
     def test_foundit_platform_lifecycle(self):
         mock_browser = MagicMock()
         mock_browser.is_logged_in.return_value = True

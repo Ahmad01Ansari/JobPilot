@@ -30,7 +30,8 @@ class QualificationResult:
 GENERIC_ROLE_NOUNS: Set[str] = {
     "developer", "engineer", "specialist", "consultant", "analyst", "manager", "lead",
     "architect", "programmer", "coder", "associate", "officer", "executive", "administrator",
-    "coordinator", "expert", "practitioner", "scientist", "designer", "head", "director", "vp"
+    "coordinator", "expert", "practitioner", "scientist", "designer", "head", "director", "vp",
+    "tester", "qa", "sdet"
 }
 
 STOP_WORDS: Set[str] = {
@@ -57,6 +58,10 @@ OUT_OF_DOMAIN_KEYWORDS: List[str] = [
     # Operations, Trades & Logistics
     "procurement", "supply chain", "logistics", "warehouse", "store keeper", "driver",
     "security guard", "housekeeping", "cook", "chef", "carpenter", "plumber", "electrician",
+    # Hardware, Industrial, Manufacturing & Trades
+    "plc", "scada", "cad", "cam", "cnc", "spm", "hmi", "autocad", "solidworks",
+    "instrumentation", "mechatronics", "mechanical", "civil", "chemical", "electrical",
+    "hardware", "technician", "machinist", "maintenance", "site engineer", "eplan",
     # Creative / Content
     "content writer", "copywriter", "graphic designer", "video editor", "seo executive",
 ]
@@ -76,34 +81,64 @@ def is_job_relevant(
     if not job_title or not search_term:
         return False
 
-    title_lower = job_title.strip().lower()
-    term_lower = search_term.strip().lower()
+    raw_title = job_title.strip().lower()
+    raw_term = search_term.strip().lower()
 
-    if not title_lower or not term_lower:
+    if not raw_title or not raw_term:
         return False
 
-    # 1. Exact phrase substring match
-    if term_lower in title_lower:
-        return True
+    # Normalize punctuation delimiters (underscores, slashes, pipes, hyphens) to spaces
+    # so word boundaries \b match tokens like 'tester' in 'Automation Tester_2 To 3 years'
+    title_lower = re.sub(r'[_/|\-–—]+', ' ', raw_title)
+    term_lower = re.sub(r'[_/|\-–—]+', ' ', raw_term)
 
-    # 2. Check negative words if provided
+    # 1. Check negative words if provided (explicit exclusions take absolute precedence)
     if negative_words:
         for nw in negative_words:
             nw_clean = nw.strip().lower()
             if nw_clean and re.search(r'\b' + re.escape(nw_clean) + r'\b', title_lower):
                 return False
 
-    # 3. Check out-of-domain words (reject non-target domains like HR, Sales, Accountant, etc.)
+    # 2. Role Family Mismatch Guard (Development/Engineering vs QA/Testing)
+    # A candidate or search targeting development/engineering without testing intent
+    # must not match explicit QA/testing role titles (e.g. 'Senior Test Automation Engineer' matching 'Automation Engineer').
+    testing_terms = ["test", "tester", "testing", "qa", "sdet", "quality assurance", "quality analyst"]
+    has_testing_intent = any(re.search(r'\b' + re.escape(tk) + r'\b', term_lower) for tk in testing_terms)
+
+    testing_role_titles = [
+        "test", "tester", "testing", "qa", "sdet", "test engineer", "qa engineer",
+        "quality assurance", "quality analyst", "test lead", "test analyst",
+        "automation tester", "qa tester", "software test", "test automation"
+    ]
+    is_testing_title = any(re.search(r'\b' + re.escape(tk) + r'\b', title_lower) for tk in testing_role_titles)
+
+    if is_testing_title and not has_testing_intent:
+        has_testing_skill = False
+        if core_skills:
+            has_testing_skill = any(
+                re.search(r'\b' + re.escape(cs.strip().lower()) + r'\b', "tester qa sdet testing")
+                for cs in core_skills if cs.strip()
+            )
+        if not has_testing_skill:
+            return False
+
+    # 3. Check out-of-domain words (reject non-target domains like HR, Sales, Accountant, CAD, PLC, etc.)
     # unless the search term itself explicitly targeted that domain
+    generic_umbrella_skills = {"automation", "ai", "bot", "process automation"}
+    specific_core = [cs for cs in core_skills if cs.lower() not in generic_umbrella_skills] if core_skills else []
     for ood in OUT_OF_DOMAIN_KEYWORDS:
         if re.search(r'\b' + re.escape(ood) + r'\b', title_lower):
             # If search term contains this out-of-domain word, allow it
             if re.search(r'\b' + re.escape(ood) + r'\b', term_lower):
                 continue
-            # If title contains candidate core skills (e.g. 'HR Automation Engineer'), allow it
-            if core_skills and any(re.search(r'\b' + re.escape(cs.lower()) + r'\b', title_lower) for cs in core_skills):
+            # If title contains candidate specific core skills (e.g. 'uipath', 'automation anywhere', 'rpa'), allow it
+            if specific_core and any(re.search(r'\b' + re.escape(cs.lower()) + r'\b', title_lower) for cs in specific_core):
                 continue
             return False
+
+    # 4. Exact phrase match (checked only after negative words, role guards, and out-of-domain filters)
+    if term_lower in title_lower or raw_term in raw_title:
+        return True
 
     # 4. Tokenize
     term_tokens = [w for w in re.findall(r'\b[a-zA-Z0-9\+\#\.]+\b', term_lower) if w not in STOP_WORDS]
@@ -228,7 +263,7 @@ class QualificationEngine:
         self.negative_title_words = [w.lower() for w in (negative_title_words if negative_title_words is not None else cfg_neg)]
 
         # Configurable core domain skills
-        default_core = ["rpa", "automation", "python", "uipath", "blue prism", "automation anywhere", "selenium", "playwright", "process automation", "bot", "ai"]
+        default_core = ["rpa", "automation", "python", "uipath", "blue prism", "automation anywhere", "process automation", "bot", "ai"]
         if core_skills is not None:
             self.core_skills = [w.lower() for w in core_skills]
         else:
@@ -269,18 +304,21 @@ class QualificationEngine:
         if company and company.strip().lower() in self.blacklisted_companies:
             return QualificationResult(accepted=False, reason=f"Blacklisted Company: {company}", stage="COMPANY_BLACKLIST")
 
+        # Normalize title delimiters for robust word-boundary matching (e.g. 'Tester_2' -> 'tester 2')
+        lower_title = re.sub(r'[_/|\-–—]+', ' ', title.strip().lower()) if title else ""
+
         # 3. Negative Title Words (exact word boundaries)
-        if title and self.negative_title_words:
-            lower_title = title.lower()
+        if lower_title and self.negative_title_words:
             for neg_word in self.negative_title_words:
                 pattern = r'\b' + re.escape(neg_word) + r'\b'
                 if re.search(pattern, lower_title):
                     return QualificationResult(accepted=False, reason=f"Irrelevant title keyword: '{neg_word}'", stage="TITLE_FILTER")
 
-        # 4. Out-of-domain Professions (e.g. HR, Recruiter, Sales, Accountant, Nurse)
-        if title and self.out_of_domain_words:
-            lower_title = title.lower()
-            has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills) if self.core_skills else False
+        # 4. Out-of-domain Professions (e.g. HR, Recruiter, Sales, Accountant, Nurse, CAD, PLC)
+        if lower_title and self.out_of_domain_words:
+            generic_umbrella = {"automation", "ai", "bot", "process automation"}
+            specific_core = [cs for cs in self.core_skills if cs.lower() not in generic_umbrella] if self.core_skills else []
+            has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in specific_core) if specific_core else False
             if not has_core_in_title:
                 for ood in self.out_of_domain_words:
                     pattern = r'\b' + re.escape(ood) + r'\b'
@@ -293,8 +331,7 @@ class QualificationEngine:
 
         # 5. Configurable Irrelevant Tech Stack Check
         # Reject titles containing unrelated tech stacks unless title explicitly mentions candidate core skills
-        if title and self.irrelevant_tech_words:
-            lower_title = title.lower()
+        if lower_title and self.irrelevant_tech_words:
             has_core_skill = any(cs in lower_title for cs in self.core_skills) if self.core_skills else False
             if not has_core_skill:
                 for itech in self.irrelevant_tech_words:

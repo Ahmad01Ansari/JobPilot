@@ -52,8 +52,8 @@ class IndeedSafetyGate:
         print_lg(f"[IndeedSafetyGate] Evaluating application for '{job_title}' at '{company}'...")
 
         # 1. Automated Pre-Submission Domain & Negative Keyword Verification
-        title_clean = (job_title or "").strip()
-        title_lower = title_clean.lower()
+        title_raw = (job_title or "").strip().lower()
+        title_lower = re.sub(r'[_/|\-–—]+', ' ', title_raw) if title_raw else ""
         if title_lower:
             from modules.qualification_engine import OUT_OF_DOMAIN_KEYWORDS, is_job_relevant
             cfg = get_platform("indeed") or {}

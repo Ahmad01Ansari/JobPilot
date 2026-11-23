@@ -431,8 +431,17 @@ class QnAEngine:
             "experience", "work experience", "total experience", "overall experience",
             "years of experience", "years of work experience", "total years of experience",
             "overall years of experience", "experience in years", "total years of professional experience",
-            "title", "job title", "domain", "attach", "others", "qualification", "qualifications"
+            "years", "year", "month", "months", "day", "days", "exp",
+            "title", "job title", "domain", "attach", "others", "qualification", "qualifications",
+            "total", "overall", "relevant"
         }
+
+        # Identify whether the incoming question is asking for skill-specific experience
+        is_skill_experience_query = (
+            any(w in lbl for w in ["experience", "years", "how many", "how much", "worked with", "hands-on"])
+            and any(p in lbl for p in [" in ", " with ", " on ", " using "])
+            and not is_generic_overall
+        )
 
         sorted_qa = sorted(self.custom_qa.items(), key=lambda item: len(item[0]), reverse=True)
         for key, val in sorted_qa:
@@ -443,6 +452,11 @@ class QnAEngine:
             # Generic keys must strictly match exact field labels, never arbitrary substrings
             if k_lower in generic_rule_keys and lbl_cleaned != k_lower and lbl != k_lower:
                 continue
+
+            # If the question is asking for experience in a specific skill, generic rules or common role nouns must not match
+            if is_skill_experience_query and (k_lower in generic_rule_keys or k_lower in ["programming", "developer", "engineer", "testing", "development", "tools", "automation"]):
+                if lbl_cleaned != k_lower and lbl != k_lower:
+                    continue
 
             # For short 1-word keys (e.g. "git", "python", "sql", "github"), use word-boundary matching on cleaned label
             if len(k_lower.split()) <= 1:
@@ -539,8 +553,10 @@ class QnAEngine:
             skill_name = ""
             for prep in [" in ", " with ", " on ", " using "]:
                 if prep in lbl:
-                    skill_name = lbl.split(prep)[-1].replace("?", "").strip()
+                    skill_name = lbl.split(prep)[-1]
                     break
+            if skill_name:
+                skill_name = re.sub(r'\(.*?\)', '', skill_name).replace("?", "").replace("*", "").strip()
 
             # Build comprehensive candidate corpus including profile skills, title, headline, summary, and experiences
             skills_text = " ".join(self.prof.get("skills") or [])
@@ -562,13 +578,26 @@ class QnAEngine:
             except Exception:
                 cand_exp_val = str(cand_exp_raw).split(".")[0]
 
-            if skill_name and len(skill_name) > 1 and skill_name in candidate_corpus:
-                exp_val = cand_exp_val
-            elif skill_name and len(skill_name) > 1:
-                # Skill explicitly not found in candidate resume or profile -> 0
-                exp_val = "0"
+            if skill_name and len(skill_name) > 1:
+                # 1. Exact phrase match in corpus
+                if re.search(r'\b' + re.escape(skill_name) + r'\b', candidate_corpus):
+                    exp_val = cand_exp_val
+                else:
+                    # 2. Check individual significant tokens
+                    skill_tokens = [
+                        t for t in re.findall(r'[a-zA-Z0-9+#]+', skill_name)
+                        if len(t) > 2 and t not in [
+                            "programming", "developer", "development", "engineer",
+                            "experience", "years", "total", "tools", "platform", "software"
+                        ]
+                    ]
+                    if skill_tokens and any(re.search(r'\b' + re.escape(t) + r'\b', candidate_corpus) for t in skill_tokens):
+                        exp_val = cand_exp_val
+                    else:
+                        # Skill explicitly not found in candidate resume or profile -> strictly 0
+                        exp_val = "0"
             else:
-                exp_val = cand_exp_val
+                exp_val = "0"
 
             self.save_learned_answer(question_label, exp_val, category="skills", answer_type="number", source="rule")
             ans = Answer(value=exp_val, source="rule", confidence=0.75)

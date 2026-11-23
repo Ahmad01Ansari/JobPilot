@@ -739,7 +739,8 @@ class NaukriSafetyGate:
         print_lg(summary.format_table())
 
         # Automated Pre-Submission Domain & Negative Keyword Verification
-        title_lower = (job.title or "").strip().lower()
+        raw_title = (job.title or "").strip().lower()
+        title_lower = re.sub(r'[_/|\-–—]+', ' ', raw_title) if raw_title else ""
         if title_lower:
             from modules.qualification_engine import OUT_OF_DOMAIN_KEYWORDS, is_job_relevant
             naukri_cfg = get_platform("naukri") or {}
