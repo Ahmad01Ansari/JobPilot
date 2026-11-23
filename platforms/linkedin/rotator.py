@@ -332,6 +332,8 @@ class LinkedInRotator:
 
             stats["terms_searched"] += 1
             print_lg(f"\n[LinkedInRotator] Starting search for term: '{term}'")
+            if hasattr(self.qualification_engine, "set_active_search_term"):
+                self.qualification_engine.set_active_search_term(term)
 
             consecutive_skips = 0
 

@@ -125,7 +125,10 @@ class SearchRotationEngine:
         self.config = config or SearchRotationConfig.from_profile()
         self.search = search or (NaukriSearch(browser) if browser else None)
         self.parser = parser or NaukriJobParser()
-        self.qualification_engine = qualification_engine or QualificationEngine()
+        self.qualification_engine = qualification_engine or QualificationEngine(
+            core_skills=self.config.search_terms,
+            candidate_experience=self.config.experience_years,
+        )
         self.tracker = tracker or ApplicationTracker()
         self.applier = applier
         self.automation_bridge = automation_bridge
@@ -162,6 +165,8 @@ class SearchRotationEngine:
             consecutive_skips = 0
 
             print_lg(f"\n>>>> [NaukriRotator] Starting search for keyword: '{term}' <<<<")
+            if hasattr(self.qualification_engine, "set_active_search_term"):
+                self.qualification_engine.set_active_search_term(term)
 
             for page in range(1, self.config.max_pages_per_search + 1):
                 if stop_check and stop_check():
@@ -334,6 +339,8 @@ class SearchRotationEngine:
             consecutive_skips = 0
 
             print_lg(f"\n>>>> [NaukriRotator] Starting search for keyword: '{term}' <<<<")
+            if hasattr(self.qualification_engine, "set_active_search_term"):
+                self.qualification_engine.set_active_search_term(term)
 
             for page in range(1, self.config.max_pages_per_search + 1):
                 if stop_check and stop_check():

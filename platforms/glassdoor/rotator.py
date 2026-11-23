@@ -115,6 +115,8 @@ class GlassdoorRotator:
 
         # 2. Iterate search terms
         for term in search_terms:
+            if hasattr(qual_engine, "set_active_search_term"):
+                qual_engine.set_active_search_term(term)
             if stop_check and stop_check():
                 print_lg("[GlassdoorRotator] Stop requested before keyword.")
                 break

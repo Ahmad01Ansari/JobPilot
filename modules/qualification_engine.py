@@ -263,17 +263,62 @@ class QualificationEngine:
         self.negative_title_words = [w.lower() for w in (negative_title_words if negative_title_words is not None else cfg_neg)]
 
         # Configurable core domain skills
+        prof_skills = prof.get("skills") or []
+        if not isinstance(prof_skills, list):
+            prof_skills = []
+        primary_skills = prof.get("primary_skills") or []
+        if isinstance(primary_skills, list):
+            prof_skills = prof_skills + primary_skills
+        target_roles = prof.get("target_roles") or []
+        if isinstance(target_roles, list):
+            prof_skills = prof_skills + target_roles
+
+        configured_search_terms = []
+        for p_cfg in [nk_plat, ln_plat, ind_plat, gd_plat]:
+            if p_cfg and isinstance(p_cfg, dict):
+                terms = p_cfg.get("search_terms") or []
+                if isinstance(terms, list):
+                    configured_search_terms.extend(terms)
+
         default_core = ["rpa", "automation", "python", "uipath", "blue prism", "automation anywhere", "process automation", "bot", "ai"]
         if core_skills is not None:
-            self.core_skills = [w.lower() for w in core_skills]
+            self.core_skills = [w.lower() for w in core_skills if w]
         else:
-            self.core_skills = [w.lower() for w in default_core]
+            combined = set()
+            for s in prof_skills:
+                if s and isinstance(s, str):
+                    combined.add(s.strip().lower())
+            for t in configured_search_terms:
+                if t and isinstance(t, str):
+                    combined.add(t.strip().lower())
+            if combined:
+                self.core_skills = list(combined)
+            else:
+                self.core_skills = [w.lower() for w in default_core]
+
+        cand_core_set = set(self.core_skills)
+        self.cand_words = set()
+        for cs in self.core_skills:
+            self.cand_words.update(re.findall(r'\b[a-zA-Z0-9\+\#\.]+\b', cs.lower()))
+
+        # Expand domain if candidate targets web/frontend
+        web_tokens = {"frontend", "front-end", "front end", "web", "ui", "mern", "mean"}
+        if any(wt in self.cand_words or any(wt in cs for cs in self.core_skills) for wt in web_tokens):
+            related_web = {
+                "react", "angular", "vue", "javascript", "typescript", "html", "css",
+                "nextjs", "next.js", "node", "nodejs", "express", "fullstack", "full stack",
+                "ui", "ux", "web", "frontend", "front-end", "mern"
+            }
+            self.cand_words.update(related_web)
+            for rw in related_web:
+                if rw not in self.core_skills:
+                    self.core_skills.append(rw)
 
         cand_core_set = set(self.core_skills)
 
         # Configurable out-of-domain words (reject non-target domains like HR, Sales, Accountant, etc.)
         raw_ood = out_of_domain_words if out_of_domain_words is not None else OUT_OF_DOMAIN_KEYWORDS
-        self.out_of_domain_words = [w.lower() for w in raw_ood if w.lower() not in cand_core_set]
+        self.out_of_domain_words = [w.lower() for w in raw_ood if w.lower() not in cand_core_set and w.lower() not in self.cand_words]
 
         # Configurable irrelevant tech stacks (e.g. Golang, Ruby, PHP, Java, React when not in core skills)
         default_irrelevant = [
@@ -286,13 +331,55 @@ class QualificationEngine:
         else:
             raw_irrelevant = [w.lower() for w in default_irrelevant]
 
-        # Filter out candidate's verified skills so they are never classified as irrelevant
-        self.irrelevant_tech_words = [w for w in raw_irrelevant if w not in cand_core_set]
+        # Filter out candidate's verified skills and search words so they are never classified as irrelevant
+        self.irrelevant_tech_words = [w for w in raw_irrelevant if w not in cand_core_set and w not in self.cand_words]
+
+        # Sanitize negative_title_words: never filter words that match candidate skills or core tokens
+        self.negative_title_words = [
+            w for w in self.negative_title_words
+            if w not in cand_core_set and w not in self.cand_words
+        ]
+
+        self.active_search_term: Optional[str] = None
 
         self.blacklisted_companies = set(c.lower() for c in (blacklisted_companies or set()))
         self.about_company_bad_words = [w.lower() for w in (about_company_bad_words if about_company_bad_words is not None else ln_plat.get("about_company_bad_words", ["crossover"]))]
         self.about_company_good_words = [w.lower() for w in (about_company_good_words if about_company_good_words is not None else ln_plat.get("about_company_good_words", []))]
         self.applied_job_ids = set(str(jid) for jid in (applied_job_ids or set()))
+
+    def set_active_search_term(self, term: str) -> None:
+        """Dynamically updates active search term and ensures term tokens are never filtered."""
+        if not term or not isinstance(term, str):
+            return
+        clean_term = term.strip().lower()
+        self.active_search_term = clean_term
+        if clean_term not in self.core_skills:
+            self.core_skills.append(clean_term)
+        term_words = set(re.findall(r'\b[a-zA-Z0-9\+\#\.]+\b', clean_term))
+        self.cand_words.update(term_words)
+
+        # Expand domain if search term targets web/frontend
+        web_tokens = {"frontend", "front-end", "front end", "web", "ui", "mern", "mean"}
+        if any(wt in term_words or wt in clean_term for wt in web_tokens):
+            related_web = {
+                "react", "angular", "vue", "javascript", "typescript", "html", "css",
+                "nextjs", "next.js", "node", "nodejs", "express", "fullstack", "full stack",
+                "ui", "ux", "web", "frontend", "front-end", "mern"
+            }
+            self.cand_words.update(related_web)
+            for rw in related_web:
+                if rw not in self.core_skills:
+                    self.core_skills.append(rw)
+
+        # Sanitize negative_title_words and irrelevant_tech_words against active search term
+        self.negative_title_words = [
+            w for w in self.negative_title_words
+            if w not in self.cand_words and not any(w in cs for cs in self.core_skills)
+        ]
+        self.irrelevant_tech_words = [
+            w for w in self.irrelevant_tech_words
+            if w not in self.cand_words and not any(w in cs for cs in self.core_skills)
+        ]
 
     def qualify_title(self, title: str, company: str = "", job_id: Optional[str] = None) -> QualificationResult:
         """Fast Pre-Filter: checks applied status, company blacklist, negative title words, out-of-domain professions, and irrelevant tech stacks."""
@@ -310,6 +397,8 @@ class QualificationEngine:
         # 3. Negative Title Words (exact word boundaries)
         if lower_title and self.negative_title_words:
             for neg_word in self.negative_title_words:
+                if neg_word in self.cand_words or any(neg_word in cs for cs in self.core_skills):
+                    continue
                 pattern = r'\b' + re.escape(neg_word) + r'\b'
                 if re.search(pattern, lower_title):
                     return QualificationResult(accepted=False, reason=f"Irrelevant title keyword: '{neg_word}'", stage="TITLE_FILTER")
@@ -333,6 +422,10 @@ class QualificationEngine:
         # Reject titles containing unrelated tech stacks unless title explicitly mentions candidate core skills
         if lower_title and self.irrelevant_tech_words:
             has_core_skill = any(cs in lower_title for cs in self.core_skills) if self.core_skills else False
+            if not has_core_skill and hasattr(self, "active_search_term") and self.active_search_term:
+                has_core_skill = self.active_search_term in lower_title or any(
+                    w in lower_title for w in self.active_search_term.split() if w not in GENERIC_ROLE_NOUNS and w not in STOP_WORDS
+                )
             if not has_core_skill:
                 for itech in self.irrelevant_tech_words:
                     pattern = r'\b' + re.escape(itech) + r'\b'
@@ -376,6 +469,23 @@ class QualificationEngine:
             if title and self.core_skills:
                 lower_title = title.lower()
                 has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills)
+                if not has_core_in_title and hasattr(self, "active_search_term") and self.active_search_term:
+                    has_core_in_title = (
+                        self.active_search_term in lower_title
+                        or any(
+                            re.search(r'\b' + re.escape(w) + r'\b', lower_title)
+                            for w in self.active_search_term.split()
+                            if w not in GENERIC_ROLE_NOUNS and w not in STOP_WORDS
+                        )
+                    )
+                if not has_core_in_title:
+                    has_token_in_title = any(
+                        re.search(r'\b' + re.escape(cw) + r'\b', lower_title)
+                        for cw in self.cand_words
+                        if len(cw) >= 3 and cw not in STOP_WORDS and cw not in GENERIC_ROLE_NOUNS
+                    )
+                    if has_token_in_title:
+                        has_core_in_title = True
                 if not has_core_in_title:
                     return QualificationResult(
                         accepted=False,
@@ -400,8 +510,33 @@ class QualificationEngine:
         if title and self.core_skills:
             lower_title = title.lower()
             has_core_in_title = any(re.search(r'\b' + re.escape(cs) + r'\b', lower_title) for cs in self.core_skills)
+            if not has_core_in_title and hasattr(self, "active_search_term") and self.active_search_term:
+                has_core_in_title = (
+                    self.active_search_term in lower_title
+                    or any(
+                        re.search(r'\b' + re.escape(w) + r'\b', lower_title)
+                        for w in self.active_search_term.split()
+                        if w not in GENERIC_ROLE_NOUNS and w not in STOP_WORDS
+                    )
+                )
             if not has_core_in_title:
-                if not any(re.search(r'\b' + re.escape(cs) + r'\b', desc_lower) for cs in self.core_skills):
+                has_token_in_title = any(
+                    re.search(r'\b' + re.escape(cw) + r'\b', lower_title)
+                    for cw in self.cand_words
+                    if len(cw) >= 3 and cw not in STOP_WORDS and cw not in GENERIC_ROLE_NOUNS
+                )
+                if has_token_in_title:
+                    has_core_in_title = True
+
+            if not has_core_in_title:
+                desc_has_core = any(re.search(r'\b' + re.escape(cs) + r'\b', desc_lower) for cs in self.core_skills)
+                if not desc_has_core and hasattr(self, "active_search_term") and self.active_search_term:
+                    desc_has_core = any(
+                        re.search(r'\b' + re.escape(w) + r'\b', desc_lower)
+                        for w in self.active_search_term.split()
+                        if w not in GENERIC_ROLE_NOUNS and w not in STOP_WORDS
+                    )
+                if not desc_has_core:
                     return QualificationResult(
                         accepted=False,
                         reason="Job description does not contain candidate core domain skills",

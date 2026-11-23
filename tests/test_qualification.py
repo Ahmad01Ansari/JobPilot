@@ -283,6 +283,80 @@ class TestQualificationEngine(unittest.TestCase):
         res_rpa = gate.evaluate(job_title="RPA Developer", company="Tech Corp")
         self.assertTrue(res_rpa.approved)
 
+    def test_frontend_developer_profile_jobs_accepted(self):
+        engine = QualificationEngine(
+            candidate_experience=1,
+            core_skills=["Frontend developer", "Software engineer"],
+            negative_title_words=["frontend", "react", "php", "full stack", "civil", "mechanical"],
+        )
+        engine.set_active_search_term("Frontend developer")
+
+        # 1. React JS Developer should NOT be rejected for irrelevant tech or negative word
+        job_react = job_from_naukri(
+            job_id="job_nk_1",
+            title="React JS Developer | Rsvr Technologies",
+            company="Rsvr Technologies",
+            location="Noida",
+            description="Looking for React developer with JavaScript and CSS experience.",
+            required_experience_min=1,
+        )
+        res_react = engine.qualify(job_react)
+        self.assertTrue(res_react.accepted, f"Expected accepted, got: {res_react.reason}")
+
+        # 2. Frontend Developer with short description should be accepted
+        job_fe = job_from_naukri(
+            job_id="job_nk_2",
+            title="Frontend Developer | Ideamagix",
+            company="Ideamagix",
+            location="Mumbai",
+            description="Join our team as a frontend developer.",
+            required_experience_min=1,
+        )
+        res_fe = engine.qualify(job_fe)
+        self.assertTrue(res_fe.accepted, f"Expected accepted, got: {res_fe.reason}")
+
+        # 3. MERN Stack Developer should be accepted
+        job_mern = job_from_naukri(
+            job_id="job_nk_3",
+            title="MERN STACK Developer | Altbig",
+            company="Altbig",
+            location="Delhi",
+            description="Immediate joiner required for MERN stack project.",
+            required_experience_min=1,
+        )
+        res_mern = engine.qualify(job_mern)
+        self.assertTrue(res_mern.accepted, f"Expected accepted, got: {res_mern.reason}")
+
+        # 4. Fullstack Developer should be accepted
+        job_fullstack = job_from_naukri(
+            job_id="job_nk_4",
+            title="Fullstack Developer | Swopshop",
+            company="Swopshop",
+            location="Bengaluru",
+            description="Fullstack web developer role.",
+            required_experience_min=1,
+        )
+        res_fullstack = engine.qualify(job_fullstack)
+        self.assertTrue(res_fullstack.accepted, f"Expected accepted, got: {res_fullstack.reason}")
+
+    def test_software_engineer_profile_jobs_accepted(self):
+        engine = QualificationEngine(
+            candidate_experience=1,
+            core_skills=["Software engineer"],
+        )
+        engine.set_active_search_term("Software engineer")
+
+        job_se = job_from_naukri(
+            job_id="job_se_1",
+            title="Software Engineer | Capgemini",
+            company="Capgemini",
+            location="Bengaluru",
+            description="Looking for software engineering graduates. 0-2 years experience.",
+            required_experience_min=1,
+        )
+        res_se = engine.qualify(job_se)
+        self.assertTrue(res_se.accepted, f"Expected accepted, got: {res_se.reason}")
+
 
 if __name__ == "__main__":
     unittest.main()
